@@ -81,7 +81,10 @@ def _is_word_start(line: str, index: int) -> bool:
 def _comment_start(line: str) -> int | None:
     """Return the index of the first shell comment in `line`, if any.
 
-    The scan is quote-aware because a ``#`` inside quoted text is data. An
+    The scan is quote-aware because a ``#`` inside quoted text is data. It is
+    also escape-aware, because a backslash makes the next character literal: in
+    ``>scheduling\\;#log`` the escaped ``;`` ends nothing, so the ``#`` sits
+    inside the word and the ``|| true`` after it still masks a failure. An
     unterminated quote is not a command the shell runs, so it raises rather
     than reading the rest of the line as an argument.
 
@@ -90,16 +93,35 @@ def _comment_start(line: str) -> int | None:
     >>> _comment_start("cargo nextest run -E 'a # b'")
     >>> _comment_start("cargo nextest run # --no-tests=fail")
     18
+    >>> _comment_start("cargo nextest run >scheduling\\\\;#log || true")
     """
     quote = ""
-    for index, char in enumerate(line):
+    previous_was_escaped = False
+    index = 0
+    while index < len(line):
+        char = line[index]
         if quote:
+            if char == "\\" and quote == '"':
+                index += 2
+                continue
             if char == quote:
                 quote = ""
-        elif char in "'\"":
+            index += 1
+            continue
+        if char == "\\":
+            index += 2
+            previous_was_escaped = True
+            continue
+        if char in "'\"":
             quote = char
-        elif char == "#" and _is_word_start(line, index):
+        elif (
+            char == "#"
+            and not previous_was_escaped
+            and _is_word_start(line, index)
+        ):
             return index
+        previous_was_escaped = False
+        index += 1
     if quote:
         message = f"unterminated quote in {line!r}"
         raise ValueError(message)

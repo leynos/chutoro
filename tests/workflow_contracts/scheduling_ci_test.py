@@ -187,6 +187,31 @@ def test_ci_installs_nextest_before_the_scheduling_target() -> None:
             False,
             id="backgrounded-at-the-end",
         ),
+        pytest.param(
+            f"echo '&&' {NEXTEST_INSTALLER}",
+            False,
+            id="a-quoted-operator",
+        ),
+        pytest.param(
+            f"{NEXTEST_INSTALLER} >install#log || true",
+            False,
+            id="a-mask-after-a-word-internal-hash",
+        ),
+        pytest.param(
+            f"{NEXTEST_INSTALLER} && echo installed\ntrue",
+            False,
+            id="a-chain-swallowed-by-a-later-line",
+        ),
+        pytest.param(
+            f"{NEXTEST_INSTALLER} && echo installed\n# installed",
+            True,
+            id="a-chain-that-ends-the-script",
+        ),
+        pytest.param(
+            f"{NEXTEST_INSTALLER} # don't skip this",
+            True,
+            id="a-comment-with-an-apostrophe",
+        ),
     ],
 )
 def test_the_installer_selector_reads_executable_use(
@@ -204,6 +229,14 @@ def test_the_installer_selector_reads_executable_use(
     installer`` gives the selector a command that runs to completion and never
     installs, and a trailing ``&`` lets the rest of the step start first
     whether it follows the installer or a later command in the chain.
+
+    Text decides the reading as well as syntax: a quoted ``&&`` is an
+    argument, not an operator, and a ``#`` inside a redirection's word does
+    not start a comment, so the mask after it stays visible. ``errexit``
+    completes the picture: the installer's failure in an ``&&`` chain is
+    exempt unless it is the line's last command, so a later success absorbs
+    it. The chain therefore has to end the script, and a comment after it
+    changes nothing — no command follows to replace the status.
     """
     assert installs_nextest(script) is expected, (
         f"installs_nextest must return {expected} for {script!r}"

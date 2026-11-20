@@ -250,17 +250,24 @@ earlier `||` can skip it (`true || installer`) — in the foreground (a trailing
 `&` is rejected, whether it follows the installer or a later command, as in
 `installer && echo done &`), with no operator that would replace its status,
 neither directly after it (`|| true`, `; true`) nor further along the same
-command line (`installer && echo installed || true`), and with no interpreter
-mode that only parses it (`bash -n`). It also requires the recipe's commands to
-run nextest in executable position without Make's error-ignoring `-` prefix or
-a failure-masking shell suffix such as `|| true`. Comments are removed with
-shell word boundaries, so a `#` inside a word, as in a redirect to
-`scheduling#log`, is part of that word and the mask after it stays visible.
-Commands are tokenized with shell separators rather than whitespace alone, so
-an unspaced `||true` reads as the operator it is. Finally, it checks that each
-named regression is still declared under `cpu/trim_tests` with a test
-attribute, since an undiscovered function cannot trip `--no-tests=fail`, and
-that a declaration quoted inside a string literal does not stand in for one.
+command line (`installer && echo installed || true`), nor after the chain's own
+line: `errexit` exempts a failing command inside an AND/OR list unless it is
+the command after the final `&&`, so `installer && echo installed` followed by
+a later `true` leaves the step green and only the script's last command line
+carries the status out. It also requires the recipe's commands to run nextest
+in executable position without Make's error-ignoring `-` prefix or a
+failure-masking shell suffix such as `|| true`. The zero-test flag is matched
+as a whole token, so a redirection target such as `>--no-tests=fail` cannot
+stand in for it. Comments are removed with shell word boundaries, so a `#`
+inside a word, as in a redirect to `scheduling#log`, is part of that word and
+the mask after it stays visible; an escaped operator ends no word either, so
+`>scheduling\;#log` keeps its mask too. Quoted text is data, so
+`echo '&&' installer` prints the path rather than running it. Commands are
+tokenized with shell separators rather than whitespace alone, so an unspaced
+`||true` reads as the operator it is. Finally, it checks that each named
+regression is still declared under `cpu/trim_tests` with a test attribute,
+since an undiscovered function cannot trip `--no-tests=fail`, and that a
+declaration quoted inside a string literal does not stand in for one.
 
 Positive evidence, on commit `a7f3b28` on 2026-11-20: both runtime regressions
 pass, one nextest invocation each, 1 passed with 674 skipped apiece, and

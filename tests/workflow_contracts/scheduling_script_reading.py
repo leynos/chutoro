@@ -2,16 +2,18 @@
 
 The ``build-test`` job installs ``cargo-nextest`` and then runs the scheduling
 target. A step can name both and run neither: a command can be printed, or
-commented, or its failure masked, or a later ``||`` can swallow the status of
-an ``&&`` chain. Reading the script as shell does — simple commands, grouped by
-line, each with the operator that ends it — is what makes "does this step
-install nextest, and would that installation fail the step?" a question about
-execution rather than about a substring.
+commented, or its failure masked, a quoted operator can pass for one, or a
+later ``||`` or a later line can swallow the status of an ``&&`` chain. Reading
+the script as shell does — simple commands, grouped by line, each with the
+operator that ends it — is what makes "does this step install nextest, and
+would that installation fail the step?" a question about execution rather than
+about a substring.
 
 This module is the reading. ``scheduling_ci_test`` holds the assertions over
 it, so neither file outgrows the 400-line limit ``AGENTS.md`` sets.
 
-Re-use policy: import from ``scheduling_ci_test`` only. A command shape that
+Re-use policy: import from ``scheduling_ci_test`` only; this module reuses the
+shell-comment reading in ``scheduling_command_reading``. A command shape that
 needs a new rule belongs here with the shell behaviour it models stated beside
 it, so a later reader can check the rule against the shell rather than against
 the tests.
@@ -21,6 +23,8 @@ from __future__ import annotations
 
 import shlex
 import typing as typ
+
+from scheduling_command_reading import strip_shell_comment
 
 #: The script that installs ``cargo-nextest`` for the job.
 NEXTEST_INSTALLER = "scripts/install-nextest.sh"
@@ -92,6 +96,87 @@ class _Segment(typ.NamedTuple):
     follows: str
 
 
+#: The form a quoted word is set aside in while the line's shell syntax is
+#: read. Quoted text is data: ``echo '&&' scripts/install-nextest.sh`` prints
+#: both words, so the quoted operator must not be read as one. The marker
+#: holds no operator or comment character, so masking the text keeps it whole
+#: through both readings.
+_QUOTED = "\x01{}\x02"
+
+
+class _MaskedLine(typ.NamedTuple):
+    """A line with its quoted text set aside, and the text that was quoted."""
+
+    text: str
+    quoted: list[str]
+
+
+def _closing_quote(line: str, start: int) -> int | None:
+    """Return the index of the quote that closes the one at `start`.
+
+    A double-quoted string may escape its own quote, so a backslash is skipped
+    together with the character after it. A single-quoted string has no
+    escapes.
+    """
+    quote = line[start]
+    index = start + 1
+    while index < len(line):
+        if line[index] == "\\" and quote == '"':
+            index += 2
+            continue
+        if line[index] == quote:
+            return index
+        index += 1
+    return None
+
+
+def _mask_quotes(line: str) -> _MaskedLine:
+    """Return `line` with each quoted word replaced by a marker.
+
+    Quotes decide what is an operator and what is text. ``echo '&&'
+    scripts/install-nextest.sh`` prints the installer path; once ``shlex`` has
+    removed the quotes, the ``&&`` is indistinguishable from an operator, and
+    the step read as installing nextest. Setting the quoted text aside before
+    the line is read keeps the two apart, and restoring it afterwards keeps the
+    words the command is given.
+
+    Examples
+    --------
+    >>> _mask_quotes("echo 'a b'").quoted
+    ['a b']
+    >>> _mask_quotes("echo 'a b'").text
+    'echo \\x010\\x02'
+    """
+    masked: list[str] = []
+    quoted: list[str] = []
+    index = 0
+    while index < len(line):
+        char = line[index]
+        if char == "\\" and index + 1 < len(line):
+            masked.append(line[index : index + 2])
+            index += 2
+            continue
+        if char not in "'\"":
+            masked.append(char)
+            index += 1
+            continue
+        end = _closing_quote(line, index)
+        if end is None:
+            message = f"unterminated quote in {line!r}"
+            raise ValueError(message)
+        quoted.append(line[index + 1 : end])
+        masked.append(_QUOTED.format(len(quoted) - 1))
+        index = end + 1
+    return _MaskedLine("".join(masked), quoted)
+
+
+def _restore_quotes(token: str, quoted: list[str]) -> str:
+    """Return `token` with each quoted marker replaced by its text."""
+    for position, text in enumerate(quoted):
+        token = token.replace(_QUOTED.format(position), text)
+    return token
+
+
 def _lines(script: str) -> list[list[_Segment]]:
     """Return each line of `script` as the simple commands it runs.
 
@@ -103,6 +188,12 @@ def _lines(script: str) -> list[list[_Segment]]:
     the line reports when the command fails. Segments are grouped by line
     because a command's status travels only as far as the end of its own line.
 
+    Comments are removed first with shell word boundaries, so a ``#`` inside a
+    redirection is part of its word and the apostrophe in ``# don't`` is never
+    read as a quote. The remaining text is masked, so a quoted operator stays
+    an argument, and the lexer's own comment handling is turned off so it
+    cannot cut the line a second time.
+
     Examples
     --------
     >>> _lines("echo scripts/install-nextest.sh")
@@ -113,10 +204,22 @@ def _lines(script: str) -> list[list[_Segment]]:
     ['||', '']
     >>> _lines("# scripts/install-nextest.sh")
     [[]]
+    >>> [segment.words for segment in _lines("echo '&&' installer")[0]]
+    [['echo', '&&', 'installer']]
+    >>> [segment.words for segment in _lines("installer >log#1 || true")[0]]
+    [['installer', '>log#1'], ['true']]
+    >>> [segment.words for segment in _lines("installer # don't")[0]]
+    [['installer']]
     """
     lines: list[list[_Segment]] = []
     for source_line in _joined_lines(script):
-        lexer = shlex.shlex(source_line, posix=True, punctuation_chars=";&|")
+        masked = _mask_quotes(strip_shell_comment(source_line))
+        lexer = shlex.shlex(
+            masked.text,
+            posix=True,
+            punctuation_chars=";&|",
+        )
+        lexer.commenters = ""
         lexer.whitespace_split = True
         segments: list[_Segment] = []
         words: list[str] = []
@@ -126,7 +229,7 @@ def _lines(script: str) -> list[list[_Segment]]:
                     segments.append(_Segment(words, token))
                 words = []
                 continue
-            words.append(token)
+            words.append(_restore_quotes(token, masked.quoted))
         if words:
             segments.append(_Segment(words, ""))
         lines.append(segments)
@@ -197,6 +300,30 @@ def _status_reaches_the_end(line: list[_Segment], index: int) -> bool:
     )
 
 
+def _ends_the_script(lines: list[list[_Segment]], index: int) -> bool:
+    """Return whether ``lines[index]`` is the script's last command line.
+
+    ``errexit`` does not exit for a command that fails inside an AND/OR list
+    unless it is the command after the final ``&&``. The installer's failure in
+    ``installer && echo installed`` is therefore exempt, and the line reports
+    it only through its own status: a later line that succeeds replaces that
+    status, so the step stays green. Only the script's last command line
+    carries it out to the step, and lines with no command — blanks and
+    comments — are not later commands.
+
+    Examples
+    --------
+    >>> _ends_the_script(_lines("a && b"), 0)
+    True
+    >>> _ends_the_script(_lines("a && b\\ntrue"), 0)
+    False
+    >>> _ends_the_script(_lines("a && b\\n# done"), 0)
+    True
+    """
+    commands = [number for number, line in enumerate(lines) if line]
+    return bool(commands) and commands[-1] == index
+
+
 def _runs_installer(words: list[str]) -> bool:
     """Return whether `words` run the installer as a command of their own.
 
@@ -231,7 +358,10 @@ def installs_nextest(script: str) -> bool:
     the foreground, and be allowed to fail the step: an earlier ``||`` can skip
     it, a masked failure installs nothing and reports success, the mask can sit
     anywhere later on the line rather than only immediately after the
-    installer, and a trailing ``&`` lets the next command start first.
+    installer, and a trailing ``&`` lets the next command start first. A
+    failure carried by ``&&`` is exempt from ``errexit`` unless it is the
+    line's last command, so such a chain must also end the script, or a later
+    line that succeeds absorbs the status.
 
     Examples
     --------
@@ -249,11 +379,22 @@ def installs_nextest(script: str) -> bool:
     False
     >>> installs_nextest("scripts/install-nextest.sh &")
     False
+    >>> installs_nextest("echo '&&' scripts/install-nextest.sh")
+    False
+    >>> installs_nextest("scripts/install-nextest.sh >install#log || true")
+    False
+    >>> installs_nextest("scripts/install-nextest.sh && echo installed\\ntrue")
+    False
     """
+    lines = _lines(script)
     return any(
         _runs_installer(segment.words)
         and _reaches_the_installer(line, index)
         and _status_reaches_the_end(line, index)
-        for line in _lines(script)
+        and (
+            segment.follows != _CARRYING_OPERATOR
+            or _ends_the_script(lines, number)
+        )
+        for number, line in enumerate(lines)
         for index, segment in enumerate(line)
     )

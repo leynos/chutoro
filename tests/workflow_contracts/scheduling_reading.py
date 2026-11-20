@@ -20,7 +20,11 @@ from __future__ import annotations
 import re
 import shlex
 
-from scheduling_command_reading import is_nextest_invocation, strip_shell_comment
+from scheduling_command_reading import (
+    is_nextest_invocation,
+    shell_tokens,
+    strip_shell_comment,
+)
 from workflow_support import ROOT
 
 #: The target that runs both scheduling regressions.
@@ -188,17 +192,24 @@ def phony_targets(text: str) -> set[str]:
 def invocations_missing_flag(invocations: list[str]) -> list[int]:
     """Return the indices of invocations without ``--no-tests=fail``.
 
+    The flag is matched as a whole word. A substring search accepted
+    ``nextest run --no-tests=pass >--no-tests=fail``, where the only match is
+    the name of a redirection file: the command carries the opposite setting,
+    so an empty selection would pass the gate.
+
     Examples
     --------
     >>> invocations_missing_flag(
     ...     ["nextest run --no-tests=fail", "nextest run"]
     ... )
     [1]
+    >>> invocations_missing_flag(["nextest run --no-tests=pass >--no-tests=fail"])
+    [0]
     """
     return [
         index
         for index, command in enumerate(invocations)
-        if "--no-tests=fail" not in command
+        if "--no-tests=fail" not in shell_tokens(command)
     ]
 
 
@@ -206,7 +217,10 @@ def filter_expressions(command: str) -> list[str]:
     """Return every filter expression `command` passes to nextest.
 
     The recipe quotes each filter, so the command is split the way a shell
-    would split it and the expression arrives without its quotes.
+    would split it and the expression arrives without its quotes. ``shlex``
+    treats ``#`` as a comment character by default and would stop at one in a
+    word, such as a redirection to ``log#1``, losing every flag after it; the
+    command's comments are removed before it is read, so the split keeps them.
 
     Examples
     --------
@@ -214,8 +228,10 @@ def filter_expressions(command: str) -> list[str]:
     ['test(=a)']
     >>> filter_expressions("nextest run --no-tests=fail")
     []
+    >>> filter_expressions("nextest run >log#1 -E 'test(=a)'")
+    ['test(=a)']
     """
-    tokens = shlex.split(command)
+    tokens = shlex.split(command, comments=False)
     expressions: list[str] = []
     for index, token in enumerate(tokens):
         if token not in FILTER_FLAGS:

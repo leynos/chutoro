@@ -75,6 +75,22 @@ def test_a_flag_on_another_invocation_does_not_cover_a_missing_one() -> None:
     )
 
 
+def test_a_flag_name_in_a_redirection_is_not_the_flag() -> None:
+    """A redirection target spelling the flag is not the flag.
+
+    ``nextest run --no-tests=pass >--no-tests=fail`` carries the opposite
+    setting, so matching any word would let an empty selection pass the gate
+    that exists to make it fail.
+    """
+    invocations = [
+        "cargo nextest run --no-tests=pass >--no-tests=fail",
+        "cargo nextest run --no-tests=fail",
+    ]
+    assert invocations_missing_flag(invocations) == [0], (
+        "the redirection target must not answer for the flag"
+    )
+
+
 @pytest.mark.parametrize(
     "command",
     [
@@ -166,26 +182,27 @@ def test_a_hash_is_a_comment_only_where_a_word_starts() -> None:
     line that masks the regression's failure would have counted as the gate
     that runs it. A genuine trailing comment must still go, because an
     argument it mentioned would otherwise answer for an invocation that omits
-    it.
+    it. An escaped operator ends no word either, so ``>scheduling\\;#log``
+    keeps its mask as well.
     """
-    masked = (
-        f"{TARGET}:\n"
-        "\t$(CARGO) nextest run -p chutoro-core --lib >scheduling#log || true\n"
+    prefix = "$(CARGO) nextest run -p chutoro-core --lib"
+    in_word = prefix + " >scheduling#log || true"
+    escaped = prefix + " >scheduling\\;#log || true"
+    commented = prefix + " # --no-tests=fail"
+    assert recipe_commands(f"{TARGET}:\n\t{in_word}\n", TARGET) == [in_word], (
+        "the hash inside the word must survive"
     )
-    commented = (
-        f"{TARGET}:\n"
-        "\t$(CARGO) nextest run -p chutoro-core --lib # --no-tests=fail\n"
-    )
-    in_word = recipe_commands(masked, TARGET)
-    trailing = recipe_commands(commented, TARGET)
-    assert in_word == [
-        "$(CARGO) nextest run -p chutoro-core --lib >scheduling#log || true"
-    ], f"the hash inside the word must survive; read {in_word}"
-    assert not is_nextest_invocation(in_word[0]), (
+    assert not is_nextest_invocation(in_word), (
         "the mask after the redirect must still disqualify the command"
     )
-    assert trailing == ["$(CARGO) nextest run -p chutoro-core --lib"], (
-        f"the trailing comment must be removed; read {trailing}"
+    assert recipe_commands(f"{TARGET}:\n\t{escaped}\n", TARGET) == [escaped], (
+        "the escaped operator must keep the word whole"
+    )
+    assert not is_nextest_invocation(escaped), (
+        "the mask after the escaped word must still disqualify the command"
+    )
+    assert recipe_commands(f"{TARGET}:\n\t{commented}\n", TARGET) == [prefix], (
+        "the trailing comment must be removed"
     )
 
 

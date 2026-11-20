@@ -2898,28 +2898,37 @@ nextest in executable position and must not carry Make's error-ignoring `-`
 prefix or a failure-masking shell suffix such as `|| true` (spaced or not: the
 commands are tokenized with shell separators, so `||true` is read as the
 operator it is), so a command that merely mentions nextest, or one whose
-failure would be suppressed, cannot stand in for the regression. Shell comments
-are removed first, but a `#` starts one only at the start of a word: the hash in
-`nextest run >scheduling#log || true` is part of the redirection, and cutting
-there would have hidden the mask the command carries. The CI step that runs the
-target is pinned unconditional, as is the nextest installation it depends on,
-and that installation has to be a command in its own right: a step that only
-prints or comments the installer path installs nothing, and neither does one
-whose failure is masked (`installer || true`, `installer; true`, or a `||`
-anywhere later in the same command line, as in
-`installer && echo installed || true`), one an earlier `||` can skip
-(`true || installer` installs nothing when `true` succeeds), one sent to the
-background (`installer &` lets the next command start first, and so does a `&`
-that ends a later command in the chain, as in `installer && echo done &`), or
-one that only parses the script (`bash -n installer`). The declaration the
-recipe names must still carry a test attribute, because a plain function of the
-same name is never discovered and the zero-test flag cannot fire for it, and an
-attributed declaration quoted inside a string literal is an example rather than
-a test. The direct test scores a synthetic batch; the insertion-path test
-drives a real insertion in a dedicated four-worker pool and records the thread,
-the Rayon worker, and a non-blocking `insert_mutex` `try_lock` for every
-post-planning distance callback. Both assert that the callbacks stay on the
-mutex holder.
+failure would be suppressed, cannot stand in for the regression. The zero-test
+flag is matched as a whole token, so a redirection target such as
+`>--no-tests=fail` cannot stand in for it on a command that carries
+`--no-tests=pass`. Shell comments are removed first, but a `#` starts one only
+at the start of a word, and an escaped operator does not end the word before
+it: the hash in `nextest run >scheduling#log || true` and in
+`>scheduling\;#log || true` is part of the redirection, and cutting there would
+have hidden the mask the command carries. Quoted text is data as well, so
+`echo '&&' installer` only prints the path; a quoted operator is an argument,
+not a command separator. The CI step that runs the target is pinned
+unconditional, as is the nextest installation it depends on, and that
+installation has to be a command in its own right: a step that only prints or
+comments the installer path installs nothing, and neither does one whose
+failure is masked (`installer || true`, `installer; true`, or a `||` anywhere
+later in the same command line, as in `installer && echo installed || true`),
+one an earlier `||` can skip (`true || installer` installs nothing when `true`
+succeeds), one sent to the background (`installer &` lets the next command
+start first, and so does a `&` that ends a later command in the chain, as in
+`installer && echo done &`), one that only parses the script
+(`bash -n installer`), or one whose `&&` chain is followed by another command.
+`errexit` exempts a failing command inside an AND/OR list unless it is the
+command after the final `&&`, so `installer && echo installed` on one line and
+`true` on the next leaves the step green, while the same chain as the script's
+last command fails it. The declaration the recipe names must still carry a test
+attribute, because a plain function of the same name is never discovered and
+the zero-test flag cannot fire for it, and an attributed declaration quoted
+inside a string literal is an example rather than a test. The direct test
+scores a synthetic batch; the insertion-path test drives a real insertion in a
+dedicated four-worker pool and records the thread, the Rayon worker, and a
+non-blocking `insert_mutex` `try_lock` for every post-planning distance
+callback. Both assert that the callbacks stay on the mutex holder.
 
 What the two checks establish differs:
 
