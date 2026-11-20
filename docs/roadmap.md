@@ -650,8 +650,17 @@ ______________________________________________________________________
   datasets. See `docs/benchmark-dataset-retrieval.md` §3.1.
 - [ ] 10.1.2. Implement shared download primitives: pinned source URLs,
   checksum/signature verification, resumable transfers, and archive extraction
-  (`.gz`, `.bz2`, `.xz`, `.tar`). See `docs/benchmark-dataset-retrieval.md`
-  §3.2.
+  (`.gz`, `.bz2`, `.xz`, `.tar`). See
+  [§3.2 transport, cache, and object storage](benchmark-dataset-retrieval.md#32-transport-cache-and-object-storage),
+  the
+  [upstream range-support evidence](benchmark-dataset-retrieval.md#321-upstream-range-support-evidence-2026-08-16),
+  the
+  [resume-safety requirements](benchmark-dataset-retrieval.md#322-resume-safety-requirements),
+  and the
+  [§3.1 integrity rules](benchmark-dataset-retrieval.md#31-shared-retrieval-crate-and-contracts)
+  in `docs/benchmark-dataset-retrieval.md`. The detailed design is in the
+  [10.1.2 ExecPlan](https://github.com/leynos/chutoro/blob/10-1-2-shared-download-primitives/docs/execplans/10-1-2-shared-download-primitives.md)
+  (draft, on branch `10-1-2-shared-download-primitives`, PR #199).
 - [ ] 10.1.3. Define canonical prepared artefact contracts
   (`features`, `labels`, optional `ground_truth`) plus immutable
   `manifest.json` metadata containing source provenance, schema version, and
