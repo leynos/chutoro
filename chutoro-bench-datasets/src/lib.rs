@@ -61,11 +61,11 @@ pub mod testing;
 
 pub use context::RecipeContext;
 pub use driver::run_recipe;
-pub use error::{FetchSizeExceeded, PortFailure, RecipeError};
+pub use error::{FetchSizeExceeded, IntegrityFailure, PortFailure, RecipeError};
 pub use info::DatasetInfo;
 pub use newtypes::{
-    CacheKey, Checksum, ManifestDigest, ObjectKey, PartialState, Phase, PortName, RecipeId,
-    RecipeVersion, SourceRole, SourceSpec, SourceUrl,
+    CacheKey, Checksum, DigestAlgorithm, ManifestDigest, ObjectKey, PartialState, Phase, PortName,
+    RecipeId, RecipeVersion, SourceRole, SourceSpec, SourceUrl,
 };
 pub use ports::{Fetcher, Publisher, Storage};
 pub use published::{PublishedArtefact, PublishedManifest};

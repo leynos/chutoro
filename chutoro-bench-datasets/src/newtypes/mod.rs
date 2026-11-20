@@ -1,6 +1,9 @@
 //! Domain value types used by dataset recipes and ports.
 
+mod checksum;
 mod keys;
+
+pub use checksum::{Checksum, DigestAlgorithm};
 pub use keys::*;
 
 use std::{fmt::Display, sync::Arc};
@@ -191,7 +194,10 @@ pub struct SourceSpec {
     pub url: SourceUrl,
     /// Role of the source.
     pub role: SourceRole,
-    /// Optional checksum placeholder, filled by roadmap item `10.1.2`.
+    /// Optional parsed checksum for the source.
+    ///
+    /// A populated value records the digest the source should match.
+    /// Fetch-time verification remains part of roadmap item `10.1.2`.
     pub checksum: Option<Checksum>,
 }
 

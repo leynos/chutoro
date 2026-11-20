@@ -93,5 +93,9 @@ dataset crate.
   phase consumes the previous phase's associated type.
 - The crate has no network, object-store, checksum, extraction, lockfile, or
   licence enforcement dependency in 10.1.1.
+- Checksum parsing landed after 10.1.1 (2026-11-19): `Checksum` is an
+  inhabited value with a `sha256:<hex>` parser and typed `IntegrityFailure`
+  reporting. Fetch-time verification remains deferred to roadmap item 10.1.2,
+  so the dependency statement above still describes the 10.1.1 milestone.
 - In-memory test adapters use `Mutex` to satisfy the public `Send + Sync` port
   bounds while remaining local deterministic test doubles.
