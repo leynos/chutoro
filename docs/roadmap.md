@@ -18,7 +18,7 @@ ______________________________________________________________________
 | Medium       | SNAP com-Amazon[^7]          | 334,863 nodes                              | product categories = communities       | Real graph with ground-truth communities for community/cluster evaluation after k-NN graph build.                                          |
 | Medium       | SNAP com-DBLP[^7]            | 317,080 nodes                              | venue-based communities                | Overlapping scientific communities; good stress for cluster quality on graph structures.                                                   |
 | Medium (bio) | PBMC 68k (10x Genomics)[^8]  | ~68k cells, ≫10k genes → 50d (PCA)         | cell-type labels                       | Classic scRNA-seq clustering benchmark with annotated cell types; strong test for high-dimensional distances.                              |
-| Large (ANN)  | GloVe word vectors[^9]       | 1.18M × {25,50,100,200}                    | none (but lexical categories possible) | Covers angular distance regimes; turnkey HDF5 in ANN-Benchmarks.                                                                           |
+| Large (ANN)  | GloVe word vectors[^9]       | 1.18M × {25,50,100,200}                    | none (but lexical categories possible) | Covers angular distance regimes; ANN-Benchmarks HDF5 files built from the Twitter 27B vectors.                                             |
 | Large (ANN)  | SIFT1M[^10]                  | 1,000,000 × 128                            | nn ground truth (no classes)           | De-facto Euclidean Approximate Nearest Neighbour (ANN) baseline with exact k-NN ground truth; great for graph/MST quality via k-NN recall. |
 | Large (ANN)  | GIST1M[^10]                  | 1,000,000 × 960                            | nn ground truth                        | Very high-dimensional Euclidean stress test; in ANN-Benchmarks.                                                                            |
 | XL-Billion   | DEEP1B / BigANN[^10]         | up to 1B × 96 (Deep1B) / 128 (SIFT BigANN) | nn ground truth                        | For scale limits, memory pressure, sharding; official subsets (1M/10M/100M) and GT available.                                              |
@@ -36,7 +36,10 @@ Provenance notes:
 - SNAP com-Amazon: Stanford SNAP dataset under CC BY-SA.[^7]
 - SNAP com-DBLP: Stanford SNAP dataset under CC BY-SA.[^7]
 - PBMC 68k: 10x Genomics, CC BY 4.0.[^8]
-- GloVe word vectors: Stanford NLP, public domain.[^9]
+- GloVe word vectors: Twitter 27B (2B tweets, 27B tokens, 1.2M vocabulary)
+  via ANN-Benchmarks HDF5, `PDDL-1.0`.[^9] The `glove.6B` bundle is not used:
+  it is a Wikipedia/Gigaword corpus with a 400K vocabulary and no
+  25-dimensional vectors.
 - SIFT1M: ANN-Benchmarks HDF5 package.[^10]
 - GIST1M: ANN-Benchmarks HDF5 package.[^10]
 - DEEP1B/BigANN: ANN-Benchmarks HDF5 package.[^10]
@@ -76,7 +79,8 @@ Provenance notes:
 [^7]: SNAP datasets — <https://snap.stanford.edu/data/>
 [^8]: PBMC 68k —
   <https://support.10xgenomics.com/single-cell-gene-expression/datasets>
-[^9]: GloVe vectors — <https://nlp.stanford.edu/projects/glove/>
+[^9]: GloVe vectors — <https://nlp.stanford.edu/projects/glove/>; ANN-Benchmarks
+  dataset table — <https://github.com/erikbern/ann-benchmarks>
 [^10]: ANN-Benchmarks datasets —
   <https://github.com/erikbern/ann-benchmarks>
 
@@ -669,8 +673,11 @@ ______________________________________________________________________
   datasets. See `docs/benchmark-dataset-retrieval.md` §3.1.
 - [ ] 10.1.2. Implement shared download primitives: pinned source URLs,
   checksum/signature verification, resumable transfers, and archive extraction
-  (`.gz`, `.bz2`, `.xz`, `.tar`). See `docs/benchmark-dataset-retrieval.md`
-  §3.2.
+  (`.gz`, `.bz2`, `.xz`, `.tar`) with a first-class `ArchiveFormat::None`
+  adopt-in-place path for bare downloads. Keep `.bz2` and `.xz` behind their
+  own off-by-default Cargo features (`bz2`, `xz`) and exclude `.zip` explicitly
+  (see [ADR 008](adrs/adr-0008-glove-source-and-zip-scope.md)). See
+  `docs/benchmark-dataset-retrieval.md` §3.2.
 - [ ] 10.1.3. Define canonical prepared artefact contracts
   (`features`, `labels`, optional `ground_truth`) plus immutable
   `manifest.json` metadata containing source provenance, schema version, and
@@ -752,10 +759,26 @@ ______________________________________________________________________
   internally mirrored artefact, add PCA/normalization recipe checks, and gate
   matrix use behind provenance confirmation. See
   `docs/benchmark-dataset-retrieval.md` §7.9.
-- [ ] 10.3.10. GloVe vectors: implement dimension-selectable ingestion
-  (`25/50/100/200`), enforce tokenizer/projection invariants, and add angular
-  distance tuples in `cpu` and `scale` profiles. See
-  `docs/benchmark-dataset-retrieval.md` §7.10.
+- [ ] 10.3.10. GloVe vectors: ingest the four ANN-Benchmarks HDF5 files
+  (`glove-{25,50,100,200}-angular.hdf5`), which carry the Twitter 27B
+  (1.2M-vocabulary) vectors. Validate 1,183,514 train rows, 10,000 test rows,
+  `train`/`test` widths equal to the dimension in the filename, finite
+  coordinates, non-zero row magnitude, and `neighbors`/`distances` shapes of
+  `(10000, 100)`; only `distance=angular` is a required attribute, and no
+  tokenizer or projection applies. Map `train` to `features` and the
+  `neighbors`/`distances` pair to `ground_truth`, then publish the immutable
+  manifest. Add angular distance tuples in `cpu` and `scale` profiles. Requires
+  10.1.2 fetch, checksum and `ArchiveFormat::None` adopt-in-place, plus the
+  HDF5 reader defined in 10.3.10.1. See `docs/benchmark-dataset-retrieval.md`
+  §7.10 and [ADR 008](adrs/adr-0008-glove-source-and-zip-scope.md).
+  - [ ] 10.3.10.1. Add a read-only ANN-Benchmarks HDF5 reader for the `train`,
+    `test`, `neighbors`, and `distances` datasets and the `distance`
+    attribute, for reuse by 10.3.10, 10.3.11, and 10.3.12. The published
+    files carry only `distance=angular`, so derive the dimension from the
+    dataset shapes and check dtypes from the datasets rather than requiring
+    `type`, `dimension`, or `point_type` attributes. Pin the reader crate and
+    version, preferring a pure-Rust implementation over a system `libhdf5`
+    dependency. See `docs/benchmark-dataset-retrieval.md` §7.10.
 - [ ] 10.3.11. SIFT1M: integrate ANN-Benchmarks HDF5 ingestion, validate
   provided nearest-neighbour ground truth, and register recall@{1,10,100}
   matrix tuples. See `docs/benchmark-dataset-retrieval.md` §7.11.

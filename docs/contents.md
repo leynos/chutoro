@@ -63,6 +63,9 @@ open each document.
   boundary](adrs/adr-0007-fearless-simd-kernel-boundary.md): proposed private
   kernel ownership, authorized dependencies, and separate adoption gates for
   dense consolidation and MST preparation.
+- [ADR 008: GloVe source and ZIP scope](adrs/adr-0008-glove-source-and-zip-scope.md):
+  accepted guidance for sourcing GloVe from ANN-Benchmarks HDF5 and keeping ZIP
+  out of the download and dataset scope.
 
 ## Requests for comments
 

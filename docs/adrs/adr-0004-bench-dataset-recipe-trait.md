@@ -104,3 +104,9 @@ reports failures through `IntegrityFailure`, boxed in `RecipeError::Integrity`.
 `RecipeError::ChecksumUnsupported` is removed. Fetch-time verification remains
 deferred to roadmap item 10.1.2, so the `Consequences` statement above still
 describes the 10.1.1 milestone.
+
+## Related
+
+- [ADR 008: GloVe source and ZIP scope](adr-0008-glove-source-and-zip-scope.md)
+  records the archive-format boundary that 10.1.2 subsequently implements. It
+  does not change the decision above.
