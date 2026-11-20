@@ -146,7 +146,10 @@ section may block on, or dispatch work to, the Rayon pool.
   each standing for its mutable and `_exact` forms as well) and the
   `spawn_fifo`, `scope_fifo`, `join_context`, `broadcast`, and
   `spawn_broadcast` calls with their `ThreadPool` method forms such as
-  `pool.scope(...)` and `scope.spawn(...)`. The generic
+  `pool.scope(...)` and `scope.spawn(...)`, and with the calls Rust lets an
+  inherent method take through its type, so `ThreadPool::scope(pool, ...)` and
+  `ThreadPool::install::<_, ()>(pool, ...)` are dispatches, turbofish and all,
+  while `ThreadPool::new()` builds a pool without dispatching to it. The generic
   `pool.install::<_, _>(...)` and `out.par_extend::<_>(...)` are recognized
   through their turbofish, whose type list may hold a parenthesized unit or
   tuple type as in `pool.install::<_, ()>(...)`, `out.par_extend::<()>(items)`
@@ -163,20 +166,22 @@ section may block on, or dispatch work to, the Rayon pool.
   a trailing comma, or a comma between turbofish type arguments — including one
   inside a nested list such as `dir.join(make_path::<Outer<A, B>, C>())` —
   leaves `names.join(separator,)` and `dir.join(make_path::<A, B>())` slice and
-  path joins. Each remaining entry is a boundary-aware pattern, so a slice
-  `names.join(", ")` is not read as a Rayon join. The synthetic sources these
-  readings are checked against live in `trim_scoring_samples.py`, beside the
-  reader rather than inside it. Dispatch in a listed helper is therefore
-  caught; dispatch it cannot see still evades it: an unlisted helper called by
-  one of the five, an aliased import such as
-  `use rayon::spawn as run; run(...)`, or a `DataSource` that dispatches on its
-  own account. The scan fails closed when a pinned function is missing, so a
-  rename or a move cannot read as clean. The runtime scheduling tests in
-  `hnsw::cpu::trim_tests` remain as broader coverage, and they may catch
-  unlisted helper dispatch, but they are observations rather than proofs: the
-  caller's first distance callback waits up to two seconds for another worker,
-  and if no worker steals in that interval a dispatching implementation can
-  still finish the batch on the caller and pass.
+  path joins. A qualified path's type arguments comma the same way and it may
+  be borrowed, so `dir.join(<Paths<A, B> as HasPath>::path())` and
+  `dir.join(&<Paths<A, B> as HasPath>::path())` stay path joins. Each remaining
+  entry is a boundary-aware pattern, so a slice `names.join(", ")` is not read
+  as a Rayon join. The synthetic sources these readings are checked against
+  live in `trim_scoring_samples.py`, beside the reader rather than inside it.
+  Dispatch in a listed helper is therefore caught; dispatch it cannot see still
+  evades it: an unlisted helper called by one of the five, an aliased import
+  such as `use rayon::spawn as run; run(...)`, or a `DataSource` that
+  dispatches on its own account. The scan fails closed when a pinned function
+  is missing, so a rename or a move cannot read as clean. The runtime
+  scheduling tests in `hnsw::cpu::trim_tests` remain as broader coverage, and
+  they may catch unlisted helper dispatch, but they are observations rather
+  than proofs: the caller's first distance callback waits up to two seconds for
+  another worker, and if no worker steals in that interval a dispatching
+  implementation can still finish the batch on the caller and pass.
 - **A watchdog stress test was considered and rejected.** An earlier
   watchdog-based stress test passed three times out of three on the unfixed
   code, because the stall is a scheduling race rather than a deterministic
@@ -302,7 +307,19 @@ workflow, job, and step scopes, and a custom `bash` or `sh` template must
 execute the script under `errexit`: `bash {0}` runs the script without it and
 is rejected, as is any template that only syntax-checks the script, whether as
 `bash -n {0}`, in a combined cluster such as `bash -en {0}`, or as
-`bash -o noexec {0}` or `bash -eo noexec {0}`.
+`bash -o noexec {0}` or `bash -eo noexec {0}`; `-D`, `--dump-strings` and
+`--dump-po-strings` are syntax-only modes too, since `-D` implies `-n` while
+dumping translated strings. `errexit` can also be turned off inside the script,
+so `set +e` and `set +o errexit` before the installer stop its failure from
+failing the step and `set -e` restores it; the reading skips an option operand
+(`set -o pipefail -e`), stops at `--` and at the first positional parameter
+(`set -- -e` sets `$1`), treats an option change after `&&` or `||` as
+uncertain rather than applied, and takes an `exit` before the installer as
+ending the script. A here-document's body is stdin for the command that opened
+it, so a path written there installs nothing, and its closing word repeats the
+delimiter exactly for `<<`, so a closing line indented with a space or a tab is
+body text, while a `<<-` document ignores leading tabs on both body and closing
+line.
 
 Positive evidence, on commit `435a0a0` on 2026-11-20: `make check-fmt`,
 `make markdownlint` including spelling, `make interrogate` (at 100% documented

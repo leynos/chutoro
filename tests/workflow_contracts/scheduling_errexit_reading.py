@@ -1,31 +1,58 @@
-"""Read whether a CI step's script still fails on a failed command.
+"""Read whether a CI step's script still fails when one of its commands fails.
 
 ``scheduling_script_reading`` reads a step's commands as failing the step
 while ``errexit`` holds, which is what the runner's ``bash -e {0}`` shell gives
-it. A script can turn that off: ``set +e`` makes the shell carry on after a
-failure, so a later successful line replaces the installer's status and the
-step stays green however the installation went. Reading the script's own
-option changes is therefore part of reading whether it installs nextest.
+it. Two things can take that guarantee away. A script can turn the option off:
+``set +e`` makes the shell carry on after a failure, so a later successful
+line replaces the installer's status and the step stays green. And a command
+inside an AND/OR list is exempt from ``errexit`` unless it is the command after
+the final ``&&``, so a failure carried along a chain reaches the step only if
+the chain ends the script.
 
-This module holds that reading. ``scheduling_script_reading`` applies it to
-the commands it finds, and the split keeps the option vocabulary beside the
-shell behaviour it models while leaving that module inside the 400-line limit
+This module holds both readings. ``scheduling_script_reading`` applies them to
+the commands it finds, and the split keeps the shell vocabulary beside the
+behaviour it models while leaving that module inside the 400-line limit
 ``AGENTS.md`` sets.
 
 Re-use policy: import from ``scheduling_script_reading`` only, which applies
-the setting to the commands it reads. A new option belongs here with the shell
+the readings to the commands it finds. A new shell fact belongs here with the
 behaviour it models stated beside it.
 """
 
 from __future__ import annotations
 
 import collections.abc as cabc
+import typing as typ
 
 #: The option name ``-o`` and ``+o`` take as their operand.
 ERREXIT_OPTION = "errexit"
 
+#: The only operator that carries a command's failure to the end of an AND/OR
+#: list. ``installer && make test`` fails when the installer fails; every
+#: other operator ends the list at the installer, so ``installer || true`` and
+#: ``installer && echo installed || true`` install nothing that can fail the
+#: step.
+CARRYING_OPERATOR = "&&"
 
-def _names_errexit(words: list[str], index: int) -> bool:
+#: The operator that ends a command's own list. A failing simple command in
+#: its own list stops the script under ``errexit``, so its status reaches the
+#: step whatever later commands would do, and a command after it runs whatever
+#: came before.
+OWN_LIST_END = ";"
+
+
+class Command(typ.NamedTuple):
+    """One simple command: its words and the operator that ends it.
+
+    ``scheduling_script_reading`` passes its own segment tuples, which carry
+    the same two fields, so the readings here accept either shape.
+    """
+
+    words: cabc.Sequence[str]
+    follows: str
+
+
+def _names_errexit(words: cabc.Sequence[str], index: int) -> bool:
     """Return whether ``words[index]`` names errexit for ``-o`` or ``+o``.
 
     Examples
@@ -64,13 +91,41 @@ def _enables_errexit(flag: str) -> bool:
     return flag[:1] in {"-", "+"} and "e" in flag[1:]
 
 
-def errexit_setting(words: list[str]) -> bool | None:
+def _takes_a_name(flag: str) -> bool:
+    """Return whether the last letter of `flag` takes an option-name operand.
+
+    ``-o``, ``+o``, ``-O`` and ``+O`` name a shell or ``shopt`` option in the
+    word that follows. A cluster's final letter does the same, as ``-euo``
+    does for ``pipefail``, while the letters before it are still set.
+
+    Examples
+    --------
+    >>> _takes_a_name("-o")
+    True
+    >>> _takes_a_name("+O")
+    True
+    >>> _takes_a_name("-euo")
+    True
+    >>> _takes_a_name("-e")
+    False
+    """
+    return flag[:1] in {"-", "+"} and flag[1:].endswith(("o", "O"))
+
+
+def errexit_setting(words: cabc.Sequence[str]) -> bool | None:
     """Return the errexit state a ``set`` command leaves, if it changes it.
 
     ``set +e`` turns errexit off, and ``set -e`` turns it back on; both may
     also name the option in full, as ``set -o errexit`` and ``set +o
     errexit``. Any other command, and a ``set`` naming other options, leaves
     the state alone, which ``None`` reports.
+
+    Option processing stops at ``--`` and at the first word that does not
+    begin with ``-`` or ``+``: everything from there on is a positional
+    parameter, so ``set -- -e`` and ``set value -e`` set ``$1`` rather than
+    errexit. The word after ``-o``, ``+o``, ``-O`` or ``+O`` is that option's
+    operand even though it need not begin with a sign, so ``set -o pipefail
+    -e`` is still read to its ``-e``.
 
     Examples
     --------
@@ -82,6 +137,12 @@ def errexit_setting(words: list[str]) -> bool | None:
     False
     >>> errexit_setting(["set", "-euo", "pipefail"])
     True
+    >>> errexit_setting(["set", "-o", "pipefail", "-e"])
+    True
+    >>> errexit_setting(["set", "--", "-e"]) is None
+    True
+    >>> errexit_setting(["set", "value", "-e"]) is None
+    True
     >>> errexit_setting(["set", "-x"]) is None
     True
     >>> errexit_setting(["true"]) is None
@@ -90,44 +151,142 @@ def errexit_setting(words: list[str]) -> bool | None:
     if words[:1] != ["set"]:
         return None
     setting: bool | None = None
-    for index, flag in enumerate(words[1:], start=1):
-        if _names_errexit(words, index):
+    index = 1
+    while index < len(words):
+        flag = words[index]
+        if flag == "--" or flag[:1] not in {"-", "+"}:
+            break
+        if _names_errexit(words, index) or _enables_errexit(flag):
             setting = flag.startswith("-")
-        elif _enables_errexit(flag):
-            setting = flag.startswith("-")
+        index += 2 if _takes_a_name(flag) else 1
     return setting
 
 
-def errexit_states(
-    lines: cabc.Sequence[cabc.Sequence[cabc.Sequence[str]]],
-) -> list[list[bool]]:
-    """Return whether ``errexit`` is on as each command of `lines` starts.
+def _runs_unconditionally(line: cabc.Sequence[Command], index: int) -> bool:
+    """Return whether ``line[index]`` runs whatever earlier commands did.
 
-    `lines` is a script's command lines, each holding the words of its
-    commands in the order the shell runs them. A command that changes the
-    setting runs under the state it replaces, and the change carries into the
-    lines after it, so ``set +e`` joins the line it is written on and turns
-    the state off for everything after it.
+    Only the first command of a line and a command after ``;`` run
+    unconditionally. A command after ``&&``, ``||``, ``|``, ``&`` or ``|&``
+    may be skipped, so an option change written there may not have happened.
 
     Examples
     --------
-    >>> errexit_states([[["a"]]])
-    [[True]]
-    >>> errexit_states([[["set", "+e"]], [["a"]]])
-    [[True], [False]]
-    >>> errexit_states([[["set", "+e"]], [["set", "-e"]], [["a"]]])
-    [[True], [False], [True]]
-    >>> errexit_states([[["set", "+o", "errexit"], ["a"]]])
-    [[True, False]]
+    >>> chain = [Command(["a"], "&&"), Command(["b"], "")]
+    >>> _runs_unconditionally(chain, 0)
+    True
+    >>> _runs_unconditionally(chain, 1)
+    False
+    >>> _runs_unconditionally([Command(["a"], ";"), Command(["b"], "")], 1)
+    True
     """
-    states: list[list[bool]] = []
-    state = True
+    if index == 0:
+        return True
+    return line[index - 1].follows == OWN_LIST_END
+
+
+def errexit_states(
+    lines: cabc.Sequence[cabc.Sequence[Command]],
+) -> list[list[bool | None]]:
+    """Return whether ``errexit`` is certainly on as each command starts.
+
+    ``True`` and ``False`` report the state every change so far has certainly
+    left. ``None`` reports that a change may or may not have run: a ``set``
+    after ``&&`` or ``||`` runs only on one branch, so applying its change
+    either way could claim the next command's failure is carried when the
+    branch taken leaves it exempt. A later change that certainly runs reports
+    its own state again, because it runs whatever the uncertain branch did.
+
+    Examples
+    --------
+    >>> errexit_states([[Command(["a"], "")]])
+    [[True]]
+    >>> errexit_states([
+    ...     [Command(["set", "+e"], "")],
+    ...     [Command(["a"], "")],
+    ... ])
+    [[True], [False]]
+    >>> errexit_states([
+    ...     [Command(["set", "+e"], "")],
+    ...     [Command(["set", "-e"], "")],
+    ...     [Command(["a"], "")],
+    ... ])
+    [[True], [False], [True]]
+    >>> errexit_states([
+    ...     [Command(["set", "+o", "errexit"], ""), Command(["a"], ";")],
+    ... ])
+    [[True, False]]
+    >>> errexit_states([
+    ...     [Command(["false"], ""), Command(["set", "-e"], "&&")],
+    ...     [Command(["a"], "")],
+    ... ])
+    [[True, True], [None]]
+    """
+    states: list[list[bool | None]] = []
+    state: bool | None = True
     for line in lines:
-        line_states: list[bool] = []
-        for words in line:
+        line_states: list[bool | None] = []
+        for index, command in enumerate(line):
             line_states.append(state)
-            change = errexit_setting(list(words))
-            if change is not None:
-                state = change
+            change = errexit_setting(command.words)
+            if change is None:
+                continue
+            state = change if _runs_unconditionally(line, index) else None
         states.append(line_states)
     return states
+
+
+def ends_the_script(
+    lines: cabc.Sequence[cabc.Sequence[Command]], index: int
+) -> bool:
+    """Return whether ``lines[index]`` is the script's last command line.
+
+    ``errexit`` does not exit for a command that fails inside an AND/OR list
+    unless it is the command after the final ``&&``. A failure in
+    ``installer && echo installed`` is therefore exempt, and the line reports
+    it only through its own status: a later line that succeeds replaces that
+    status, so the step stays green. Only the script's last command line
+    carries it out to the step, and lines with no command — blanks and
+    comments — are not later commands.
+
+    Examples
+    --------
+    >>> chain = [Command(["a"], "&&"), Command(["b"], "")]
+    >>> ends_the_script([chain], 0)
+    True
+    >>> ends_the_script([chain, [Command(["c"], "")]], 0)
+    False
+    >>> ends_the_script([chain, []], 0)
+    True
+    """
+    commands = [number for number, line in enumerate(lines) if line]
+    return bool(commands) and commands[-1] == index
+
+
+def carries_to_the_step(
+    lines: cabc.Sequence[cabc.Sequence[Command]],
+    number: int,
+    command: Command,
+) -> bool:
+    """Return whether a failure of `command` still fails the step.
+
+    A command that fails inside an AND/OR list is exempt from ``errexit``
+    unless it is the command after the final ``&&``, so a failure carried by
+    ``&&`` reaches the step only through the line's own status. A later line
+    that succeeds replaces that status, so the chain also has to be the
+    script's last command line. Every other operator leaves the failure in the
+    command's own list, where nothing exempts it.
+
+    Examples
+    --------
+    >>> chain = [Command(["a"], "&&"), Command(["b"], "")]
+    >>> carries_to_the_step([chain], 0, chain[0])
+    True
+    >>> carries_to_the_step([chain, [Command(["c"], "")]], 0, chain[0])
+    False
+    >>> own = [Command(["a"], ";"), Command(["b"], "")]
+    >>> carries_to_the_step([own, [Command(["c"], "")]], 0, own[0])
+    True
+    """
+    if command.follows == CARRYING_OPERATOR:
+        return ends_the_script(lines, number)
+    return True

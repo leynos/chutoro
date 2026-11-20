@@ -30,10 +30,23 @@ from __future__ import annotations
 EXECUTING_SHELLS = frozenset({"bash", "sh"})
 
 #: Shell options that make the shell exit without running the script. The
-#: syntax-only modes parse it and execute none of it; ``--help`` and
-#: ``--version`` answer the request and exit successfully, so ``bash --help -e
-#: {0}`` is no evidence that ``{0}`` ran however ``errexit`` is set.
-NON_EXECUTING_OPTIONS = frozenset({"-n", "--noexec", "--help", "--version"})
+#: syntax-only modes parse it and execute none of it; ``-D`` implies ``-n``
+#: and prints the translated strings instead, with ``--dump-strings`` and
+#: ``--dump-po-strings`` as its long spellings; ``--help`` and ``--version``
+#: answer the request and exit successfully. ``bash --help -e {0}`` and
+#: ``bash -eD {0}`` are therefore no evidence that ``{0}`` ran however
+#: ``errexit`` is set.
+NON_EXECUTING_OPTIONS = frozenset(
+    {
+        "-n",
+        "--noexec",
+        "-D",
+        "--dump-strings",
+        "--dump-po-strings",
+        "--help",
+        "--version",
+    }
+)
 
 #: Shell option names, written as the word after ``-o`` or ``-O``, that
 #: matter to this reader.
@@ -145,9 +158,10 @@ def _executes_nothing(options: list[str]) -> bool:
 
     Bash reads short options as a cluster, so ``-en`` is ``-e`` plus ``-n``,
     and names an option with ``-o``, so ``-o noexec`` and ``-eo noexec``
-    reach the same mode in two words. ``--help`` and ``--version`` are not
-    syntax modes, but Bash reports and exits on either, so the script is just
-    as unrun.
+    reach the same mode in two words. ``-D`` is a syntax mode of its own: it
+    implies ``-n`` while dumping the translated strings, so it may sit in a
+    cluster as ``-eD``. ``--help`` and ``--version`` are not syntax modes, but
+    Bash reports and exits on either, so the script is just as unrun.
 
     Examples
     --------
@@ -157,6 +171,10 @@ def _executes_nothing(options: list[str]) -> bool:
     True
     >>> _executes_nothing(["-eo", "noexec"])
     True
+    >>> _executes_nothing(["-eD"])
+    True
+    >>> _executes_nothing(["--dump-strings", "-e"])
+    True
     >>> _executes_nothing(["--help", "-e"])
     True
     >>> _executes_nothing(["-eo", "pipefail"])
@@ -164,7 +182,9 @@ def _executes_nothing(options: list[str]) -> bool:
     """
     previous = ""
     for word in options:
-        if word in NON_EXECUTING_OPTIONS or _enables(word, "n"):
+        if word in NON_EXECUTING_OPTIONS or any(
+            _enables(word, letter) for letter in "nD"
+        ):
             return True
         if _takes_an_operand(previous) and word == _NOEXEC_OPTION:
             return True
@@ -300,6 +320,12 @@ def runs_the_script(shell: str | None) -> bool:
     >>> runs_the_script("bash -en {0}")
     False
     >>> runs_the_script("bash -eo noexec {0}")
+    False
+    >>> runs_the_script("bash -eD {0}")
+    False
+    >>> runs_the_script("bash --dump-strings -e {0}")
+    False
+    >>> runs_the_script("bash --dump-po-strings -e {0}")
     False
     >>> runs_the_script("bash --help -e {0}")
     False

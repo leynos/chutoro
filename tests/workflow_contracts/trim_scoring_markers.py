@@ -22,7 +22,12 @@ from __future__ import annotations
 import re
 import typing as typ
 
-from trim_scoring_call_reading import calls_the_method, pool_join
+from trim_scoring_call_reading import (
+    after_turbofish,
+    calls_the_method,
+    pool_join,
+    skip_whitespace,
+)
 
 #: A test over one function body: true when the body holds the shape.
 _Predicate = typ.Callable[[str], bool]
@@ -80,17 +85,48 @@ def _matches(expression: str) -> _Predicate:
 #: argument is spelled or whether it carries a trailing comma. Both readings
 #: live in `trim_scoring_call_reading`.
 #:
-#: `ThreadPool`'s associated-function forms. Rust lets an inherent method be
-#: called through its type, so `ThreadPool::scope(pool, |_| ())` runs the same
-#: work as `pool.scope(|_| ())`. The receiver patterns require a dot and the
-#: free-function anchors reject the `::`, so without this entry the call met
-#: no marker at all. `ThreadPool::new` builds a pool without dispatching to
-#: it, so only the entry points are named.
-_THREAD_POOL_CALLS = (
-    r"\bThreadPool\s*::\s*"
-    r"(?:install|join|scope|scope_fifo|spawn|spawn_fifo|spawn_broadcast|broadcast)"
-    r"\s*\("
+#: `ThreadPool`'s associated-function entry points that dispatch to the pool.
+_ASSOCIATED_ENTRY_POINTS = (
+    "install|join|scope|scope_fifo|spawn|spawn_fifo|spawn_broadcast|broadcast"
 )
+_ASSOCIATED_CALL = re.compile(
+    rf"\bThreadPool\s*::\s*(?:{_ASSOCIATED_ENTRY_POINTS})\b"
+)
+
+
+def pool_associated_call(body: str) -> bool:
+    """Return whether `body` calls a pool entry point through its type.
+
+    Rust lets an inherent method be called through its type, so
+    ``ThreadPool::scope(pool, |_| ())`` runs the same work as
+    ``pool.scope(|_| ())``. The receiver patterns require a dot and the
+    free-function anchors reject the ``::``, so without this reading the call
+    meets no marker at all. An entry point may be generic and its type list
+    may hold a unit type, so ``ThreadPool::install::<_, ()>(pool, job)`` is
+    read by skipping the list with :func:`after_turbofish` before requiring
+    the call's own parenthesis. ``ThreadPool::new`` builds a pool without
+    dispatching to it, so only the entry points are named.
+
+    Examples
+    --------
+    >>> pool_associated_call("ThreadPool::scope(pool, |_| score(jobs))")
+    True
+    >>> pool_associated_call("ThreadPool::install::<_, ()>(pool, job)")
+    True
+    >>> pool_associated_call("ThreadPool::new()")
+    False
+    >>> pool_associated_call("myThreadPool::scope(pool, |_| ())")
+    False
+    >>> pool_associated_call("ThreadPool :: scope (pool, |_| ())")
+    True
+    """
+    for found in _ASSOCIATED_CALL.finditer(body):
+        index = skip_whitespace(body, found.end())
+        if body.startswith("::<", index):
+            index = after_turbofish(body, index + 2)
+        if body.startswith("(", skip_whitespace(body, index)):
+            return True
+    return False
 
 #: `into_par_iter` precedes `par_iter` so the more specific name is reported
 #: for a parallel iterator, and `rayon::` precedes the bare calls so a
@@ -134,7 +170,7 @@ DISPATCH_MARKERS: typ.Final[tuple[tuple[str, _Predicate], ...]] = (
     (".par_match_indices", _matches(r"\.\s*par_match_indices")),
     (".par_drain", _matches(r"\.\s*par_drain")),
     ("rayon::", _matches(r"rayon\s*::")),
-    ("ThreadPool::", _matches(_THREAD_POOL_CALLS)),
+    ("ThreadPool::", pool_associated_call),
     (".install(", calls_the_method("install")),
     # Each receiver form precedes its free-function form. With whitespace
     # between the dot and the name the free pattern's anchor sees a space

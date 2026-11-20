@@ -286,6 +286,36 @@ def test_ci_installs_nextest_before_the_scheduling_target() -> None:
             id="errexit-restored-before-the-installer",
         ),
         pytest.param(
+            f"set +e\nset -- -e\n{NEXTEST_INSTALLER}",
+            False,
+            id="a-positional-parameter-named-e",
+        ),
+        pytest.param(
+            f"set +e\nset value -e\n{NEXTEST_INSTALLER}",
+            False,
+            id="a-positional-parameter-before-errexit",
+        ),
+        pytest.param(
+            f"set +e\nset -o pipefail -e\n{NEXTEST_INSTALLER}",
+            True,
+            id="an-option-operand-before-errexit",
+        ),
+        pytest.param(
+            f"set +e\nfalse && set -e\n{NEXTEST_INSTALLER}\ntrue",
+            False,
+            id="an-errexit-change-on-a-skipped-branch",
+        ),
+        pytest.param(
+            f"exit 0\n{NEXTEST_INSTALLER}",
+            False,
+            id="an-installer-after-an-exit",
+        ),
+        pytest.param(
+            f"{NEXTEST_INSTALLER}\nexit 0",
+            True,
+            id="an-installer-before-an-exit",
+        ),
+        pytest.param(
             f"cat <<'EOF'\n{NEXTEST_INSTALLER}\nEOF",
             False,
             id="a-here-document-body",
@@ -294,6 +324,21 @@ def test_ci_installs_nextest_before_the_scheduling_target() -> None:
             f"cat <<'EOF'\n{NEXTEST_INSTALLER}\nEOF\n{NEXTEST_INSTALLER}",
             True,
             id="after-a-here-document-body",
+        ),
+        pytest.param(
+            f"cat <<'EOF'\n\tEOF\n{NEXTEST_INSTALLER}\nEOF",
+            False,
+            id="a-tab-indented-terminator-of-an-exact-document",
+        ),
+        pytest.param(
+            f"cat <<-EOF\n\t{NEXTEST_INSTALLER}\n\tEOF\n{NEXTEST_INSTALLER}",
+            True,
+            id="a-tab-indented-terminator-of-a-stripping-document",
+        ),
+        pytest.param(
+            f"cat <<-EOF\n  EOF\n{NEXTEST_INSTALLER}\nEOF",
+            False,
+            id="a-space-indented-terminator-of-a-stripping-document",
         ),
     ],
 )

@@ -2867,12 +2867,17 @@ argument, so `names.join(separator,)` stays a slice join, and a comma inside a
 turbofish separates type arguments, so `dir.join(make_path::<A, B>())` stays a
 path join. The turbofish is read by counting its angles, so a nested list such
 as `dir.join(make_path::<Outer<A, B>, C>())` is still one argument and the `>`
-of a function type's arrow, as in `::<fn() -> u8>`, closes nothing. Each
-remaining entry is a boundary-aware pattern rather than a substring, so a slice
-`names.join(", ")`, a slice join on a variable separator, or a path
-`dir.join("file")` in the scored body is not reported as a Rayon join. Rust
-permits whitespace and comments between the `.` and the method name, so
-`pool. install(...)` is read as the call it is. The synthetic sources these
+of a function type's arrow, as in `::<fn() -> u8>`, closes nothing. A qualified
+path may be borrowed, as in
+`cache_dir.join(&<Paths<A, B> as HasPath>::path())`, and its type-argument
+commas still pass one value. Each remaining entry is a boundary-aware pattern
+rather than a substring, so a slice `names.join(", ")`, a slice join on a
+variable separator, or a path `dir.join("file")` in the scored body is not
+reported as a Rayon join. Rust permits whitespace and comments between the `.`
+and the method name, so `pool. install(...)` is read as the call it is, and it
+lets an inherent method be called through its type, so
+`ThreadPool::scope(pool, |_| ())` and `ThreadPool::install::<_, ()>(pool, job)`
+are dispatches while `ThreadPool::new()` is not. The synthetic sources these
 readings are checked against live in `trim_scoring_samples.py`, beside the
 reader rather than inside it. The contract also checks a checked-in copy of the
 former `score_trim_jobs` and requires it to read as a dispatch, so the fixture

@@ -39,11 +39,13 @@ from trim_scoring_reading import (
 )
 from trim_scoring_samples import (
     ASSOCIATED_SCOPE,
+    BORROWED_QUALIFIED_PATH_JOIN,
     BOUND_JOIN,
     COMMENTED_MENTION,
     CONST_EXPRESSION_INSTALL,
     DISPATCHING,
     FACTORY_JOIN,
+    GENERIC_ASSOCIATED_INSTALL,
     GENERIC_PATH_JOIN,
     HISTORICAL_SCORE_TRIM_JOBS,
     LISTED_HELPER_DISPATCH,
@@ -140,6 +142,11 @@ def test_the_historical_scorer_is_the_dispatch_the_contract_rejects() -> None:
         pytest.param(
             QUALIFIED_PATH_JOIN, None, id="a-qualified-path-join"
         ),
+        pytest.param(
+            BORROWED_QUALIFIED_PATH_JOIN,
+            None,
+            id="a-borrowed-qualified-path-join",
+        ),
         pytest.param(POOL_JOIN, ".join(", id="a-pool-join"),
         pytest.param(BOUND_JOIN, ".join(", id="a-bound-callable-join"),
         pytest.param(FACTORY_JOIN, ".join(", id="a-factory-call-join"),
@@ -168,6 +175,11 @@ def test_the_historical_scorer_is_the_dispatch_the_contract_rejects() -> None:
         pytest.param(SCOPED_HELPER_NAME, None, id="a-helper-named-with-scope"),
         pytest.param(
             ASSOCIATED_SCOPE, "ThreadPool::", id="an-associated-function-scope"
+        ),
+        pytest.param(
+            GENERIC_ASSOCIATED_INSTALL,
+            "ThreadPool::",
+            id="a-generic-associated-install",
         ),
         pytest.param(
             UNLISTED_SIBLING, None, id="a-dispatch-in-an-unlisted-sibling"
@@ -298,6 +310,11 @@ def test_an_unlisted_sibling_is_not_attributed_to_a_pinned_function() -> None:
             "ThreadPool::",
             "ThreadPool::scope(pool, |_| ())",
             id="an-associated-function-scope",
+        ),
+        pytest.param(
+            "ThreadPool::",
+            "ThreadPool::install::<_, ()>(pool, || ())",
+            id="a-generic-associated-install",
         ),
         pytest.param("scope_fifo(", "scope_fifo(|scope| run())", id="scope-fifo"),
         pytest.param(

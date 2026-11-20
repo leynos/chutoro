@@ -13,11 +13,12 @@ This module is the reading. ``scheduling_ci_test`` holds the assertions over
 it, so neither file outgrows the 400-line limit ``AGENTS.md`` sets.
 
 Re-use policy: import from ``scheduling_ci_test`` only; this module reuses the
-comment and tokenizing readers in ``scheduling_command_reading`` and the line
-joining and quote masking in ``scheduling_line_reading``. A command shape
-that needs a new rule belongs here with the shell behaviour it models stated
-beside it, so a later reader can check the rule against the shell rather than
-against the tests.
+comment and tokenizing readers in ``scheduling_command_reading``, the line
+joining and quote masking in ``scheduling_line_reading``, and the ``errexit``
+and AND/OR readings in ``scheduling_errexit_reading``. A command shape that
+needs a new rule belongs here with the shell behaviour it models stated beside
+it, so a later reader can check the rule against the shell rather than against
+the tests.
 """
 
 from __future__ import annotations
@@ -25,7 +26,12 @@ from __future__ import annotations
 import typing as typ
 
 from scheduling_command_reading import shell_tokens
-from scheduling_errexit_reading import errexit_states
+from scheduling_errexit_reading import (
+    CARRYING_OPERATOR,
+    OWN_LIST_END,
+    carries_to_the_step,
+    errexit_states,
+)
 from scheduling_line_reading import logical_lines, mask_quotes, restore_quotes
 
 #: The script that installs ``cargo-nextest`` for the job.
@@ -39,27 +45,12 @@ INTERPRETERS = frozenset({"bash", "sh", "dash"})
 #: any run of them as one token, so ``|&`` arrives whole.
 _OPERATOR_CHARS = frozenset(";&|")
 
-#: The only operator that carries the installer's failure to the end of an
-#: AND/OR list. ``installer && make test`` fails when the installer fails;
-#: every other operator ends the list at the installer, so ``installer ||
-#: true`` and ``installer && echo installed || true`` install nothing that can
-#: fail the step. A ``;`` is not a mask: it ends the installer's own list, and
-#: a failure there is not exempt from ``errexit``.
-_CARRYING_OPERATOR = "&&"
-
-#: The operator that ends the installer's own list. A failing simple command
-#: in its own list stops the script under ``errexit``, so the installer's
-#: status reaches the step whatever later commands would do. This shares the
-#: spelling of ``_UNCONDITIONAL_BEFORE`` but answers the other end of the
-#: command: whether a failure survives, not whether a command runs.
-_OWN_LIST_END = ";"
-
 #: Operators after which a command is certain to run. Only ``;`` starts a
 #: fresh command list unconditionally. A command after ``&&`` runs only when
 #: everything before it succeeded, so ``false && installer`` never installs;
 #: a command after ``||``, ``|``, ``&`` or ``|&`` may be skipped or deferred,
 #: as ``true || installer`` shows.
-_UNCONDITIONAL_BEFORE = frozenset({";"})
+_UNCONDITIONAL_BEFORE = frozenset({OWN_LIST_END})
 
 
 class _Segment(typ.NamedTuple):
@@ -225,39 +216,42 @@ def _status_reaches_the_end(line: list[_Segment], index: int) -> bool:
     >>> _status_reaches_the_end(_lines("a && b &")[0], 0)
     False
     """
-    if line[index].follows == _OWN_LIST_END:
+    if line[index].follows == OWN_LIST_END:
         return True
-    if line[index].follows not in {"", _CARRYING_OPERATOR}:
+    if line[index].follows not in {"", CARRYING_OPERATOR}:
         return False
     if line[-1].follows:
         return False
     return all(
-        segment.follows == _CARRYING_OPERATOR for segment in line[index:-1]
+        segment.follows == CARRYING_OPERATOR for segment in line[index:-1]
     )
 
 
-def _ends_the_script(lines: list[list[_Segment]], index: int) -> bool:
-    """Return whether ``lines[index]`` is the script's last command line.
+def _stops_the_script(lines: list[list[_Segment]]) -> tuple[int, int] | None:
+    """Return the first command that ends the script, if one can.
 
-    ``errexit`` does not exit for a command that fails inside an AND/OR list
-    unless it is the command after the final ``&&``. The installer's failure in
-    ``installer && echo installed`` is therefore exempt, and the line reports
-    it only through its own status: a later line that succeeds replaces that
-    status, so the step stays green. Only the script's last command line
-    carries it out to the step, and lines with no command — blanks and
-    comments — are not later commands.
+    ``exit`` ends the shell wherever it runs, so no command after it runs at
+    all and none of them can install anything. Every ``exit`` is treated as
+    ending the script: one inside a branch that may not be taken still leaves
+    a later command's execution unresolved, and reading it as unresolved is
+    what keeps the answer evidence rather than a guess. ``return`` and a
+    sourced script's ``exit`` have the same power, but neither appears in this
+    job's step, so the reading names only the word that does.
 
     Examples
     --------
-    >>> _ends_the_script(_lines("a && b"), 0)
+    >>> _stops_the_script(_lines("a" + chr(10) + "exit 0"))
+    (1, 0)
+    >>> _stops_the_script(_lines("a" + chr(10) + "b")) is None
     True
-    >>> _ends_the_script(_lines("a && b\\ntrue"), 0)
-    False
-    >>> _ends_the_script(_lines("a && b\\n# done"), 0)
+    >>> _stops_the_script(_lines("a ; exit 0")) == (0, 1)
     True
     """
-    commands = [number for number, line in enumerate(lines) if line]
-    return bool(commands) and commands[-1] == index
+    for number, line in enumerate(lines):
+        for index, segment in enumerate(line):
+            if segment.words[:1] == ["exit"]:
+                return number, index
+    return None
 
 
 def _runs_installer(words: list[str]) -> bool:
@@ -284,37 +278,9 @@ def _runs_installer(words: list[str]) -> bool:
     return words[0] in INTERPRETERS and words[1:] == [NEXTEST_INSTALLER]
 
 
-def _carries_to_the_step(
-    lines: list[list[_Segment]], number: int, segment: _Segment
-) -> bool:
-    """Return whether a failure of `segment` still fails the step.
-
-    A command that fails inside an AND/OR list is exempt from ``errexit``
-    unless it is the command after the final ``&&``, so the installer's
-    failure in an ``&&`` chain reaches the step only through the line's own
-    status. A later line that succeeds replaces that status, so such a chain
-    also has to be the script's last command line. Every other operator leaves
-    the failure in the installer's own list, where nothing exempts it.
-
-    Examples
-    --------
-    >>> _carries_to_the_step(_lines("a && b"), 0, _lines("a && b")[0][0])
-    True
-    >>> _carries_to_the_step(
-    ...     _lines("a && b\\ntrue"), 0, _lines("a && b")[0][0]
-    ... )
-    False
-    >>> _carries_to_the_step(_lines("a ; b"), 0, _lines("a ; b")[0][0])
-    True
-    """
-    if segment.follows == _CARRYING_OPERATOR:
-        return _ends_the_script(lines, number)
-    return True
-
-
 def _counts_as_installation(
     lines: list[list[_Segment]],
-    states: list[list[bool]],
+    states: list[list[bool | None]],
     number: int,
     index: int,
 ) -> bool:
@@ -323,8 +289,11 @@ def _counts_as_installation(
     The command has to be a listing of the installer, not a mention of it; it
     has to be certain to run and to run in the foreground; and its failure has
     to be allowed to fail the step, which also means the shell has not turned
-    ``errexit`` off before it. Each clause delegates to the function beside
-    it, which carries the shell behaviour that decides the answer.
+    ``errexit`` off before it. ``errexit`` counts only when it is certainly
+    on: a state that an untaken branch may have changed is not evidence, so
+    the check asks ``is True`` rather than trusting a truthy value. Each
+    clause delegates to the function beside it, which carries the shell
+    behaviour that decides the answer.
 
     Examples
     --------
@@ -336,14 +305,16 @@ def _counts_as_installation(
     True
     >>> _counts_as_installation(lines, [[False]], 0, 0)
     False
+    >>> _counts_as_installation(lines, [[None]], 0, 0)
+    False
     """
     segment = lines[number][index]
     return (
-        states[number][index]
+        states[number][index] is True
         and _runs_installer(segment.words)
         and _reaches_the_installer(lines[number], index)
         and _status_reaches_the_end(lines[number], index)
-        and _carries_to_the_step(lines, number, segment)
+        and carries_to_the_step(lines, number, segment)
     )
 
 
@@ -387,13 +358,17 @@ def installs_nextest(script: str) -> bool:
     ...     "cat <<'EOF'" + chr(10) + NEXTEST_INSTALLER + chr(10) + "EOF"
     ... )
     False
+    >>> installs_nextest("exit 0" + chr(10) + NEXTEST_INSTALLER)
+    False
+    >>> installs_nextest(NEXTEST_INSTALLER + chr(10) + "exit 0")
+    True
     """
     lines = _lines(script)
-    states = errexit_states(
-        [[segment.words for segment in line] for line in lines]
-    )
+    states = errexit_states(lines)
+    stop = _stops_the_script(lines)
     return any(
         _counts_as_installation(lines, states, number, index)
         for number, line in enumerate(lines)
         for index in range(len(line))
+        if stop is None or (number, index) < stop
     )

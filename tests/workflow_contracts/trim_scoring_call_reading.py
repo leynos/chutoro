@@ -12,11 +12,12 @@ This module holds those readings. ``trim_scoring_markers`` keeps the marker
 table that uses them, so neither file outgrows the 400-line limit ``AGENTS.md``
 sets.
 
-Re-use policy: import from ``trim_scoring_markers`` only. The two public
-predicates, :func:`pool_join` and :func:`calls_the_method`, are the whole
-interface; the bracket and angle helpers exist to serve them and are not
-contracts of their own. A new call shape belongs here with the Rust syntax it
-models stated beside it.
+Re-use policy: import from ``trim_scoring_markers`` only. The predicates
+:func:`pool_join` and :func:`calls_the_method` serve the marker table, and
+:func:`after_turbofish` and :func:`skip_whitespace` serve the table's readings
+of a call through its type, as in ``ThreadPool::install::<_, ()>(pool, job)``.
+The remaining helpers exist for these and are not contracts of their own. A
+new call shape belongs here with the Rust syntax it models stated beside it.
 """
 
 from __future__ import annotations
@@ -40,9 +41,7 @@ def pool_join(body: str) -> bool:
     `[T]::join` and `Path::join` take one argument, so the two are told apart
     by the argument list rather than by what the first argument looks like: a
     top-level comma with a value after it means two arguments, whichever form
-    they take. The first may be a closure, `move` or not, a bound callable, or
-    a call that builds one. Reading the list also settles what a pattern
-    could not: a trailing comma declares a single argument, and a comma inside
+    they take; a trailing comma declares a single argument, and a comma inside
     a nested call or a string literal is not a separator. Literals reach here
     already blanked by :func:`rust_source_reading.function_body`.
 
@@ -115,10 +114,9 @@ def _after_qualified_path(text: str, index: int, start: int) -> int | None:
     A qualified path is the other place a type list appears in an expression,
     and it opens with a bare ``<`` rather than ``::<``. Its commas separate
     type arguments, so ``join(<Paths<A, B> as HasPath>::path())`` passes one
-    value rather than two. Only a path beginning a value is skipped: in a
-    comparison such as ``a < b`` the angle follows an operand, so it opens
-    nothing. A real path also closes into ``::``, which is what a comparison
-    in that position cannot spell.
+    value rather than two. Only a path beginning a value is skipped, and a
+    real path closes into ``::``, which the ``<`` of a comparison such as
+    ``a < b`` does not.
 
     Examples
     --------
@@ -133,7 +131,7 @@ def _after_qualified_path(text: str, index: int, start: int) -> int | None:
         return None
     if not _opens_a_value(text, index, start):
         return None
-    rest = _skip_whitespace(text, _after_turbofish(text, index))
+    rest = skip_whitespace(text, after_turbofish(text, index))
     if not text.startswith("::", rest):
         return None
     return rest + 2
@@ -144,7 +142,10 @@ def _opens_a_value(text: str, index: int, start: int) -> bool:
 
     A value begins the scanned list, follows the opening bracket, or follows
     the comma that ended the previous argument. Anywhere else the character
-    follows an operand, as the ``<`` of ``a < b`` does.
+    follows an operand, as the ``<`` of ``a < b`` does. A reference prefix
+    leaves the value a value: ``join(&<Paths<A, B> as HasPath>::path())``
+    passes one borrowed value, and ``&mut`` marks its mutability, so the angle
+    still opens it.
 
     Examples
     --------
@@ -152,13 +153,17 @@ def _opens_a_value(text: str, index: int, start: int) -> bool:
     True
     >>> _opens_a_value("a < b", 2, 0)
     False
-    >>> _opens_a_value("<A>::b, c", 0, 0)
-    True
     >>> _opens_a_value("x, <A>::b", 3, 0)
+    True
+    >>> _opens_a_value("&<A>::b", 1, 0)
+    True
+    >>> _opens_a_value("&mut <A>::b", 5, 0)
     True
     """
     before = text[start:index].rstrip()
-    return not before or before[-1] in "(,"
+    if not before:
+        return True
+    return before[-1] in "(," or before.endswith(("&", "&mut"))
 
 
 def _after_generics(text: str, index: int, start: int) -> int | None:
@@ -180,7 +185,7 @@ def _after_generics(text: str, index: int, start: int) -> int | None:
         return None
     if text[max(index - 2, start):index] != "::":
         return None
-    return _after_turbofish(text, index)
+    return after_turbofish(text, index)
 
 
 def _separates_arguments(depth: int, text: str, index: int) -> bool:
@@ -263,30 +268,28 @@ def _is_angle_close(text: str, index: int) -> bool:
     return text[max(index - 1, 0)] != "-"
 
 
-def _after_turbofish(text: str, start: int) -> int:
+def after_turbofish(text: str, start: int) -> int:
     """Return the index just past the generic list whose ``<`` is at `start`.
 
-    A list may itself be generic: in ``make_path::<Outer<A, B>, C>()`` the
-    commas inside ``Outer<A, B>`` belong to the inner list. Stopping at the
-    first ``>`` ended the skip inside that inner list, leaving its comma to be
-    read as an argument separator, so the angles are counted instead. A
-    bracketed region holds expressions rather than type delimiters: the ``<<``
-    of an array length such as ``[u8; { 1 << 2 }]`` is a shift, and counting
-    it as two openings ran past the call entirely. Such a region is skipped
-    whole, while a function type's arrow is still not a close. An unclosed
-    list ends at the end of the text.
+    A list may itself be generic, so in ``make_path::<Outer<A, B>, C>()`` the
+    commas inside ``Outer<A, B>`` belong to the inner list and the angles are
+    counted rather than the skip stopping at the first ``>``. A bracketed
+    region holds expressions rather than type delimiters: the ``<<`` of
+    ``[u8; { 1 << 2 }]`` is a shift, so the region is skipped whole, while a
+    function type's arrow is still not a close. An unclosed list ends at the
+    end of the text.
 
     Examples
     --------
-    >>> _after_turbofish("::<A, B>())", 2)
+    >>> after_turbofish("::<A, B>())", 2)
     8
-    >>> _after_turbofish("::<Outer<A, B>, C>())", 2)
+    >>> after_turbofish("::<Outer<A, B>, C>())", 2)
     18
-    >>> _after_turbofish("::<fn() -> u8>())", 2)
+    >>> after_turbofish("::<fn() -> u8>())", 2)
     14
-    >>> _after_turbofish("::<_, [u8; { 1 << 2 }]>(x)", 2)
+    >>> after_turbofish("::<_, [u8; { 1 << 2 }]>(x)", 2)
     23
-    >>> _after_turbofish("::<unclosed", 2)
+    >>> after_turbofish("::<unclosed", 2)
     11
     """
     depth = 1
@@ -304,14 +307,14 @@ def _after_turbofish(text: str, start: int) -> int:
     return len(text)
 
 
-def _skip_whitespace(text: str, index: int) -> int:
+def skip_whitespace(text: str, index: int) -> int:
     """Return the index of the first non-space character at or after `index`.
 
     Examples
     --------
-    >>> _skip_whitespace("  x", 0)
+    >>> skip_whitespace("  x", 0)
     2
-    >>> _skip_whitespace("x", 1)
+    >>> skip_whitespace("x", 1)
     1
     """
     while index < len(text) and text[index].isspace():
@@ -337,9 +340,9 @@ def _argument_start(body: str, name_end: int) -> int | None:
     >>> _argument_start("::<_, ()>", 0) is None
     True
     """
-    index = _skip_whitespace(body, name_end)
+    index = skip_whitespace(body, name_end)
     if body.startswith("::<", index):
-        index = _skip_whitespace(body, _after_turbofish(body, index + 2))
+        index = skip_whitespace(body, after_turbofish(body, index + 2))
     if body.startswith("(", index):
         return index + 1
     return None

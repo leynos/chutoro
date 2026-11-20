@@ -84,6 +84,39 @@ def _declared_names(line: str) -> list[str]:
     return uncommented.rstrip().removesuffix("\\").replace("\\#", "#").split()
 
 
+def _declaring_lines(text: str) -> list[str]:
+    """Return `text`'s lines outside a continued Make comment.
+
+    GNU make continues a comment whose line ends in a backslash, so the line
+    after it is comment text and declares nothing however it reads. Dropping
+    those lines before the declarations are selected keeps a commented-out
+    ``.PHONY:`` line from declaring a target that nothing covers. The
+    backslash that continued the comment is removed with them: it continued
+    the comment rather than the declaration, and leaving it would make the
+    selection glue the next real declaration onto this one.
+
+    Examples
+    --------
+    >>> lines = _declaring_lines("# off " + chr(92) + chr(10) + ".PHONY: gate")
+    >>> lines == ["# off "]
+    True
+    >>> _declaring_lines(".PHONY: gate " + chr(35) + " note")
+    ['.PHONY: gate # note']
+    """
+    lines: list[str] = []
+    in_comment = False
+    for line in text.splitlines():
+        if in_comment:
+            in_comment = _comment_continues(line)
+            continue
+        continues = (
+            _make_comment_start(line) is not None and _comment_continues(line)
+        )
+        in_comment = continues
+        lines.append(line.rstrip()[:-1] if continues else line)
+    return lines
+
+
 def phony_targets(text: str) -> set[str]:
     """Return the names a ``.PHONY`` declaration covers.
 
@@ -107,8 +140,20 @@ def phony_targets(text: str) -> set[str]:
     ... )
     >>> sorted(phony_targets(continued))
     ['clean']
+    >>> commented = "# off " + chr(92) + chr(10) + ".PHONY: gate"
+    >>> phony_targets(commented)
+    set()
+    >>> resumed = (
+    ...     ".PHONY: clean " + chr(35) + " " + chr(92) + chr(10) + "gone"
+    ...     + chr(10) + ".PHONY: gate"
+    ... )
+    >>> sorted(phony_targets(resumed))
+    ['clean', 'gate']
     """
-    declared = re.findall(r"^\.PHONY:((?:.*\\\n)*.*)$", text, re.MULTILINE)
+    declaring = "\n".join(_declaring_lines(text))
+    declared = re.findall(
+        r"^\.PHONY:((?:.*\\\n)*.*)$", declaring, re.MULTILINE
+    )
     names: set[str] = set()
     for declaration in declared:
         in_comment = False

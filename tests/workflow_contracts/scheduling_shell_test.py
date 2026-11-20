@@ -106,6 +106,15 @@ def test_a_syntax_only_shell_is_rejected_at_every_scope(scope: str) -> None:
         pytest.param("bash -o noexec {0}", False, id="noexec-named-by-o"),
         pytest.param("bash -eo noexec {0}", False, id="noexec-after-errexit"),
         pytest.param("bash -c run {0}", False, id="a-command-string"),
+        pytest.param("bash -eD {0}", False, id="dump-strings-in-a-cluster"),
+        pytest.param(
+            "bash --dump-strings -e {0}", False, id="a-dump-strings-request"
+        ),
+        pytest.param(
+            "bash --dump-po-strings -e {0}",
+            False,
+            id="a-dump-po-strings-request",
+        ),
         pytest.param("bash --help -e {0}", False, id="a-help-report"),
         pytest.param("bash --version -e {0}", False, id="a-version-report"),
         pytest.param("python {0}", False, id="an-unmodelled-interpreter"),
@@ -119,7 +128,8 @@ def test_a_template_must_run_the_script_under_errexit(
     The scheduling contract reads a failed command as failing the step only
     while ``errexit`` holds. ``bash {0}`` runs the script but lets a later
     success absorb the failure, so it is no more evidence than ``bash -n {0}``;
-    the same applies to combined syntax-only flags, to ``-o noexec``, and to
+    the same applies to combined syntax-only flags, to ``-o noexec``, to ``-D``
+    and its long forms, which imply ``-n`` while dumping strings, and to
     ``--help`` or ``--version``, which exit successfully without running it.
     """
     assert runs_the_script(shell) is expected, (

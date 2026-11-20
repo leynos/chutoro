@@ -282,6 +282,15 @@ fn score_trim_jobs(jobs: Vec<Job>) -> PathBuf {
 }
 """
 
+#: A borrowed qualified path as a join's single argument. The `&` begins the
+#: value rather than ending an operand, so the angle brackets still hold type
+#: arguments and the call passes one argument.
+BORROWED_QUALIFIED_PATH_JOIN = """
+fn score_trim_jobs(jobs: Vec<Job>) -> PathBuf {
+    cache_dir.join(&<Paths<A, B> as HasPath>::path())
+}
+"""
+
 #: An associated-function call to a pool entry point. Rust lets an inherent
 #: method be called through its type, so `ThreadPool::scope(pool, ...)` runs
 #: the closure on the pool exactly as `pool.scope(...)` does. The free-function
@@ -290,6 +299,15 @@ fn score_trim_jobs(jobs: Vec<Job>) -> PathBuf {
 ASSOCIATED_SCOPE = """
 fn score_trim_jobs(jobs: Vec<Job>) {
     ThreadPool::scope(pool, |_| score(jobs));
+}
+"""
+
+#: An associated-function call whose entry point carries a turbofish. The type
+#: list sits between the name and the argument list, so a pattern expecting the
+#: parenthesis straight after the name read this dispatch as serial.
+GENERIC_ASSOCIATED_INSTALL = """
+fn score_trim_jobs(jobs: Vec<Job>) {
+    ThreadPool::install::<_, ()>(pool, || score(jobs));
 }
 """
 
