@@ -140,20 +140,22 @@ section may block on, or dispatch work to, the Rayon pool.
   the `into_par_iter()`, `par_iter_mut()`, and `par_iter()` adapters, the
   parallel slice and string adapters (`.par_bridge()`, `.par_chunks()`,
   `.par_rchunks()`, `.par_windows()`, `.par_split()`, `.par_lines()`,
-  `.par_chars()`, and `.par_drain()`, each standing for its mutable and
-  `_exact` forms as well) and the `spawn_fifo`, `scope_fifo`, `join_context`,
-  `broadcast`, and `spawn_broadcast` calls with their `ThreadPool` method forms
-  such as `pool.scope(...)` and `scope.spawn(...)`. The generic
-  `pool.install::<_, _>(...)` is recognized through its turbofish, and
+  `.par_chars()`, `.par_drain()`, `.par_sort()`, and `.par_extend()`, each
+  standing for its mutable and `_exact` forms as well) and the `spawn_fifo`,
+  `scope_fifo`, `join_context`, `broadcast`, and `spawn_broadcast` calls with
+  their `ThreadPool` method forms such as `pool.scope(...)` and
+  `scope.spawn(...)`. The generic `pool.install::<_, _>(...)` and
+  `out.par_extend::<_>(...)` are recognized through their turbofish, and
   `pool.join(...)` because it takes two arguments where a slice or path join
   takes one. The join is read from its argument list rather than from what the
   first argument looks like: a top-level comma with a value after it means two
   arguments, so an inline closure, a bound callable such as
   `pool.join(left, right)`, and a call that builds one such as
-  `pool.join(make_job(), || ())` are all caught, while a trailing comma leaves
-  `names.join(separator,)` a slice join. Each remaining entry is a
-  boundary-aware pattern, so a slice `names.join(", ")` is not read as a Rayon
-  join. The synthetic sources these readings are checked against live in
+  `pool.join(make_job(), || ())` are all caught, while a trailing comma, or a
+  comma between turbofish type arguments, leaves `names.join(separator,)` and
+  `dir.join(make_path::<A, B>())` slice and path joins. Each remaining entry is
+  a boundary-aware pattern, so a slice `names.join(", ")` is not read as a
+  Rayon join. The synthetic sources these readings are checked against live in
   `trim_scoring_samples.py`, beside the reader rather than inside it. Dispatch
   in a listed helper is therefore caught; dispatch it cannot see still evades
   it: an unlisted helper called by one of the five, an aliased import such as
@@ -231,26 +233,29 @@ features, and the `build-test` CI job runs that target unconditionally beside
 `make test-workflow-contracts`.
 `tests/workflow_contracts/scheduling_contract_test.py` and
 `scheduling_ci_test.py`, reading through `scheduling_reading.py`,
-`rust_declaration_reading.py`, and `workflow_support.py`, pin the target
-recipe, one invocation per fully qualified test name, each invocation's whole
-filter expression as exactly one selector, the zero-test failure flag on each,
-the absence of every feature-selection flag (`--all-features`,
-`--no-default-features`, `--features` and its `=` form, and `-F`), the absence
-of `--no-run` (which compiles the selected tests without executing them), the
-unconditional and blocking execution of the step and its nextest installer
-within an unconditional job, the order that installs `cargo-nextest` before the
-target runs, and that the installer appears as a command in its own right
-rather than as an argument to `echo` or inside a comment, with no operator that
-would replace its status — neither directly after it (`|| true`, `; true`) nor
-further along the same command line (`installer && echo installed || true`) —
-and no interpreter mode that only parses it (`bash -n`). It also requires the
-recipe's commands to run nextest in executable position without Make's
-error-ignoring `-` prefix or a failure-masking shell suffix such as `|| true`.
-Commands are tokenized with shell separators rather than whitespace alone, so
-an unspaced `||true` reads as the operator it is. Finally, it checks that each
-named regression is still declared under `cpu/trim_tests` with a test
-attribute, since an undiscovered function cannot trip `--no-tests=fail`, and
-that a declaration quoted inside a string literal does not stand in for one.
+`scheduling_script_reading.py`, `rust_declaration_reading.py`, and
+`workflow_support.py`, pin the target recipe, one invocation per fully
+qualified test name, each invocation's whole filter expression as exactly one
+selector, the zero-test failure flag on each, the absence of every
+feature-selection flag (`--all-features`, `--no-default-features`, `--features`
+and its `=` form, and `-F`), the absence of `--no-run` (which compiles the
+selected tests without executing them), the unconditional and blocking
+execution of the step and its nextest installer within an unconditional job,
+the order that installs `cargo-nextest` before the target runs, and that the
+installer appears as a command in its own right rather than as an argument to
+`echo` or inside a comment, certain to run — no earlier `||` can skip it
+(`true || installer`) — in the foreground (`installer &` is rejected), with no
+operator that would replace its status, neither directly after it (`|| true`,
+`; true`) nor further along the same command line
+(`installer && echo installed || true`), and with no interpreter mode that only
+parses it (`bash -n`). It also requires the recipe's commands to run nextest in
+executable position without Make's error-ignoring `-` prefix or a
+failure-masking shell suffix such as `|| true`. Commands are tokenized with
+shell separators rather than whitespace alone, so an unspaced `||true` reads as
+the operator it is. Finally, it checks that each named regression is still
+declared under `cpu/trim_tests` with a test attribute, since an undiscovered
+function cannot trip `--no-tests=fail`, and that a declaration quoted inside a
+string literal does not stand in for one.
 
 Positive evidence, on commit `9df7179` on 2026-11-20: both runtime regressions
 pass, one nextest invocation each, 1 passed with 674 skipped apiece, and

@@ -319,6 +319,11 @@ def test_each_regression_is_a_real_test_in_the_scanned_rust_sources(
             False,
             id="a-function-below-an-untested-sibling",
         ),
+        pytest.param(
+            "fn verify() {}\n#[test]\nfn verify() {}",
+            True,
+            id="a-test-below-an-untested-namesake",
+        ),
     ],
 )
 def test_the_declaration_check_reads_the_attribute_above_the_name(
@@ -330,7 +335,8 @@ def test_the_declaration_check_reads_the_attribute_above_the_name(
     discovered, so an unattributed function must not satisfy the check. A
     declaration nested in a ``mod tests`` block carries indentation before its
     ``fn``, which a walk that started at the keyword would read as the first
-    non-attribute line and stop at.
+    non-attribute line and stop at. An unattributed namesake above a real test
+    must not answer for it either: the file does declare the regression.
     """
     assert declares_test(source, "verify") is expected, (
         f"declares_test must return {expected} for {source!r}"

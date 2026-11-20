@@ -149,17 +149,21 @@ def declares_test(source: str, name: str) -> bool:
     True
     >>> declares_test('const S: &str = "#[test]\\nfn verify() {}";', "verify")
     False
+    >>> declares_test("fn verify() {}\\n#[test]\\nfn verify() {}", "verify")
+    True
 
     Returns
     -------
     bool
-        True when the declaration carries an attribute the harness registers.
+        True when any declaration of the name carries an attribute the
+        harness registers.
     """
     code = _blank(source, _regions(source))
-    for match in _FUNCTION.finditer(code):
-        if match["name"] == name:
-            return _is_test(code, match.start())
-    return False
+    return any(
+        _is_test(code, match.start())
+        for match in _FUNCTION.finditer(code)
+        if match["name"] == name
+    )
 
 
 def declared_in_module(source: str, module: str, case: str) -> bool:

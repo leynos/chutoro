@@ -2835,37 +2835,39 @@ The exceptions are explicit rather than accidental:
 checks cover that, and they are deliberately different in kind.
 
 `tests/workflow_contracts/trim_scoring_dispatch_test.py` is the deterministic
-guard. Through the pinned list in its companion `trim_scoring_reading.py`, it
-reads the bodies of the five functions on the scoring path —
-`insert_with_collector` in `cpu/mod.rs`; `score_trim_jobs`,
-`score_trim_jobs_with_metrics`, and `run_trim_job` in `cpu/trim.rs`; and
-`batch_distances_for_trim` in `hnsw/helpers.rs` — and rejects every recognized
-Rayon entry point in them, including the `into_par_iter()`, `par_iter_mut()`,
-and `par_iter()` adapters, the parallel slice and string adapters (the
-`.par_bridge()`, `.par_chunks()`, `.par_rchunks()`, `.par_windows()`,
-`.par_split()`, `.par_lines()`, `.par_chars()`, and `.par_drain()` methods,
+guard. Through the pinned list in its companion `trim_scoring_reading.py`, and
+the marker set in `trim_scoring_markers.py`, it reads the bodies of the five
+functions on the scoring path — `insert_with_collector` in `cpu/mod.rs`;
+`score_trim_jobs`, `score_trim_jobs_with_metrics`, and `run_trim_job` in
+`cpu/trim.rs`; and `batch_distances_for_trim` in `hnsw/helpers.rs` — and
+rejects every recognized Rayon entry point in them, including the
+`into_par_iter()`, `par_iter_mut()`, and `par_iter()` adapters, the parallel
+slice and string adapters (the `.par_bridge()`, `.par_chunks()`,
+`.par_rchunks()`, `.par_windows()`, `.par_split()`, `.par_lines()`,
+`.par_chars()`, `.par_drain()`, `.par_sort()`, and `.par_extend()` methods,
 each standing for its mutable and `_exact` forms as well) and the `spawn_fifo`,
 `scope_fifo`, `join_context`, `broadcast`, and `spawn_broadcast` calls,
 together with their `ThreadPool` method forms such as `pool.scope(...)` and
 `scope.spawn(...)`, which run work in the pool as surely as the free functions
-do. Two receiver forms are matched more narrowly: the generic
-`pool.install::<_, _>(...)` allows the turbofish between the name and the
-argument list, and `pool.join(...)` counts because it takes two arguments where
-a slice or path join takes one. That distinction is read from the argument
-list, not from the first argument's text: a comma at the list's own level with
-a value after it means two arguments, so an inline closure, a bound callable
-such as `pool.join(left, right)`, and a call that builds one such as
-`pool.join(make_job(), || ())` all count. A trailing comma declares a single
-argument, so `names.join(separator,)` stays a slice join. Each remaining entry
-is a boundary-aware pattern rather than a substring, so a slice
-`names.join(", ")`, a slice join on a variable separator, or a path
-`dir.join("file")` in the scored body is not reported as a Rayon join. The
-synthetic sources these readings are checked against live in
-`trim_scoring_samples.py`, beside the reader rather than inside it. The
-contract also checks a checked-in copy of the former `score_trim_jobs` and
-requires it to read as a dispatch, so the fixture cannot drift into agreement
-with the fixed code. A missing function fails the contract rather than reading
-as clean. `make test-workflow-contracts` runs it.
+do. Three receiver forms are matched more narrowly. The generic
+`pool.install::<_, _>(...)` and `out.par_extend::<_>(...)` allow the turbofish
+between the name and the argument list, and `pool.join(...)` counts because it
+takes two arguments where a slice or path join takes one. That distinction is
+read from the argument list, not from the first argument's text: a comma at the
+list's own level with a value after it means two arguments, so an inline
+closure, a bound callable such as `pool.join(left, right)`, and a call that
+builds one such as `pool.join(make_job(), || ())` all count. A trailing comma
+declares a single argument, so `names.join(separator,)` stays a slice join, and
+a comma inside a turbofish separates type arguments, so
+`dir.join(make_path::<A, B>())` stays a path join. Each remaining entry is a
+boundary-aware pattern rather than a substring, so a slice `names.join(", ")`,
+a slice join on a variable separator, or a path `dir.join("file")` in the
+scored body is not reported as a Rayon join. The synthetic sources these
+readings are checked against live in `trim_scoring_samples.py`, beside the
+reader rather than inside it. The contract also checks a checked-in copy of the
+former `score_trim_jobs` and requires it to read as a dispatch, so the fixture
+cannot drift into agreement with the fixed code. A missing function fails the
+contract rather than reading as clean. `make test-workflow-contracts` runs it.
 
 The scan's limits are part of the contract. It can see a listed helper that
 dispatches, but not an unlisted helper called by one of the five, not an
@@ -2884,29 +2886,32 @@ rejected: `--all-features`, `--no-default-features`, `--features` including its
 compiles the selected tests without executing them, so it satisfies every
 selector and count while producing no runtime evidence. The workflow contract,
 `scheduling_contract_test.py` and `scheduling_ci_test.py` with their companions
-`scheduling_reading.py` and `rust_declaration_reading.py`, also requires each
-invocation's whole filter expression to be exactly one selector, so a widened
-expression such as `test(=name) | all()` cannot keep an invocation non-empty
-after the regression is renamed. The recipe's commands must run nextest in
-executable position and must not carry Make's error-ignoring `-` prefix or a
-failure-masking shell suffix such as `|| true` (spaced or not: the commands are
-tokenized with shell separators, so `||true` is read as the operator it is), so
-a command that merely mentions nextest, or one whose failure would be
-suppressed, cannot stand in for the regression. The CI step that runs the
-target is pinned unconditional, as is the nextest installation it depends on,
-and that installation has to be a command in its own right: a step that only
-prints or comments the installer path installs nothing, and neither does one
-whose failure is masked (`installer || true`, `installer; true`, or a `||`
-anywhere later in the same command line, as in
-`installer && echo installed || true`) or one that only parses the script
-(`bash -n installer`). The declaration the recipe names must still carry a test
-attribute, because a plain function of the same name is never discovered and
-the zero-test flag cannot fire for it, and an attributed declaration quoted
-inside a string literal is an example rather than a test. The direct test
-scores a synthetic batch; the insertion-path test drives a real insertion in a
-dedicated four-worker pool and records the thread, the Rayon worker, and a
-non-blocking `insert_mutex` `try_lock` for every post-planning distance
-callback. Both assert that the callbacks stay on the mutex holder.
+`scheduling_reading.py`, `scheduling_script_reading.py`, and
+`rust_declaration_reading.py`, also requires each invocation's whole filter
+expression to be exactly one selector, so a widened expression such as
+`test(=name) | all()` cannot keep an invocation non-empty after the regression
+is renamed. The recipe's commands must run nextest in executable position and
+must not carry Make's error-ignoring `-` prefix or a failure-masking shell
+suffix such as `|| true` (spaced or not: the commands are tokenized with shell
+separators, so `||true` is read as the operator it is), so a command that
+merely mentions nextest, or one whose failure would be suppressed, cannot stand
+in for the regression. The CI step that runs the target is pinned
+unconditional, as is the nextest installation it depends on, and that
+installation has to be a command in its own right: a step that only prints or
+comments the installer path installs nothing, and neither does one whose
+failure is masked (`installer || true`, `installer; true`, or a `||` anywhere
+later in the same command line, as in `installer && echo installed || true`),
+one an earlier `||` can skip (`true || installer` installs nothing when `true`
+succeeds), one sent to the background (`installer &` lets the next command
+start first), or one that only parses the script (`bash -n installer`). The
+declaration the recipe names must still carry a test attribute, because a plain
+function of the same name is never discovered and the zero-test flag cannot
+fire for it, and an attributed declaration quoted inside a string literal is an
+example rather than a test. The direct test scores a synthetic batch; the
+insertion-path test drives a real insertion in a dedicated four-worker pool and
+records the thread, the Rayon worker, and a non-blocking `insert_mutex`
+`try_lock` for every post-planning distance callback. Both assert that the
+callbacks stay on the mutex holder.
 
 What the two checks establish differs:
 

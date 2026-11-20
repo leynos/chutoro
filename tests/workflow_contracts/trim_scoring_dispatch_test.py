@@ -17,7 +17,8 @@ This contract is the deterministic guard. It reads the five functions on the
 scoring path out of the source and rejects every Rayon entry point in their
 bodies, so restoring ``into_par_iter()`` fails here whatever the scheduler
 does. The reading and its pinned function list live in
-``trim_scoring_reading``, the synthetic sources it must tell apart live in
+``trim_scoring_reading``, the marker set it applies lives in
+``trim_scoring_markers``, the synthetic sources it must tell apart live in
 ``trim_scoring_samples``, and the limits of the reading are stated beside the
 function list.
 
@@ -41,6 +42,7 @@ from trim_scoring_samples import (
     COMMENTED_MENTION,
     DISPATCHING,
     FACTORY_JOIN,
+    GENERIC_PATH_JOIN,
     HISTORICAL_SCORE_TRIM_JOBS,
     LISTED_HELPER_DISPATCH,
     LITERAL_MENTION,
@@ -115,6 +117,7 @@ def test_the_historical_scorer_is_the_dispatch_the_contract_rejects() -> None:
         pytest.param(
             PATH_JOIN_TRAILING_COMMA, None, id="a-path-join-trailing-comma"
         ),
+        pytest.param(GENERIC_PATH_JOIN, None, id="a-generic-path-join"),
         pytest.param(POOL_JOIN, ".join(", id="a-pool-join"),
         pytest.param(BOUND_JOIN, ".join(", id="a-bound-callable-join"),
         pytest.param(FACTORY_JOIN, ".join(", id="a-factory-call-join"),
@@ -177,6 +180,11 @@ def test_an_unlisted_sibling_is_not_attributed_to_a_pinned_function() -> None:
         pytest.param(".par_chunks", "items.par_chunks(2)", id="par-chunks"),
         pytest.param(".par_sort", "items.par_sort()", id="par-sort"),
         pytest.param(".par_extend(", "out.par_extend(items)", id="par-extend"),
+        pytest.param(
+            ".par_extend(",
+            "out.par_extend::<_>(items)",
+            id="generic-par-extend",
+        ),
         pytest.param(
             ".par_windows", "items.par_windows(2)", id="par-windows"
         ),

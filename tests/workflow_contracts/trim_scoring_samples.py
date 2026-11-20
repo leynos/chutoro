@@ -122,6 +122,16 @@ fn score_trim_jobs(jobs: Vec<Job>) -> PathBuf {
 }
 """
 
+#: A path join whose single argument is a call with its own type arguments.
+#: The comma between `A` and `B` separates type arguments, not values, so this
+#: is one argument; a scan that counted every comma at the list's level read
+#: the body as a pool join and failed a correct scorer.
+GENERIC_PATH_JOIN = """
+fn score_trim_jobs(jobs: Vec<Job>) -> PathBuf {
+    cache_dir.join(make_path::<A, B>())
+}
+"""
+
 #: A pool join, which is a dispatch: `ThreadPool::join` runs both closures on
 #: the pool, unlike the slice join above. The receiver form needed its own
 #: marker, and the two-argument shape is what keeps the two apart.
