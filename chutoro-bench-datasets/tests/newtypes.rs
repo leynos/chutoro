@@ -1,7 +1,7 @@
 //! Integration tests for dataset recipe domain value types.
 
 use chutoro_bench_datasets::{
-    CacheKey, ObjectKey, RecipeError, RecipeVersion, SourceRole, SourceSpec, SourceUrl,
+    CacheKey, Checksum, ObjectKey, RecipeError, RecipeVersion, SourceRole, SourceSpec, SourceUrl,
 };
 use rstest::rstest;
 
@@ -45,6 +45,20 @@ fn source_spec_with_role_sets_role_and_no_checksum() {
     assert_eq!(spec.role, SourceRole::Secondary);
     assert_eq!(spec.url, url);
     assert!(spec.checksum.is_none());
+}
+
+#[test]
+fn source_spec_checksum_accepts_a_parsed_checksum() {
+    let url =
+        SourceUrl::parse("https://example.test/file").expect("source URL fixture should parse");
+    let checksum =
+        Checksum::parse("sha256:0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef")
+            .expect("canonical checksum fixture should parse");
+    let mut spec = SourceSpec::primary(url);
+
+    assert!(spec.checksum.is_none());
+    spec.checksum = Some(checksum.clone());
+    assert_eq!(spec.checksum, Some(checksum));
 }
 
 #[test]

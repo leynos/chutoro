@@ -1,8 +1,8 @@
 //! Opaque key newtypes and recipe lifecycle contract types.
 //!
-//! Includes cache and object-store key wrappers, checksum and manifest
-//! digest placeholders, and the phase, port, and partial-state types used
-//! to describe recipe execution and failure cleanup.
+//! Includes cache and object-store key wrappers, the manifest digest, and the
+//! phase, port, and partial-state types used to describe recipe execution and
+//! failure cleanup.
 //!
 //! Cache and object keys are opaque strings in the domain model. Any
 //! interpretation of a key as a filesystem path, object-store prefix, or other
@@ -11,8 +11,6 @@
 //! how a backend names its records.
 
 use std::sync::Arc;
-
-use crate::RecipeError;
 
 /// Cache object key used by mutable recipe storage.
 #[derive(Clone, Debug, Eq, Hash, PartialEq)]
@@ -70,37 +68,6 @@ impl_opaque_key!(
     "Create an object key from an opaque identifier.",
     "manifests/mnist.json"
 );
-
-/// Placeholder checksum type for future source validation.
-#[non_exhaustive]
-#[derive(Clone, Debug, Eq, Hash, PartialEq)]
-pub enum Checksum {
-    /// Unreachable placeholder until roadmap item `10.1.2` selects hashing.
-    #[cfg(any())]
-    Sha256([u8; 32]),
-}
-
-impl Checksum {
-    /// Reject checksum parsing until roadmap item `10.1.2`.
-    ///
-    /// # Errors
-    ///
-    /// Always returns [`RecipeError::ChecksumUnsupported`] in this milestone.
-    ///
-    /// # Examples
-    ///
-    /// ```
-    /// use chutoro_bench_datasets::{Checksum, RecipeError};
-    ///
-    /// let error = Checksum::parse("sha256:abc123")
-    ///     .expect_err("checksums are deferred to roadmap item 10.1.2");
-    /// assert!(matches!(error, RecipeError::ChecksumUnsupported));
-    /// ```
-    #[must_use = "handle the checksum parse result"]
-    pub const fn parse(_value: &str) -> Result<Self, RecipeError> {
-        Err(RecipeError::ChecksumUnsupported)
-    }
-}
 
 /// Digest of the published manifest.
 #[derive(Clone, Debug, Eq, Hash, PartialEq)]
