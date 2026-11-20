@@ -135,15 +135,33 @@ def _after_turbofish(text: str, start: int) -> int:
     the call is given. The ``::`` requirement is what keeps a comparison such
     as ``a < b`` from opening a list that never closes.
 
+    A list may itself be generic: in ``make_path::<Outer<A, B>, C>()`` the
+    commas inside ``Outer<A, B>`` belong to the inner list. Stopping at the
+    first ``>`` ended the skip inside that inner list, leaving its comma to be
+    read as an argument separator, so the angles are counted instead. An
+    arrow in a function type closes nothing, since its ``>`` follows a ``-``.
+
     Examples
     --------
     >>> _after_turbofish("::<A, B>())", 0)
     8
+    >>> _after_turbofish("::<Outer<A, B>, C>())", 0)
+    18
+    >>> _after_turbofish("::<fn() -> u8>())", 0)
+    14
     >>> _after_turbofish("::<unclosed", 0)
     11
     """
-    close = text.find(">", start + 1)
-    return len(text) if close < 0 else close + 1
+    depth = 0
+    for index in range(start, len(text)):
+        char = text[index]
+        if char == "<":
+            depth += 1
+        elif char == ">" and text[max(index - 1, 0)] != "-":
+            depth -= 1
+            if depth == 0:
+                return index + 1
+    return len(text)
 
 
 def _follows_a_value(text: str, start: int) -> bool:

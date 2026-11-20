@@ -6,7 +6,9 @@ keep running. Those assertions are about text this module reads: the
 
 The reading is separate from the assertions for the same reasons as
 ``trim_scoring_reading``: it carries its own cases and doctests, and keeping
-both in one file pushed it past the 400-line limit ``AGENTS.md`` sets.
+both in one file pushed it past the 400-line limit ``AGENTS.md`` sets. Reading
+one shell command — where its comment ends and whether it runs nextest at all —
+lives in ``scheduling_command_reading`` for the same reason.
 
 Nothing here asserts anything. A reader that cannot read its subject raises
 rather than returning an empty answer, so a caller never mistakes a reading
@@ -18,6 +20,7 @@ from __future__ import annotations
 import re
 import shlex
 
+from scheduling_command_reading import is_nextest_invocation, strip_shell_comment
 from workflow_support import ROOT
 
 #: The target that runs both scheduling regressions.
@@ -48,23 +51,6 @@ QUALIFIED_REGRESSIONS = {
 #: coverage: a filter the reading cannot see is a filter it cannot vouch for.
 FILTER_FLAGS = ("-E", "--filter-expr")
 
-#: The spellings of the Cargo executable a scheduling invocation may start
-#: with. `$(CARGO)` is what the Makefile uses; a literal `cargo` is accepted
-#: because it runs the same command. A command that only mentions nextest in
-#: an argument, such as `echo $(CARGO) nextest run ...`, runs nothing, and
-#: every assertion about its arguments would still pass.
-CARGO_COMMANDS = ("$(CARGO)", "cargo")
-
-#: Shell separators that continue a recipe line after the nextest invocation.
-#: `|| true` and `; true` make the line succeed after nextest fails, so the
-#: target stays green while the regression it exists to run is broken.
-SHELL_SEPARATORS = frozenset({";", ";;", "&&", "||", "|", "&"})
-
-#: Flags that compile without running. `--no-run` builds the tests and executes
-#: none of them, so an invocation carrying it produces no runtime evidence even
-#: though its selector, count and flags all look right.
-COMPILE_ONLY_FLAGS = ("--no-run",)
-
 #: Every spelling that selects a feature set. The regressions are
 #: feature-independent, so the gate must build the default set: a feature flag
 #: would tie the evidence to whatever that set compiles, which is the change
@@ -86,23 +72,6 @@ def makefile_text() -> str:
     read.
     """
     return MAKEFILE.read_text(encoding="utf-8")
-
-
-def _strip_shell_comment(line: str) -> str:
-    """Return `line` without its trailing shell comment.
-
-    Only an unescaped ``#`` starts a comment, so a literal ``\\#`` survives.
-    Comments are removed before any assertion reads a command, because a
-    comment that mentioned a flag would otherwise stand in for the flag on an
-    invocation that omits it.
-
-    Examples
-    --------
-    >>> _strip_shell_comment("make test#run the suite")
-    'make test'
-    """
-    comment = re.search(r"(?<!\\)#", line)
-    return line if comment is None else line[: comment.start()]
 
 
 def recipe_commands(text: str, target: str) -> list[str]:
@@ -132,7 +101,7 @@ def recipe_commands(text: str, target: str) -> list[str]:
     commands: list[str] = []
     pending = ""
     for raw in match.group("recipe").splitlines():
-        command = _strip_shell_comment(raw.strip())
+        command = strip_shell_comment(raw.strip())
         if not command:
             continue
         if command.endswith("\\"):
@@ -168,64 +137,6 @@ def target_recipe(text: str, target: str) -> str:
         message = f"{target} has no recipe"
         raise ValueError(message)
     return " ".join(commands)
-
-
-def _shell_tokens(command: str) -> list[str]:
-    """Split `command` into words, keeping quoted text whole.
-
-    ``shlex.split`` leaves an unspaced ``||true`` attached to the word before
-    it, so a separator check on the resulting tokens misses it. Splitting on
-    the separator characters themselves still respects quotes, and leaves a
-    word such as ``$(CARGO)`` intact because only separators are punctuation.
-
-    Examples
-    --------
-    >>> _shell_tokens("$(CARGO) nextest run ||true")
-    ['$(CARGO)', 'nextest', 'run', '||', 'true']
-    >>> _shell_tokens("nextest run -E 'test(=a) | all()'")
-    ['nextest', 'run', '-E', 'test(=a) | all()']
-    """
-    lexer = shlex.shlex(command, posix=True, punctuation_chars=";&|")
-    lexer.whitespace_split = True
-    return list(lexer)
-
-
-def is_nextest_invocation(command: str) -> bool:
-    """Return whether `command` runs nextest in its executable position.
-
-    A recipe line that only mentions nextest in an argument runs nothing.
-    Three other shapes run it and still leave the target green when the
-    regression fails: Make's ignore-error prefix, `|| true`, and a second
-    command after `;`. A fourth runs nothing at all: `--no-run` compiles the
-    tests without executing them, so the selector is satisfied and the
-    evidence is not produced. Each spelling that is not the plain Cargo
-    command leaves the line out of the invocation list, where the
-    one-per-regression count rejects it.
-
-    Examples
-    --------
-    >>> is_nextest_invocation("$(CARGO) nextest run -p chutoro-core --lib")
-    True
-    >>> is_nextest_invocation("echo $(CARGO) nextest run -p chutoro-core")
-    False
-    >>> is_nextest_invocation("-$(CARGO) nextest run -p chutoro-core")
-    False
-    >>> is_nextest_invocation("$(CARGO) nextest run -p chutoro-core || true")
-    False
-    >>> is_nextest_invocation("$(CARGO) nextest run -p chutoro-core ||true")
-    False
-    >>> is_nextest_invocation("$(CARGO) nextest run -p chutoro-core --no-run")
-    False
-    """
-    tokens = _shell_tokens(command)
-    rejected = SHELL_SEPARATORS.union(COMPILE_ONLY_FLAGS)
-    if any(token in rejected for token in tokens):
-        return False
-    return (
-        len(tokens) >= 3
-        and tokens[0] in CARGO_COMMANDS
-        and tokens[1:3] == ["nextest", "run"]
-    )
 
 
 def nextest_invocations() -> list[str]:

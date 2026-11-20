@@ -182,6 +182,11 @@ def test_ci_installs_nextest_before_the_scheduling_target() -> None:
         pytest.param(
             f"{NEXTEST_INSTALLER} &", False, id="sent-to-the-background"
         ),
+        pytest.param(
+            f"{NEXTEST_INSTALLER} && echo done &",
+            False,
+            id="backgrounded-at-the-end",
+        ),
     ],
 )
 def test_the_installer_selector_reads_executable_use(
@@ -197,7 +202,8 @@ def test_the_installer_selector_reads_executable_use(
     along an ``&&`` chain masks the installer's failure just as well as one
     placed right after it. A preceding ``||`` is the mirror image: ``true ||
     installer`` gives the selector a command that runs to completion and never
-    installs, and a trailing ``&`` lets the rest of the step start first.
+    installs, and a trailing ``&`` lets the rest of the step start first
+    whether it follows the installer or a later command in the chain.
     """
     assert installs_nextest(script) is expected, (
         f"installs_nextest must return {expected} for {script!r}"

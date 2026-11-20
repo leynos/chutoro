@@ -152,13 +152,15 @@ section may block on, or dispatch work to, the Rayon pool.
   arguments, so an inline closure, a bound callable such as
   `pool.join(left, right)`, and a call that builds one such as
   `pool.join(make_job(), || ())` are all caught, while a trailing comma, or a
-  comma between turbofish type arguments, leaves `names.join(separator,)` and
-  `dir.join(make_path::<A, B>())` slice and path joins. Each remaining entry is
-  a boundary-aware pattern, so a slice `names.join(", ")` is not read as a
-  Rayon join. The synthetic sources these readings are checked against live in
-  `trim_scoring_samples.py`, beside the reader rather than inside it. Dispatch
-  in a listed helper is therefore caught; dispatch it cannot see still evades
-  it: an unlisted helper called by one of the five, an aliased import such as
+  comma between turbofish type arguments — including one inside a nested list
+  such as `dir.join(make_path::<Outer<A, B>, C>())` — leaves
+  `names.join(separator,)` and `dir.join(make_path::<A, B>())` slice and path
+  joins. Each remaining entry is a boundary-aware pattern, so a slice
+  `names.join(", ")` is not read as a Rayon join. The synthetic sources these
+  readings are checked against live in `trim_scoring_samples.py`, beside the
+  reader rather than inside it. Dispatch in a listed helper is therefore
+  caught; dispatch it cannot see still evades it: an unlisted helper called by
+  one of the five, an aliased import such as
   `use rayon::spawn as run; run(...)`, or a `DataSource` that dispatches on its
   own account. The scan fails closed when a pinned function is missing, so a
   rename or a move cannot read as clean. The runtime scheduling tests in
@@ -233,29 +235,32 @@ features, and the `build-test` CI job runs that target unconditionally beside
 `make test-workflow-contracts`.
 `tests/workflow_contracts/scheduling_contract_test.py` and
 `scheduling_ci_test.py`, reading through `scheduling_reading.py`,
-`scheduling_script_reading.py`, `rust_declaration_reading.py`, and
-`workflow_support.py`, pin the target recipe, one invocation per fully
-qualified test name, each invocation's whole filter expression as exactly one
-selector, the zero-test failure flag on each, the absence of every
-feature-selection flag (`--all-features`, `--no-default-features`, `--features`
-and its `=` form, and `-F`), the absence of `--no-run` (which compiles the
-selected tests without executing them), the unconditional and blocking
-execution of the step and its nextest installer within an unconditional job,
-the order that installs `cargo-nextest` before the target runs, and that the
-installer appears as a command in its own right rather than as an argument to
-`echo` or inside a comment, certain to run — no earlier `||` can skip it
-(`true || installer`) — in the foreground (`installer &` is rejected), with no
-operator that would replace its status, neither directly after it (`|| true`,
-`; true`) nor further along the same command line
-(`installer && echo installed || true`), and with no interpreter mode that only
-parses it (`bash -n`). It also requires the recipe's commands to run nextest in
-executable position without Make's error-ignoring `-` prefix or a
-failure-masking shell suffix such as `|| true`. Commands are tokenized with
-shell separators rather than whitespace alone, so an unspaced `||true` reads as
-the operator it is. Finally, it checks that each named regression is still
-declared under `cpu/trim_tests` with a test attribute, since an undiscovered
-function cannot trip `--no-tests=fail`, and that a declaration quoted inside a
-string literal does not stand in for one.
+`scheduling_command_reading.py`, `scheduling_script_reading.py`,
+`rust_declaration_reading.py`, and `workflow_support.py`, pin the target
+recipe, one invocation per fully qualified test name, each invocation's whole
+filter expression as exactly one selector, the zero-test failure flag on each,
+the absence of every feature-selection flag (`--all-features`,
+`--no-default-features`, `--features` and its `=` form, and `-F`), the absence
+of `--no-run` (which compiles the selected tests without executing them), the
+unconditional and blocking execution of the step and its nextest installer
+within an unconditional job, the order that installs `cargo-nextest` before the
+target runs, and that the installer appears as a command in its own right
+rather than as an argument to `echo` or inside a comment, certain to run — no
+earlier `||` can skip it (`true || installer`) — in the foreground (a trailing
+`&` is rejected, whether it follows the installer or a later command, as in
+`installer && echo done &`), with no operator that would replace its status,
+neither directly after it (`|| true`, `; true`) nor further along the same
+command line (`installer && echo installed || true`), and with no interpreter
+mode that only parses it (`bash -n`). It also requires the recipe's commands to
+run nextest in executable position without Make's error-ignoring `-` prefix or
+a failure-masking shell suffix such as `|| true`. Comments are removed with
+shell word boundaries, so a `#` inside a word, as in a redirect to
+`scheduling#log`, is part of that word and the mask after it stays visible.
+Commands are tokenized with shell separators rather than whitespace alone, so
+an unspaced `||true` reads as the operator it is. Finally, it checks that each
+named regression is still declared under `cpu/trim_tests` with a test
+attribute, since an undiscovered function cannot trip `--no-tests=fail`, and
+that a declaration quoted inside a string literal does not stand in for one.
 
 Positive evidence, on commit `f0b8bbb` on 2026-11-20: both runtime regressions
 pass, one nextest invocation each, 1 passed with 674 skipped apiece, and

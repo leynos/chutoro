@@ -24,13 +24,13 @@ from __future__ import annotations
 
 import pytest
 from rust_declaration_reading import declares_test
+from scheduling_command_reading import is_nextest_invocation
 from scheduling_reading import (
     QUALIFIED_REGRESSIONS,
     REGRESSIONS,
     TARGET,
     feature_flags,
     invocations_missing_flag,
-    is_nextest_invocation,
     makefile_text,
     nextest_invocations,
     phony_targets,
@@ -155,6 +155,37 @@ def test_the_recipe_does_not_ignore_errors() -> None:
     ignored = [command for command in commands if command.startswith("-")]
     assert not ignored, (
         f"the scheduling recipe must not ignore errors: {ignored}"
+    )
+
+
+def test_a_hash_is_a_comment_only_where_a_word_starts() -> None:
+    """A ``#`` inside a word belongs to that word, not to a comment.
+
+    Cutting at the first ``#`` turned
+    ``nextest run >scheduling#log || true`` into an unmasked invocation, so a
+    line that masks the regression's failure would have counted as the gate
+    that runs it. A genuine trailing comment must still go, because an
+    argument it mentioned would otherwise answer for an invocation that omits
+    it.
+    """
+    masked = (
+        f"{TARGET}:\n"
+        "\t$(CARGO) nextest run -p chutoro-core --lib >scheduling#log || true\n"
+    )
+    commented = (
+        f"{TARGET}:\n"
+        "\t$(CARGO) nextest run -p chutoro-core --lib # --no-tests=fail\n"
+    )
+    in_word = recipe_commands(masked, TARGET)
+    trailing = recipe_commands(commented, TARGET)
+    assert in_word == [
+        "$(CARGO) nextest run -p chutoro-core --lib >scheduling#log || true"
+    ], f"the hash inside the word must survive; read {in_word}"
+    assert not is_nextest_invocation(in_word[0]), (
+        "the mask after the redirect must still disqualify the command"
+    )
+    assert trailing == ["$(CARGO) nextest run -p chutoro-core --lib"], (
+        f"the trailing comment must be removed; read {trailing}"
     )
 
 

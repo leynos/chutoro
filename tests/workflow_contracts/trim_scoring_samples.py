@@ -132,6 +132,17 @@ fn score_trim_jobs(jobs: Vec<Job>) -> PathBuf {
 }
 """
 
+#: A path join whose single argument is generic in its own right. The comma
+#: between `A` and `B` sits inside `Outer<A, B>`, so only the comma after the
+#: inner list is at the outer list's level and even that one belongs to the
+#: turbofish; a skip that stopped at the first `>` ended inside the inner list
+#: and read the body as a pool join.
+NESTED_GENERIC_PATH_JOIN = """
+fn score_trim_jobs(jobs: Vec<Job>) -> PathBuf {
+    cache_dir.join(make_path::<Outer<A, B>, C>())
+}
+"""
+
 #: A pool join, which is a dispatch: `ThreadPool::join` runs both closures on
 #: the pool, unlike the slice join above. The receiver form needed its own
 #: marker, and the two-argument shape is what keeps the two apart.

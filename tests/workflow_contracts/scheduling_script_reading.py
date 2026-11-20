@@ -166,9 +166,12 @@ def _status_reaches_the_end(line: list[_Segment], index: int) -> bool:
     installer's own operator decides what happens next, but so does every
     operator after it: ``installer && echo installed || true`` records the
     installation attempt and still reports success, so reading the installer's
-    operator alone accepted a masked line. The last command has to be read
-    too: a trailing ``&`` sends it to the background, so the next command
-    starts before it has finished and its failure belongs to no one.
+    operator alone accepted a masked line. The whole line's end has to be read
+    too: a trailing ``&`` backgrounds the last command, so the shell moves on
+    before it finishes and its failure belongs to no one. That holds whether
+    the backgrounded command is the installer (``installer &``) or a later one
+    (``installer && echo done &``), which is why the check reads the final
+    segment rather than the installer's own.
 
     Examples
     --------
@@ -182,8 +185,12 @@ def _status_reaches_the_end(line: list[_Segment], index: int) -> bool:
     True
     >>> _status_reaches_the_end(_lines("a &")[0], 0)
     False
+    >>> _status_reaches_the_end(_lines("a && b &")[0], 0)
+    False
     """
     if line[index].follows not in {"", _CARRYING_OPERATOR}:
+        return False
+    if line[-1].follows:
         return False
     return all(
         segment.follows == _CARRYING_OPERATOR for segment in line[index:-1]

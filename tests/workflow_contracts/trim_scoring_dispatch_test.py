@@ -46,6 +46,7 @@ from trim_scoring_samples import (
     HISTORICAL_SCORE_TRIM_JOBS,
     LISTED_HELPER_DISPATCH,
     LITERAL_MENTION,
+    NESTED_GENERIC_PATH_JOIN,
     PATH_JOIN,
     PATH_JOIN_TRAILING_COMMA,
     POOL_JOIN,
@@ -118,6 +119,11 @@ def test_the_historical_scorer_is_the_dispatch_the_contract_rejects() -> None:
             PATH_JOIN_TRAILING_COMMA, None, id="a-path-join-trailing-comma"
         ),
         pytest.param(GENERIC_PATH_JOIN, None, id="a-generic-path-join"),
+        pytest.param(
+            NESTED_GENERIC_PATH_JOIN,
+            None,
+            id="a-nested-generic-path-join",
+        ),
         pytest.param(POOL_JOIN, ".join(", id="a-pool-join"),
         pytest.param(BOUND_JOIN, ".join(", id="a-bound-callable-join"),
         pytest.param(FACTORY_JOIN, ".join(", id="a-factory-call-join"),
