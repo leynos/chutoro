@@ -50,6 +50,10 @@ NON_EXECUTING_OPTIONS = frozenset(
 #: truncated.
 _NON_EXECUTING_LETTERS = "nDt"
 
+#: Long options whose value is the word after them, so an option-looking
+#: word there is a file name rather than a shell option.
+_LONG_OPTIONS_WITH_OPERANDS = frozenset({"--rcfile", "--init-file"})
+
 #: Shell option names, written as the word after ``-o`` or ``-O``, that
 #: matter to this reader.
 _NOEXEC_OPTION = "noexec"
@@ -139,18 +143,24 @@ def _enables(word: str, letter: str) -> bool:
 
 
 def _takes_an_operand(word: str) -> bool:
-    """Return whether `word` ends a short option cluster with ``o`` or ``O``.
+    """Return whether `word` takes its value as the next word.
 
-    The option name follows as the next word, even after a cluster, as in
-    ``-eo pipefail``.
+    A short option cluster ending in ``o`` or ``O`` names a shell or ``shopt``
+    option there, and ``--rcfile`` and ``--init-file`` name a file. The word
+    after any of them is a value, so an ``-e`` or ``-n`` written there is not
+    an option of its own.
 
     Examples
     --------
     >>> _takes_an_operand("-eo")
     True
+    >>> _takes_an_operand("--rcfile")
+    True
     >>> _takes_an_operand("-e")
     False
     """
+    if word in _LONG_OPTIONS_WITH_OPERANDS:
+        return True
     return _is_short_cluster(word) and word.endswith(("o", "O"))
 
 
@@ -183,17 +193,19 @@ def _executes_nothing(options: list[str]) -> bool:
     True
     >>> _executes_nothing(["-eo", "pipefail"])
     False
+    >>> _executes_nothing(["--rcfile", "-n"])
+    False
     """
     previous = ""
     for word in options:
+        if _takes_an_operand(previous):
+            if word in {_NOEXEC_OPTION, _ONESHOT_OPTION}:
+                return True
+            previous = ""
+            continue
         if word in NON_EXECUTING_OPTIONS or any(
             _enables(word, letter) for letter in _NON_EXECUTING_LETTERS
         ):
-            return True
-        if _takes_an_operand(previous) and word in {
-            _NOEXEC_OPTION,
-            _ONESHOT_OPTION,
-        }:
             return True
         previous = word
     return False
@@ -215,12 +227,17 @@ def _enables_errexit(options: list[str]) -> bool:
     True
     >>> _enables_errexit(["--noprofile"])
     False
+    >>> _enables_errexit(["--rcfile", "-e"])
+    False
     """
     previous = ""
     for word in options:
+        if _takes_an_operand(previous):
+            if word == _ERREXIT_OPTION:
+                return True
+            previous = ""
+            continue
         if _enables(word, "e"):
-            return True
-        if _takes_an_operand(previous) and word == _ERREXIT_OPTION:
             return True
         previous = word
     return False
@@ -288,14 +305,16 @@ def _reaches_the_script(options: list[str]) -> bool:
     >>> _reaches_the_script(["-s"])
     False
     """
-    index = 0
-    while index < len(options):
-        word = options[index]
+    previous = ""
+    for word in options:
+        if _takes_an_operand(previous):
+            previous = ""
+            continue
         if _runs_a_command_string(word):
             return False
         if not word.startswith("-") or word == "-":
             return False
-        index += 2 if _takes_an_operand(word) else 1
+        previous = word
     return True
 
 
@@ -360,6 +379,8 @@ def runs_the_script(shell: str | None) -> bool:
     >>> runs_the_script("bash -eo noexec {0}")
     False
     >>> runs_the_script("bash -et {0}")
+    False
+    >>> runs_the_script("bash --rcfile -e {0}")
     False
     >>> runs_the_script("bash -o onecmd -e {0}")
     False

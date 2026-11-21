@@ -114,7 +114,7 @@ def recipe_commands(text: str, target: str) -> list[str]:
     """
     pattern = re.compile(
         rf"^{re.escape(target)}:[^\n]*\n"
-        r"(?P<recipe>(?:[ \t]+[^\n]*\n|[ \t]*\n)*)",
+        r"(?P<recipe>(?:[ \t]*#[^\n]*\n|[ \t]+[^\n]*\n|[ \t]*\n)*)",
         re.MULTILINE,
     )
     match = pattern.search(text)

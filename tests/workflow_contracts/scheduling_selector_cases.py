@@ -298,4 +298,19 @@ SELECTOR_CASES: typ.Final[tuple[tuple[str, bool, str], ...]] = (
         False,
         "a-background-after-a-quoted-redirection-target",
     ),
+    (
+        f"builtin set +e\n{NEXTEST_INSTALLER}\ntrue",
+        False,
+        "errexit-disabled-through-builtin-set",
+    ),
+    (
+        f"set $'-n'\n{NEXTEST_INSTALLER}",
+        False,
+        "noexec-named-by-an-ansi-c-word",
+    ),
+    (
+        'echo "pre' + chr(92) + '\npare" ; ' + NEXTEST_INSTALLER,
+        True,
+        "a-quoted-continuation-before-the-installer",
+    ),
 )

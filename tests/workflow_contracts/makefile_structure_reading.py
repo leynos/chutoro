@@ -201,6 +201,45 @@ def _closes_a_definition(line: str) -> bool:
     return _directive(line).split()[:1] == ["endef"]
 
 
+def _starts_a_continued_comment(line: str) -> bool:
+    """Return whether `line` is a comment that continues onto the next one.
+
+    Examples
+    --------
+    >>> _starts_a_continued_comment("# note " + chr(92))
+    True
+    >>> _starts_a_continued_comment(".PHONY: gate")
+    False
+    """
+    return make_comment_start(line) is not None and _continues(line)
+
+
+def _keep_line(lines: list[str], line: str) -> bool:
+    """Append `line`, dropping a continuation backslash, and report a comment.
+
+    A continued comment is kept without its backslash: the backslash
+    continued the comment rather than the declaration that follows it.
+
+    Examples
+    --------
+    >>> kept = []
+    >>> _keep_line(kept, ".PHONY: gate")
+    False
+    >>> kept
+    ['.PHONY: gate']
+    >>> kept = []
+    >>> _keep_line(kept, "# note " + chr(92))
+    True
+    >>> kept == ["# note "]
+    True
+    """
+    if _starts_a_continued_comment(line):
+        lines.append(line[:-1])
+        return True
+    lines.append(line)
+    return False
+
+
 def declaring_lines(text: str) -> list[str]:
     """Return `text`'s lines outside a continued comment or a definition.
 
@@ -242,6 +281,12 @@ def declaring_lines(text: str) -> list[str]:
     >>> conditional = "ifeq (0,1)" + chr(10) + ".PHONY: gate" + chr(10) + "endif"
     >>> declaring_lines(conditional)
     []
+    >>> continued = (
+    ...     "ifeq (0,1)" + chr(10) + "# hidden " + chr(92) + chr(10)
+    ...     + "endif" + chr(10) + ".PHONY: gate" + chr(10) + "endif"
+    ... )
+    >>> declaring_lines(continued)
+    []
     """
     lines: list[str] = []
     in_comment = False
@@ -255,6 +300,7 @@ def declaring_lines(text: str) -> list[str]:
             definition += _definition_delta(line)
             continue
         if conditionals:
+            in_comment = _starts_a_continued_comment(line)
             conditionals += _conditional_delta(line)
             continue
         if _opens_a_definition(line):
@@ -263,9 +309,7 @@ def declaring_lines(text: str) -> list[str]:
         if _opens_a_conditional(line):
             conditionals = 1
             continue
-        continues = make_comment_start(line) is not None and _continues(line)
-        in_comment = continues
-        lines.append(line[:-1] if continues else line)
+        in_comment = _keep_line(lines, line)
     return lines
 
 

@@ -2886,15 +2886,16 @@ spaces, so `cache_dir . join(cache_file)` is the path join it is and not Rayon's
 the turbofish before the argument list, and a keyword or a loop label before
 the name is not a receiver, so `return join(left, right)` and
 `break 'outer join(left, right)` are read as the dispatches they are, as is a
-call through a grouped operand, `(join)(left, right)`. Whitespace between `::`
-and `<` is allowed, so `pool.install:: <_, ()>(...)` is read as the call it is.
-The receiver forms skip a turbofish as well, so `pool.scope::<_, ()>(|_| ())`
-is the same dispatch as `pool.scope(|_| ())`. The synthetic sources these
-readings are checked against live in `trim_scoring_samples.py`, beside the
-reader rather than inside it. The contract also checks a checked-in copy of the
-former `score_trim_jobs` and requires it to read as a dispatch, so the fixture
-cannot drift into agreement with the fixed code. A missing function fails the
-contract rather than reading as clean. `make test-workflow-contracts` runs it.
+call through a grouped operand, `(join)(left, right)` and
+`(join::<_, _, (), ()>)(left, right)`. Whitespace between `::` and `<` is
+allowed, so `pool.install:: <_, ()>(...)` is read as the call it is. The
+receiver forms skip a turbofish as well, so `pool.scope::<_, ()>(|_| ())` is
+the same dispatch as `pool.scope(|_| ())`. The synthetic sources these readings
+are checked against live in `trim_scoring_samples.py`, beside the reader rather
+than inside it. The contract also checks a checked-in copy of the former
+`score_trim_jobs` and requires it to read as a dispatch, so the fixture cannot
+drift into agreement with the fixed code. A missing function fails the contract
+rather than reading as clean. `make test-workflow-contracts` runs it.
 
 The scan's limits are part of the contract. It can see a listed helper that
 dispatches, but not an unlisted helper called by one of the five, not an
@@ -3002,14 +3003,17 @@ declaration as well, and a `define` body is variable text rather than
 declaration text, so a `.PHONY` written between `define` and `endef` declares
 nothing, a nested definition ends at its own `endef`, a tab-prefixed `endef`
 stays body text, and a `.PHONY` inside an unevaluated conditional block
-declares nothing. A rule header names its targets before the colon, so a
-duplicate written `target :` is still counted. The direct test scores a
-synthetic batch in a dedicated four-worker pool and records the Rayon worker
-that serves each distance callback; it holds no lock and asserts that every
-callback is served by the calling worker. The insertion-path test drives a real
-insertion in a dedicated four-worker pool and records the thread, the Rayon
-worker, and a non-blocking `insert_mutex` `try_lock` for every post-planning
-distance callback; it asserts that the callbacks stay on the mutex holder.
+declares nothing, including when a continued comment hides the directives in it.
+`.PHONY:= gate` assigns a variable rather than declaring a target, and a
+recipe continues across comment lines. A rule header names its targets before
+the colon, so a duplicate written `target :` is still counted. The direct test
+scores a synthetic batch in a dedicated four-worker pool and records the Rayon
+worker that serves each distance callback; it holds no lock and asserts that
+every callback is served by the calling worker. The insertion-path test drives
+a real insertion in a dedicated four-worker pool and records the thread, the
+Rayon worker, and a non-blocking `insert_mutex` `try_lock` for every
+post-planning distance callback; it asserts that the callbacks stay on the
+mutex holder.
 
 What the two checks establish differs:
 

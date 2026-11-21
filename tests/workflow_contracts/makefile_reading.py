@@ -49,6 +49,29 @@ def _declared_names(line: str) -> list[str]:
     return uncommented.rstrip().removesuffix("\\").replace("\\#", "#").split()
 
 
+def _declared_targets(declaration: str) -> list[str]:
+    """Return the names one ``.PHONY`` declaration adds, if it declares any.
+
+    ``.PHONY:= gate`` is a variable assignment rather than a declaration, so
+    the ``=`` form names no targets.
+
+    Examples
+    --------
+    >>> _declared_targets(".PHONY: clean gate")
+    ['clean', 'gate']
+    >>> _declared_targets(".PHONY:= gate")
+    []
+    >>> _declared_targets("clean: gate")
+    []
+    """
+    if not declaration.startswith(_PHONY):
+        return []
+    rest = declaration[len(_PHONY) :]
+    if rest.lstrip().startswith("="):
+        return []
+    return _declared_names(rest)
+
+
 def phony_targets(text: str) -> set[str]:
     """Return the names a ``.PHONY`` declaration covers.
 
@@ -65,6 +88,8 @@ def phony_targets(text: str) -> set[str]:
     --------
     >>> sorted(phony_targets(".PHONY: clean " + chr(35) + " gate"))
     ['clean']
+    >>> phony_targets(".PHONY:= gate")
+    set()
     >>> declaration = ".PHONY: clean " + chr(92) + chr(10) + " gate"
     >>> sorted(phony_targets(declaration))
     ['clean', 'gate']
@@ -94,8 +119,7 @@ def phony_targets(text: str) -> set[str]:
         comment = make_comment_start(declaration)
         if comment is not None:
             declaration = declaration[:comment]
-        if declaration.startswith(_PHONY):
-            names.update(_declared_names(declaration[len(_PHONY) :]))
+        names.update(_declared_targets(declaration))
     return names
 
 def declares_target(line: str, target: str) -> bool:

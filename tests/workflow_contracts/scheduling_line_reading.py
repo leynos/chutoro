@@ -231,9 +231,11 @@ def _command_step(
     """Absorb one physical command line and return the state it leaves.
 
     A comment's trailing backslash is comment text, so the line is stripped of
-    its comment before its continuation is read. A line that still continues
-    leaves `joined` open and absorbs nothing yet; a complete line is absorbed
-    and may open here-documents.
+    its comment before its continuation is read. An unterminated quote means
+    the shell is still reading, so the line continues either way: a trailing
+    backslash is resolved, and otherwise the newline is part of the quoted
+    text. A line that still continues leaves `joined` open and absorbs nothing
+    yet; a complete line is absorbed and may open here-documents.
 
     Examples
     --------
@@ -248,8 +250,20 @@ def _command_step(
     ('', '')
     >>> _command_step("cat <<'EOF'", "", "", [])[2]
     [HereDocument(word='EOF', strips_tabs=False, literal=True)]
+    >>> _command_step('echo "pre' + chr(92), "", "", [])[0]
+    'echo "pre'
+    >>> _command_step('pare"', "", "", [])[0].endswith(chr(10))
+    True
     """
-    commented = strip_shell_comment(physical)
+    try:
+        commented = strip_shell_comment(physical)
+    except ValueError:
+        # An unterminated quote means the shell is still reading the command.
+        # A trailing backslash is resolved; otherwise the newline is part of
+        # the quoted text and is kept.
+        text, continues = _continuation(physical)
+        separator = "" if continues else chr(10)
+        return f"{joined}{text}{separator}", pending, []
     text, continues = _continuation(commented)
     joined = f"{joined}{text}"
     if continues:

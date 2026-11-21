@@ -252,6 +252,8 @@ def free_call(name: str) -> _Predicate:
     False
     >>> calls_free_join("(join)(|| (), || ())")
     True
+    >>> calls_free_join("(join::<_, _, (), ()>)(|| (), || ())")
+    True
     """
     pattern = re.compile(rf"\b{name}\b")
 
@@ -274,10 +276,11 @@ def free_call(name: str) -> _Predicate:
         for found in pattern.finditer(body):
             if _ends_a_receiver(body, found.start()):
                 continue
-            index = _past_group(body, found.start(), found.end())
-            turbofish = turbofish_end(body, skip_whitespace(body, index))
+            index = skip_whitespace(body, found.end())
+            turbofish = turbofish_end(body, index)
             if turbofish is not None:
-                index = turbofish
+                index = skip_whitespace(body, turbofish)
+            index = _past_group(body, found.start(), index)
             if body.startswith("(", skip_whitespace(body, index)):
                 return True
         return False

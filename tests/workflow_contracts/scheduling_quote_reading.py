@@ -37,6 +37,30 @@ class MaskedLine(typ.NamedTuple):
     quoted: list[str]
 
 
+def _take_quoted(line: str, index: int) -> tuple[str, int]:
+    """Return a quoted word's text and the index just past its closing quote.
+
+    The text is the word's content as written; an unterminated quote is not a
+    command the shell runs, so it raises rather than reading past the end.
+
+    Examples
+    --------
+    >>> _take_quoted("'a b' c", 0)
+    ('a b', 5)
+    >>> _take_quoted('"a b" c', 0)
+    ('a b', 5)
+    >>> _take_quoted("'unclosed", 0)
+    Traceback (most recent call last):
+        ...
+    ValueError: unterminated quote in "'unclosed"
+    """
+    end = closing_quote(line, index)
+    if end is None:
+        message = f"unterminated quote in {line!r}"
+        raise ValueError(message)
+    return line[index + 1 : end], end + 1
+
+
 def mask_quotes(line: str) -> MaskedLine:
     """Return `line` with each quoted word and escaped character set aside.
 
@@ -64,6 +88,11 @@ def mask_quotes(line: str) -> MaskedLine:
     ['&', '&']
     >>> "&" in escaped.text
     False
+    >>> ansi = mask_quotes("set $'-n'")
+    >>> ansi.quoted
+    ['-n']
+    >>> "$" in ansi.text
+    False
     """
     masked: list[str] = []
     quoted: list[str] = []
@@ -75,17 +104,17 @@ def mask_quotes(line: str) -> MaskedLine:
             masked.append("\\" + _QUOTED.format(len(quoted) - 1))
             index += 2
             continue
-        if char not in "'\"":
+        if char == "$" and line[index + 1 : index + 2] == "'":
+            # An ANSI-C string is one word, dollar sign and quotes included,
+            # so the dollar is left out of the masked text.
+            index += 1
+        elif char not in "'\"":
             masked.append(char)
             index += 1
             continue
-        end = closing_quote(line, index)
-        if end is None:
-            message = f"unterminated quote in {line!r}"
-            raise ValueError(message)
-        quoted.append(line[index + 1 : end])
+        text, index = _take_quoted(line, index)
+        quoted.append(text)
         masked.append(_QUOTED.format(len(quoted) - 1))
-        index = end + 1
     return MaskedLine("".join(masked), quoted)
 
 
