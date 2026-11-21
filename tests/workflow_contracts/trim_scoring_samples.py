@@ -364,3 +364,23 @@ fn run_trim_job(job: Job) -> Scored {
     batch.into_par_iter().map(score).collect()
 }
 """
+
+#: A free call written after a keyword. `return join(left, right)` dispatches
+#: exactly as `join(left, right)` does, but the word before the name ends in an
+#: identifier character, so a reading that treated every preceding identifier as
+#: a receiver reported this body as serial.
+RETURNED_FREE_JOIN = """
+fn score_trim_jobs(jobs: Vec<Job>) -> Scored {
+    return join(|| score(left), || score(right));
+}
+"""
+
+#: A receiver-form call whose entry point carries a turbofish. `ThreadPool`'s
+#: `scope` is generic in its operation and its result, so the type list may sit
+#: between the name and the argument list; a pattern expecting the parenthesis
+#: straight after the name read this dispatch as serial.
+GENERIC_METHOD_SCOPE = """
+fn score_trim_jobs(jobs: Vec<Job>) {
+    pool.scope::<_, ()>(|_| score(jobs));
+}
+"""

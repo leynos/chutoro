@@ -29,7 +29,7 @@ from __future__ import annotations
 
 import typing as typ
 
-from scheduling_command_reading import mask_quotes, restore_quotes
+from scheduling_quote_reading import mask_quotes, restore_quotes
 
 #: Characters that end a here-document's delimiter word. The shell lets a
 #: metacharacter follow it, as ``cat <<EOF; make test`` does, so the word ends
@@ -83,6 +83,34 @@ def _delimiter_end(masked: str, start: int) -> int:
     return end
 
 
+def _unescaped(masked: str) -> str:
+    """Return `masked` with the backslash of each unquoted escape removed.
+
+    ``mask_quotes`` keeps the backslash in front of the marker it puts in
+    place of an escaped character, because the word it restores may need it.
+    The shell removes that backslash when it forms the word, so the delimiter
+    of ``<<\\EOF`` is ``EOF`` and the closing line is ``EOF``, not ``\\EOF``.
+    A backslash inside quoted text is part of that text and stays.
+
+    Examples
+    --------
+    >>> _unescaped("EOF")
+    'EOF'
+    >>> escaped = chr(92) + chr(1) + "0" + chr(2) + "b"
+    >>> _unescaped(escaped) == chr(1) + "0" + chr(2) + "b"
+    True
+    """
+    kept: list[str] = []
+    index = 0
+    while index < len(masked):
+        if masked[index] == "\\" and masked[index + 1 : index + 2] == "\x01":
+            index += 1
+            continue
+        kept.append(masked[index])
+        index += 1
+    return "".join(kept)
+
+
 def _is_literal(raw: str, word: str) -> bool:
     """Return whether a delimiter's spelling quotes any part of it.
 
@@ -104,7 +132,9 @@ def here_documents(line: str) -> list[HereDocument]:
 
     Quoted text is data, so a ``<<`` inside quotes opens nothing; the
     delimiter itself may be quoted, and the quoted form is restored because
-    that is the word the closing line repeats while the body stays literal.
+    that is the word the closing line repeats while the body stays literal. A
+    backslash escapes a character of the delimiter just as it escapes one of
+    any word, so ``<<\\EOF`` waits for ``EOF``.
 
     Examples
     --------
@@ -119,6 +149,9 @@ def here_documents(line: str) -> list[HereDocument]:
     >>> documents = here_documents("cat <<A <<B")
     >>> [document.word for document in documents]
     ['A', 'B']
+    >>> escaped = here_documents("cat <<" + chr(92) + "EOF")[0]
+    >>> escaped.word, escaped.literal
+    ('EOF', True)
     """
     masked = mask_quotes(line)
     documents: list[HereDocument] = []
@@ -129,7 +162,7 @@ def here_documents(line: str) -> list[HereDocument]:
         end = _delimiter_end(masked.text, start)
         if end > start:
             raw = masked.text[start:end]
-            word = restore_quotes(raw, masked.quoted)
+            word = restore_quotes(_unescaped(raw), masked.quoted)
             literal = _is_literal(raw, word)
             documents.append(HereDocument(word, strips_tabs, literal))
         index = masked.text.find("<<", max(end, index + 2))

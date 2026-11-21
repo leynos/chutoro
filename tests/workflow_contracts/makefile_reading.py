@@ -96,8 +96,66 @@ def _declared_names(line: str) -> list[str]:
     return uncommented.rstrip().removesuffix("\\").replace("\\#", "#").split()
 
 
+def _directive(line: str) -> str:
+    """Return `line` without its Make comment, for reading a directive.
+
+    Examples
+    --------
+    >>> _directive("define job " + chr(35) + " note")
+    'define job '
+    >>> _directive("define job")
+    'define job'
+    """
+    comment = _make_comment_start(line)
+    return line if comment is None else line[:comment]
+
+
+def _opens_a_definition(line: str) -> bool:
+    """Return whether `line` opens a ``define`` body.
+
+    A ``define`` names a variable whose value is every following line up to
+    ``endef``, so a ``.PHONY`` written inside one is variable text rather than
+    a declaration. ``override define`` and ``export define`` open one too. A
+    recipe line begins with a tab and is not a directive, and a commented-out
+    ``define`` opens nothing.
+
+    Examples
+    --------
+    >>> _opens_a_definition("define UNUSED")
+    True
+    >>> _opens_a_definition("override define job")
+    True
+    >>> _opens_a_definition(chr(9) + "define job")
+    False
+    >>> _opens_a_definition("# define job")
+    False
+    """
+    if line[:1] == "\t":
+        return False
+    words = _directive(line).split()
+    return words[:1] == ["define"] or words[:2] in (
+        ["override", "define"],
+        ["export", "define"],
+    )
+
+
+def _closes_a_definition(line: str) -> bool:
+    """Return whether `line` ends a ``define`` body.
+
+    Examples
+    --------
+    >>> _closes_a_definition("endef")
+    True
+    >>> _closes_a_definition("endef " + chr(35) + " note")
+    True
+    >>> _closes_a_definition("echo endef")
+    False
+    """
+    return _directive(line).split()[:1] == ["endef"]
+
+
 def _declaring_lines(text: str) -> list[str]:
-    """Return `text`'s lines outside a continued Make comment.
+    """Return `text`'s lines outside a continued comment or a definition.
 
     GNU make continues a comment whose line ends in an unescaped backslash, so
     the line after it is comment text and declares nothing however it reads.
@@ -106,7 +164,9 @@ def _declaring_lines(text: str) -> list[str]:
     covers. The backslash that continued the comment is removed with them: it
     continued the comment rather than the declaration, and leaving it would
     make the selection glue the next real declaration onto this one. A doubled
-    backslash ends the comment instead, so the line after it stays.
+    backslash ends the comment instead, so the line after it stays. A
+    ``define`` body is dropped for the same reason: make stores its lines in
+    the named variable, so a ``.PHONY`` written there declares nothing.
 
     Examples
     --------
@@ -120,12 +180,22 @@ def _declaring_lines(text: str) -> list[str]:
     '.PHONY: gate'
     >>> _declaring_lines(".PHONY: gate " + chr(35) + " note")
     ['.PHONY: gate # note']
+    >>> defined = "define UNUSED" + chr(10) + ".PHONY: gate" + chr(10) + "endef"
+    >>> _declaring_lines(defined)
+    []
     """
     lines: list[str] = []
     in_comment = False
+    in_definition = False
     for line in text.splitlines():
         if in_comment:
             in_comment = _continues(line)
+            continue
+        if in_definition:
+            in_definition = not _closes_a_definition(line)
+            continue
+        if _opens_a_definition(line):
+            in_definition = True
             continue
         continues = _make_comment_start(line) is not None and _continues(line)
         in_comment = continues

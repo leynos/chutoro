@@ -129,25 +129,61 @@ def pool_associated_call(body: str) -> bool:
     return False
 
 
-def _continues_a_name(character: str) -> bool:
-    """Return whether `character` can continue a name or a path before it.
+#: Words that may stand before a free call without being its receiver. A
+#: path or method ends in an identifier, and the word before a call is a
+#: keyword rather than part of its name: ``return join(a, b)`` calls
+#: Rayon's ``join`` while ``cache_dir.join(a)`` does not.
+_CALL_PRECEDING_WORDS = frozenset(
+    {
+        "return",
+        "break",
+        "continue",
+        "yield",
+        "await",
+        "else",
+        "in",
+        "move",
+        "let",
+        "match",
+        "if",
+        "while",
+        "for",
+        "as",
+        "mut",
+        "ref",
+    }
+)
 
-    A free call's name starts a word, so a letter, digit, ``_``, ``.`` or
-    ``:`` before it means the match is the tail of an identifier, a method
-    call, an associated function or a longer path.
+
+def _ends_a_receiver(body: str, start: int) -> bool:
+    """Return whether the text before a call at `start` names its receiver.
+
+    The character before the name is read back past any spaces, because Rust
+    permits whitespace around the dot. A ``.`` or ``:`` there leaves the call
+    a method of something else, and a preceding identifier is the same
+    unless the whole word is a keyword that cannot be a receiver.
 
     Examples
     --------
-    >>> _continues_a_name("e")
+    >>> _ends_a_receiver("rejoin(a)", 2)
     True
-    >>> _continues_a_name(".")
+    >>> _ends_a_receiver("cache_dir . join(a)", 12)
     True
-    >>> _continues_a_name(" ")
+    >>> _ends_a_receiver("return join(a)", 7)
     False
-    >>> _continues_a_name("(")
+    >>> _ends_a_receiver("join(a)", 0)
     False
     """
-    return character.isalnum() or character in "_.:"
+    before = body[:start].rstrip()
+    if not before:
+        return False
+    last = before[-1]
+    if last in "_.:":
+        return True
+    if not last.isalnum():
+        return False
+    word = before.rsplit(maxsplit=1)[-1].rsplit(".", 1)[-1]
+    return word not in _CALL_PRECEDING_WORDS
 
 
 def free_call(name: str) -> _Predicate:
@@ -158,9 +194,10 @@ def free_call(name: str) -> _Predicate:
     permits whitespace around the dot, so ``cache_dir . join(a)`` is the same
     path join and has to be rejected too: the character before the name is
     read back past any spaces, and a ``.`` or ``::`` there leaves the call a
-    method of something else. Rayon's free functions are generic, so a
-    turbofish may sit between the name and the argument list, as
-    ``join::<_, _, (), ()>(|| (), || ())`` shows.
+    method of something else. A keyword before the name is not a receiver, so
+    ``return join(a, b)`` still reads as the dispatch it is. Rayon's free
+    functions are generic, so a turbofish may sit between the name and the
+    argument list, as ``join::<_, _, (), ()>(|| (), || ())`` shows.
 
     Examples
     --------
@@ -168,6 +205,8 @@ def free_call(name: str) -> _Predicate:
     >>> calls_free_join("join(|| (), || ())")
     True
     >>> calls_free_join("join::<_, _, (), ()>(|| (), || ())")
+    True
+    >>> calls_free_join("return join(|| (), || ())")
     True
     >>> calls_free_join("cache_dir.join(cache_file)")
     False
@@ -183,10 +222,11 @@ def free_call(name: str) -> _Predicate:
     def calls(body: str) -> bool:
         """Return whether `body` calls `name` without a receiver.
 
-        A candidate preceded by an identifier character, `.` or `:` is a
-        method, associated function or longer name rather than the free
-        function, and one followed by a turbofish is read past it before the
-        argument list is required.
+        A candidate preceded by an identifier, `.` or `:` is a method,
+        associated function, longer name or receiver-qualified call rather
+        than the free function, unless that identifier is a keyword, and one
+        followed by a turbofish is read past it before the argument list is
+        required.
 
         Examples
         --------
@@ -196,8 +236,7 @@ def free_call(name: str) -> _Predicate:
         False
         """
         for found in pattern.finditer(body):
-            before = body[: found.start()].rstrip()
-            if before and _continues_a_name(before[-1]):
+            if _ends_a_receiver(body, found.start()):
                 continue
             index = skip_whitespace(body, found.end())
             if body.startswith("::<", index):
@@ -257,19 +296,19 @@ DISPATCH_MARKERS: typ.Final[tuple[tuple[str, _Predicate], ...]] = (
     # entry reports the call. A free call is read by `free_call`, which rejects
     # a receiver even when whitespace separates it from its dot and accepts a
     # generic call's turbofish.
-    (".scope(", _matches(r"\.\s*scope\s*\(")),
+    (".scope(", calls_the_method("scope")),
     ("scope(", free_call("scope")),
-    (".scope_fifo(", _matches(r"\.\s*scope_fifo\s*\(")),
+    (".scope_fifo(", calls_the_method("scope_fifo")),
     ("scope_fifo(", free_call("scope_fifo")),
-    (".spawn(", _matches(r"\.\s*spawn\s*\(")),
+    (".spawn(", calls_the_method("spawn")),
     ("spawn(", free_call("spawn")),
-    (".spawn_fifo(", _matches(r"\.\s*spawn_fifo\s*\(")),
+    (".spawn_fifo(", calls_the_method("spawn_fifo")),
     ("spawn_fifo(", free_call("spawn_fifo")),
-    (".spawn_broadcast(", _matches(r"\.\s*spawn_broadcast\s*\(")),
+    (".spawn_broadcast(", calls_the_method("spawn_broadcast")),
     ("spawn_broadcast(", free_call("spawn_broadcast")),
     (".join(", pool_join),
     ("join(", free_call("join")),
     ("join_context(", free_call("join_context")),
-    (".broadcast(", _matches(r"\.\s*broadcast\s*\(")),
+    (".broadcast(", calls_the_method("broadcast")),
     ("broadcast(", free_call("broadcast")),
 )

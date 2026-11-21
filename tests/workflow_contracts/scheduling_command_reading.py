@@ -9,22 +9,23 @@ starts, quoted text is data even where it spells an operator, an operator ends
 one simple command and begins another, and the words are split the way the
 shell splits them rather than on whitespace.
 
-This module holds the shell-level reading: quotes, comments, the words a
-command is made of, and the masking that sets quoted text aside so an operator
-inside it is never read as one. The recipe itself, its target, and the filter
-expressions it passes live in ``scheduling_reading``, the CI-step reading
-lives in ``scheduling_script_reading``, its line joining lives in
-``scheduling_line_reading``, its command segmentation lives in
+This module holds the shell-level reading: quote boundaries, comments, and the
+words a command is made of. The masking that sets quoted text aside so an
+operator inside it is never read as one lives in ``scheduling_quote_reading``,
+which this module supplies the quote scan to. The recipe itself, its target,
+and the filter expressions it passes live in ``scheduling_reading``, the
+CI-step reading lives in ``scheduling_script_reading``, its line joining lives
+in ``scheduling_line_reading``, its command segmentation lives in
 ``scheduling_segment_reading``, the here-documents it drops live in
 ``scheduling_here_document_reading``, the nextest invocation selected from a
 command lives in ``scheduling_invocation_reading``, and the declarations the
 recipe names live in ``rust_declaration_reading``.
 
 Re-use policy: import from ``scheduling_reading``,
-``scheduling_script_reading``, ``scheduling_line_reading``,
-``scheduling_segment_reading``, ``scheduling_here_document_reading``,
-``scheduling_invocation_reading`` and ``scheduling_contract_test`` only. Those
-files were pushed past the 400-line
+``scheduling_quote_reading``, ``scheduling_script_reading``,
+``scheduling_line_reading``, ``scheduling_segment_reading``,
+``scheduling_here_document_reading``, ``scheduling_invocation_reading`` and
+``scheduling_contract_test`` only. Those files were pushed past the 400-line
 limit ``AGENTS.md`` sets when these readers lived beside the recipe, and this
 module keeps each one inside it. A new shell rule belongs here with the shell
 behaviour it models stated beside it, so a later reader can check the rule
@@ -58,14 +59,75 @@ def _is_ansi_c_string(line: str, start: int) -> bool:
     return start > 0 and line[start - 1] == "$"
 
 
+def _after_substitution(line: str, start: int) -> int:
+    """Return the index just past the ``$(...)`` at `start`.
+
+    A command substitution is parsed as a command of its own, so a quote
+    inside it groups its own words and closes nothing that surrounds it.
+    Its parentheses nest, and a backslash escapes the character after it. An
+    unclosed substitution returns one past the line's end, so a caller that
+    scans for a closing quote runs off the same end and finds none.
+
+    Examples
+    --------
+    >>> _after_substitution('$(printf "%s" " #") x', 0)
+    19
+    >>> _after_substitution("$(unclosed", 0) == len("$(unclosed")
+    True
+    """
+    depth = 1
+    index = start + 2
+    while index < len(line):
+        index = _after_grouped_text(line, index)
+        if line[index : index + 1] == ")":
+            depth -= 1
+            if depth == 0:
+                return index + 1
+        elif line[index : index + 1] == "(":
+            depth += 1
+        index += 1
+    return len(line)
+
+
+def _after_grouped_text(line: str, index: int) -> int:
+    """Return the index of the text that decides how `line[index]` groups.
+
+    A backslash and the character after it are one escaped character, and a
+    quote opens text that closes at its own quote, so neither contributes a
+    parenthesis. An unclosed quote runs to the end of the line, where the
+    caller's loop ends too.
+
+    Examples
+    --------
+    >>> _after_grouped_text("a(b", 1)
+    1
+    >>> escaped = chr(92) + "(b"
+    >>> _after_grouped_text(escaped, 0)
+    2
+    >>> _after_grouped_text('"(" b', 0)
+    3
+    >>> _after_grouped_text("'unclosed", 0) == len("'unclosed")
+    True
+    """
+    char = line[index : index + 1]
+    if char == "\\":
+        return index + 2
+    if char in {"'", '"'}:
+        end = closing_quote(line, index)
+        return len(line) if end is None else end + 1
+    return index
+
+
 def closing_quote(line: str, start: int) -> int | None:
     """Return the index of the quote that closes the one at `start`.
 
     A double-quoted string and a Bash ANSI-C string (``$'...'``) may escape
     their own quote, so a backslash is skipped together with the character
-    after it. An ordinary single-quoted string has no escapes. An unclosed
-    quote returns ``None``, because whether that is an error depends on what
-    the caller is reading.
+    after it. A command substitution inside a double-quoted string is parsed
+    as its own command, so its quotes do not close the string around it. An
+    ordinary single-quoted string has no escapes. An unclosed quote returns
+    ``None``, because whether that is an error depends on what the caller is
+    reading.
 
     Parameters
     ----------
@@ -93,96 +155,24 @@ def closing_quote(line: str, start: int) -> int | None:
     >>> ansi = "$'a" + chr(92) + "'b'"
     >>> closing_quote(ansi, 1)
     6
+    >>> substituted = '"$(printf "%s" " #")"'
+    >>> closing_quote(substituted, 0) == len(substituted) - 1
+    True
     """
     quote = line[start]
     escape_aware = quote == '"' or _is_ansi_c_string(line, start)
     index = start + 1
     while index < len(line):
-        if line[index] == "\\" and escape_aware:
+        if escape_aware and line[index] == "\\":
             index += 2
+            continue
+        if escape_aware and line.startswith("$(", index):
+            index = _after_substitution(line, index)
             continue
         if line[index] == quote:
             return index
         index += 1
     return None
-
-
-#: The form a quoted word is set aside in while a line's shell syntax is read.
-#: The marker holds no operator or comment character, so masking the text keeps
-#: it whole through every later reading.
-_QUOTED = "\x01{}\x02"
-
-
-class MaskedLine(typ.NamedTuple):
-    """A line with its quoted and escaped text set aside for safe reading."""
-
-    text: str
-    quoted: list[str]
-
-
-def mask_quotes(line: str) -> MaskedLine:
-    """Return `line` with each quoted word and escaped character set aside.
-
-    Quotes decide what is an operator and what is text. ``echo '&&' installer``
-    prints both words; once ``shlex`` has removed the quotes, the ``&&`` is
-    indistinguishable from an operator, and a reader that splits on operators
-    sees a command where the shell ran a word. A backslash does the same to a
-    bare character: ``echo \\&\\& installer`` prints the two ampersands, and
-    ``shlex`` removes the escapes before a separator check can tell the
-    difference. Setting both kinds of text aside before the line is read keeps
-    words and operators apart, and restoring them afterwards keeps the words
-    the command is given.
-
-    A backslash escapes the character after it, so an escaped quote opens no
-    quoted text. An unterminated quote raises, as in ``strip_shell_comment``.
-
-    Examples
-    --------
-    >>> mask_quotes("echo 'a b'").quoted
-    ['a b']
-    >>> mask_quotes("echo 'a b'").text
-    'echo \\x010\\x02'
-    >>> escaped = mask_quotes("echo " + chr(92) + "&" + chr(92) + "& x")
-    >>> escaped.quoted
-    ['&', '&']
-    >>> "&" in escaped.text
-    False
-    """
-    masked: list[str] = []
-    quoted: list[str] = []
-    index = 0
-    while index < len(line):
-        char = line[index]
-        if char == "\\" and index + 1 < len(line):
-            quoted.append(line[index + 1])
-            masked.append("\\" + _QUOTED.format(len(quoted) - 1))
-            index += 2
-            continue
-        if char not in "'\"":
-            masked.append(char)
-            index += 1
-            continue
-        end = closing_quote(line, index)
-        if end is None:
-            message = f"unterminated quote in {line!r}"
-            raise ValueError(message)
-        quoted.append(line[index + 1 : end])
-        masked.append(_QUOTED.format(len(quoted) - 1))
-        index = end + 1
-    return MaskedLine("".join(masked), quoted)
-
-
-def restore_quotes(token: str, quoted: list[str]) -> str:
-    """Return `token` with each quoted marker replaced by its text.
-
-    Examples
-    --------
-    >>> restore_quotes("a\\x010\\x02", ["b c"])
-    'ab c'
-    """
-    for position, text in enumerate(quoted):
-        token = token.replace(_QUOTED.format(position), text)
-    return token
 
 
 def _after_quoted(line: str, start: int) -> int:

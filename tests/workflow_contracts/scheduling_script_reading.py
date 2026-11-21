@@ -33,7 +33,11 @@ from scheduling_errexit_reading import (
     carries_to_the_step,
     errexit_states,
 )
-from scheduling_segment_reading import Segment, read_lines
+from scheduling_segment_reading import (
+    Segment,
+    has_a_compound_command,
+    read_lines,
+)
 
 #: The script that installs ``cargo-nextest`` for the job.
 NEXTEST_INSTALLER = "scripts/install-nextest.sh"
@@ -48,35 +52,6 @@ INTERPRETERS = frozenset({"bash", "sh", "dash"})
 #: a command after ``||``, ``|``, ``&`` or ``|&`` may be skipped or deferred,
 #: as ``true || installer`` shows.
 _UNCONDITIONAL_BEFORE = frozenset({OWN_LIST_END})
-
-#: Words that open or close a compound command whose body this reading cannot
-#: place. ``if false; then``, ``fi`` and the loop and case keywords are
-#: commands of their own to a simple reading, so an installer written inside
-#: the body reads exactly like a plain command that certainly ran, while the
-#: shell skips the whole body. The reading tracks no block structure, so a
-#: script holding one of these yields no evidence at all rather than a guess.
-COMPOUND_KEYWORDS = frozenset(
-    {
-        "if",
-        "then",
-        "elif",
-        "else",
-        "fi",
-        "for",
-        "while",
-        "until",
-        "do",
-        "done",
-        "case",
-        "esac",
-        "select",
-        "function",
-        "{",
-        "}",
-        "coproc",
-    }
-)
-
 
 def _reaches_the_installer(line: list[Segment], index: int) -> bool:
     """Return whether the line is certain to run `line[index]`.
@@ -157,6 +132,63 @@ def _status_reaches_the_end(line: list[Segment], index: int) -> bool:
     )
 
 
+def _takes_an_option_operand(flag: str) -> bool:
+    """Return whether `flag` takes an option name in the word after it.
+
+    ``-o``, ``+o``, ``-O`` and ``+O`` do, and so does a cluster whose last
+    letter is one of them, as ``-euo`` does for ``pipefail``.
+
+    Examples
+    --------
+    >>> _takes_an_option_operand("-o")
+    True
+    >>> _takes_an_option_operand("+O")
+    True
+    >>> _takes_an_option_operand("-e")
+    False
+    """
+    return flag[:1] in {"-", "+"} and flag[1:].endswith(("o", "O"))
+
+
+def _enables_noexec(words: list[str]) -> bool:
+    """Return whether a ``set`` command leaves ``noexec`` on.
+
+    A non-interactive Bash under ``noexec`` reads the script without running
+    it, so an installer after the change installs nothing. The option is set
+    as ``-n``, inside a cluster such as ``-eun``, or by name as
+    ``-o noexec``, and turned off again by the ``+`` forms.
+
+    Examples
+    --------
+    >>> _enables_noexec(["set", "-n"])
+    True
+    >>> _enables_noexec(["set", "-eun", "pipefail"])
+    True
+    >>> _enables_noexec(["set", "-o", "noexec"])
+    True
+    >>> _enables_noexec(["set", "+o", "noexec"])
+    False
+    >>> _enables_noexec(["set", "--", "-n"])
+    False
+    >>> _enables_noexec(["true"])
+    False
+    """
+    if words[:1] != ["set"]:
+        return False
+    noexec = False
+    index = 1
+    while index < len(words):
+        flag = words[index]
+        if flag == "--" or flag[:1] not in {"-", "+"}:
+            break
+        if flag in {"-o", "+o"} and words[index + 1 : index + 2] == ["noexec"]:
+            noexec = flag == "-o"
+        elif "n" in flag[1:]:
+            noexec = flag[:1] == "-"
+        index += 2 if _takes_an_option_operand(flag) else 1
+    return noexec
+
+
 def _stops_the_script(lines: list[list[Segment]]) -> tuple[int, int] | None:
     """Return the first command that ends the script, if one can.
 
@@ -164,9 +196,11 @@ def _stops_the_script(lines: list[list[Segment]]) -> tuple[int, int] | None:
     all and none of them can install anything. Every ``exit`` is treated as
     ending the script: one inside a branch that may not be taken still leaves
     a later command's execution unresolved, and reading it as unresolved is
-    what keeps the answer evidence rather than a guess. ``return`` and a
-    sourced script's ``exit`` have the same power, but neither appears in this
-    job's step, so the reading names only the word that does.
+    what keeps the answer evidence rather than a guess. A ``set`` that turns
+    on ``noexec`` ends the script's execution the same way: the shell reads
+    the rest without running any of it. ``return`` and a sourced script's
+    ``exit`` have the same power, but neither appears in this job's step, so
+    the reading names only the words that do.
 
     Examples
     --------
@@ -176,12 +210,34 @@ def _stops_the_script(lines: list[list[Segment]]) -> tuple[int, int] | None:
     True
     >>> _stops_the_script(read_lines("a ; exit 0")) == (0, 1)
     True
+    >>> _stops_the_script(read_lines("set -n" + chr(10) + "a")) == (0, 0)
+    True
     """
     for number, line in enumerate(lines):
         for index, segment in enumerate(line):
-            if segment.words[:1] == ["exit"]:
+            if _ends_execution(segment):
                 return number, index
     return None
+
+
+def _ends_execution(segment: Segment) -> bool:
+    """Return whether `segment` ends the script's execution.
+
+    ``exit`` runs nowhere after itself, and a ``set`` that turns on ``noexec``
+    leaves the shell reading without running the rest.
+
+    Examples
+    --------
+    >>> _ends_execution(Segment(["exit", "0"], ""))
+    True
+    >>> _ends_execution(Segment(["set", "-n"], ""))
+    True
+    >>> _ends_execution(Segment(["set", "+n"], ""))
+    False
+    >>> _ends_execution(Segment(["true"], ""))
+    False
+    """
+    return segment.words[:1] == ["exit"] or _enables_noexec(segment.words)
 
 
 def _runs_installer(words: list[str]) -> bool:
@@ -239,57 +295,14 @@ def _counts_as_installation(
     False
     """
     segment = lines[number][index]
-    return (
-        states[number][index] is True
-        and _runs_installer(segment.words)
-        and _reaches_the_installer(lines[number], index)
-        and _status_reaches_the_end(lines[number], index)
-        and carries_to_the_step(lines, number, segment)
+    checks = (
+        states[number][index] is True,
+        _runs_installer(segment.words),
+        _reaches_the_installer(lines[number], index),
+        _status_reaches_the_end(lines[number], index),
+        carries_to_the_step(lines, number, segment),
     )
-
-
-def _opens_a_compound_command(segment: Segment) -> bool:
-    """Return whether `segment` is a keyword this reading cannot place.
-
-    A keyword opens or closes a compound command only in command position, so
-    ``echo if`` prints the word rather than opening a branch.
-
-    Examples
-    --------
-    >>> _opens_a_compound_command(Segment(["if", "false"], ";"))
-    True
-    >>> _opens_a_compound_command(Segment(["echo", "if"], ""))
-    False
-    """
-    return bool(segment.words) and segment.words[0] in COMPOUND_KEYWORDS
-
-
-def _has_a_compound_command(lines: list[list[Segment]]) -> bool:
-    """Return whether `lines` holds a keyword this reading cannot place.
-
-    A compound command's keywords stand as commands of their own to a simple
-    reading, so without this the installer inside an untaken body would count
-    as one that certainly ran. The reading has no block structure to say
-    which branch was taken, so the whole script is refused instead.
-
-    Examples
-    --------
-    >>> _has_a_compound_command(read_lines("if false; then" + chr(10) + "fi"))
-    True
-    >>> _has_a_compound_command(
-    ...     read_lines("for job in a b; do" + chr(10) + "done")
-    ... )
-    True
-    >>> _has_a_compound_command(read_lines("true" + chr(10) + "installer"))
-    False
-    >>> _has_a_compound_command(read_lines("echo if"))
-    False
-    """
-    return any(
-        _opens_a_compound_command(segment)
-        for line in lines
-        for segment in line
-    )
+    return all(checks)
 
 
 def installs_nextest(script: str) -> bool:
@@ -343,7 +356,7 @@ def installs_nextest(script: str) -> bool:
     False
     """
     lines = read_lines(script)
-    if _has_a_compound_command(lines):
+    if has_a_compound_command(lines):
         return False
     states = errexit_states(lines)
     stop = _stops_the_script(lines)

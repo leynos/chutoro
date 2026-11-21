@@ -25,7 +25,8 @@ it.
 
 from __future__ import annotations
 
-from scheduling_command_reading import mask_quotes, strip_shell_comment
+from scheduling_command_reading import strip_shell_comment
+from scheduling_quote_reading import mask_quotes
 from scheduling_here_document_reading import (
     HereDocument,
     ends_document,
@@ -155,9 +156,12 @@ def _absorb(
     A comment is removed first, so a trailing comment cannot absorb the next
     line, and a blank or comment-only line between a continuation and what it
     continues is skipped as the shell skips it. A line still ending in a list
-    operator waits for the next one. Otherwise the command line is complete:
-    it ends the list, so it is kept and any here-documents it opens start
-    their bodies on the next physical line.
+    operator waits for the next one, but the here-documents it opens start
+    their bodies at that newline all the same: the shell collects them before
+    it reads on, so their bodies are never part of the continued list.
+    Otherwise the command line is complete: it ends the list, so it is kept
+    and any here-documents it opens start their bodies on the next physical
+    line.
 
     Examples
     --------
@@ -177,15 +181,21 @@ def _absorb(
     ['installer', 'installer && true']
     >>> _absorb("", "cat <<'EOF'", [])[1]
     [HereDocument(word='EOF', strips_tabs=False, literal=True)]
+    >>> _absorb("", "cat <<'EOF' &&", [])[1]
+    [HereDocument(word='EOF', strips_tabs=False, literal=True)]
     """
     stripped = strip_shell_comment(line).strip()
     if pending and not stripped:
         return pending, []
     merged = f"{pending} {stripped}" if pending else stripped
+    # Only this physical line can open a document the reader has not already
+    # consumed: the pending text was scanned when it was read, and its bodies
+    # have been dropped by now.
+    documents = here_documents(stripped)
     if _ends_with_operator(merged):
-        return merged, []
+        return merged, documents
     lines.append(merged)
-    return "", here_documents(merged)
+    return "", documents
 
 
 def _tail_lines(lines: list[str], pending: str, joined: str) -> list[str]:
@@ -263,6 +273,9 @@ def logical_lines(script: str) -> list[str]:
     ...     + chr(10) + "installer" + chr(10) + "EOF"
     ... )
     ["cat <<'EOF'"]
+    >>> continued = "cat <<'EOF' &&" + chr(10) + "installer" + chr(10) + "EOF"
+    >>> logical_lines(continued + chr(10) + "true")
+    ["cat <<'EOF' && true"]
     """
     lines: list[str] = []
     documents: list[HereDocument] = []

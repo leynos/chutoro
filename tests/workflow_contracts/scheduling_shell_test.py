@@ -105,6 +105,10 @@ def test_a_syntax_only_shell_is_rejected_at_every_scope(scope: str) -> None:
         pytest.param("bash -en {0}", False, id="syntax-only-in-a-cluster"),
         pytest.param("bash -o noexec {0}", False, id="noexec-named-by-o"),
         pytest.param("bash -eo noexec {0}", False, id="noexec-after-errexit"),
+        pytest.param("bash -et {0}", False, id="one-command-in-a-cluster"),
+        pytest.param(
+            "bash -o onecmd -e {0}", False, id="one-command-named-by-o"
+        ),
         pytest.param("bash -c run {0}", False, id="a-command-string"),
         pytest.param("bash -eD {0}", False, id="dump-strings-in-a-cluster"),
         pytest.param(
@@ -129,8 +133,9 @@ def test_a_template_must_run_the_script_under_errexit(
     while ``errexit`` holds. ``bash {0}`` runs the script but lets a later
     success absorb the failure, so it is no more evidence than ``bash -n {0}``;
     the same applies to combined syntax-only flags, to ``-o noexec``, to ``-D``
-    and its long forms, which imply ``-n`` while dumping strings, and to
-    ``--help`` or ``--version``, which exit successfully without running it.
+    and its long forms, which imply ``-n`` while dumping strings, to ``-t``
+    and ``-o onecmd``, which run one command and exit, and to ``--help`` or
+    ``--version``, which exit successfully without running it.
     """
     assert runs_the_script(shell) is expected, (
         f"runs_the_script must return {expected} for a custom {shell!r} template"

@@ -8,22 +8,25 @@ what the line reports when the command fails. Reading the line into (words,
 operator) segments is what makes ``installer || true`` a command whose failure
 is masked rather than a word beginning with the installer path.
 
-This module holds that segmentation alone, from an already-joined line and
-from a whole script. ``scheduling_script_reading`` decides which segment is a
-blocking installation, and the split keeps each file inside the 400-line limit
-``AGENTS.md`` sets.
+This module holds that segmentation, from an already-joined line and from a
+whole script, together with the keywords that open a compound command the
+simple reading cannot place. ``scheduling_script_reading`` decides which
+segment is a blocking installation, and the split keeps each file inside the
+400-line limit ``AGENTS.md`` sets.
 
 Re-use policy: import from ``scheduling_script_reading`` only; this module
-reuses the quote masking and tokenizing in ``scheduling_command_reading`` and
-the line joining in ``scheduling_line_reading``. A new segmentation rule
-belongs here with the shell behaviour it models stated beside it.
+reuses the tokenizing in ``scheduling_command_reading``, the quote masking in
+``scheduling_quote_reading`` and the line joining in
+``scheduling_line_reading``. A new segmentation rule belongs here with the
+shell behaviour it models stated beside it.
 """
 
 from __future__ import annotations
 
 import typing as typ
 
-from scheduling_command_reading import mask_quotes, restore_quotes, shell_tokens
+from scheduling_command_reading import shell_tokens
+from scheduling_quote_reading import mask_quotes, restore_quotes
 from scheduling_line_reading import logical_lines
 
 #: Characters that end one simple command and begin another. ``shlex`` yields
@@ -124,3 +127,79 @@ def read_lines(script: str) -> list[list[Segment]]:
         tokens = shell_tokens(masked.text)
         lines.append(read_segments(tokens, masked.quoted))
     return lines
+
+#: Words that open or close a compound command whose body this reading cannot
+#: place. ``if false; then``, ``fi`` and the loop and case keywords are
+#: commands of their own to a simple reading, so an installer written inside
+#: the body reads exactly like a plain command that certainly ran, while the
+#: shell skips the whole body. A parenthesised group is the same: Bash parses
+#: it as one command, so ``false && (`` makes every line up to ``)`` a body
+#: that may never run. The reading tracks no block structure, so a script
+#: holding one of these yields no evidence at all rather than a guess.
+COMPOUND_KEYWORDS = frozenset(
+    {
+        "if",
+        "then",
+        "elif",
+        "else",
+        "fi",
+        "for",
+        "while",
+        "until",
+        "do",
+        "done",
+        "case",
+        "esac",
+        "select",
+        "function",
+        "{",
+        "}",
+        "(",
+        ")",
+        "coproc",
+    }
+)
+
+
+def opens_a_compound_command(segment: Segment) -> bool:
+    """Return whether `segment` is a keyword this reading cannot place.
+
+    A keyword opens or closes a compound command only in command position, so
+    ``echo if`` prints the word rather than opening a branch.
+
+    Examples
+    --------
+    >>> opens_a_compound_command(Segment(["if", "false"], ";"))
+    True
+    >>> opens_a_compound_command(Segment(["echo", "if"], ""))
+    False
+    """
+    return bool(segment.words) and segment.words[0] in COMPOUND_KEYWORDS
+
+
+def has_a_compound_command(lines: list[list[Segment]]) -> bool:
+    """Return whether `lines` holds a keyword this reading cannot place.
+
+    A compound command's keywords stand as commands of their own to a simple
+    reading, so without this the installer inside an untaken body would count
+    as one that certainly ran. The reading has no block structure to say
+    which branch was taken, so the whole script is refused instead.
+
+    Examples
+    --------
+    >>> has_a_compound_command(read_lines("if false; then" + chr(10) + "fi"))
+    True
+    >>> has_a_compound_command(
+    ...     read_lines("for job in a b; do" + chr(10) + "done")
+    ... )
+    True
+    >>> has_a_compound_command(read_lines("true" + chr(10) + "installer"))
+    False
+    >>> has_a_compound_command(read_lines("echo if"))
+    False
+    """
+    return any(
+        opens_a_compound_command(segment)
+        for line in lines
+        for segment in line
+    )

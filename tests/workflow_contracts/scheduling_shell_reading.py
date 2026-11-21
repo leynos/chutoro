@@ -45,12 +45,20 @@ NON_EXECUTING_OPTIONS = frozenset(
         "--dump-po-strings",
         "--help",
         "--version",
+        "--one-command",
     }
 )
+
+#: Letters that, set in an option word, leave the script unexecuted or run
+#: only part of it. ``n`` reads without running, ``D`` implies ``n``, and
+#: ``t`` runs one command and exits, so a script of several commands is
+#: truncated.
+_NON_EXECUTING_LETTERS = "nDt"
 
 #: Shell option names, written as the word after ``-o`` or ``-O``, that
 #: matter to this reader.
 _NOEXEC_OPTION = "noexec"
+_ONESHOT_OPTION = "onecmd"
 _ERREXIT_OPTION = "errexit"
 
 
@@ -160,8 +168,10 @@ def _executes_nothing(options: list[str]) -> bool:
     and names an option with ``-o``, so ``-o noexec`` and ``-eo noexec``
     reach the same mode in two words. ``-D`` is a syntax mode of its own: it
     implies ``-n`` while dumping the translated strings, so it may sit in a
-    cluster as ``-eD``. ``--help`` and ``--version`` are not syntax modes, but
-    Bash reports and exits on either, so the script is just as unrun.
+    cluster as ``-eD``. ``-t`` runs one command and exits, so a script of
+    several commands stops after the first and the rest is no evidence.
+    ``--help`` and ``--version`` are not syntax modes, but Bash reports and
+    exits on either, so the script is just as unrun.
 
     Examples
     --------
@@ -173,6 +183,10 @@ def _executes_nothing(options: list[str]) -> bool:
     True
     >>> _executes_nothing(["-eD"])
     True
+    >>> _executes_nothing(["-et"])
+    True
+    >>> _executes_nothing(["-o", "onecmd"])
+    True
     >>> _executes_nothing(["--dump-strings", "-e"])
     True
     >>> _executes_nothing(["--help", "-e"])
@@ -183,10 +197,13 @@ def _executes_nothing(options: list[str]) -> bool:
     previous = ""
     for word in options:
         if word in NON_EXECUTING_OPTIONS or any(
-            _enables(word, letter) for letter in "nD"
+            _enables(word, letter) for letter in _NON_EXECUTING_LETTERS
         ):
             return True
-        if _takes_an_operand(previous) and word == _NOEXEC_OPTION:
+        if _takes_an_operand(previous) and word in {
+            _NOEXEC_OPTION,
+            _ONESHOT_OPTION,
+        }:
             return True
         previous = word
     return False
@@ -320,6 +337,10 @@ def runs_the_script(shell: str | None) -> bool:
     >>> runs_the_script("bash -en {0}")
     False
     >>> runs_the_script("bash -eo noexec {0}")
+    False
+    >>> runs_the_script("bash -et {0}")
+    False
+    >>> runs_the_script("bash -o onecmd -e {0}")
     False
     >>> runs_the_script("bash -eD {0}")
     False

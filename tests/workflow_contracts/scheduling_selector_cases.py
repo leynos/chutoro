@@ -213,4 +213,39 @@ SELECTOR_CASES: typ.Final[tuple[tuple[str, bool, str], ...]] = (
         True,
         "an-expanded-body-joined-by-a-backslash",
     ),
+    (
+        'scripts/install-nextest.sh "$(printf \'%s\' \' #\')" || true',
+        False,
+        "a-mask-after-a-quoted-substitution",
+    ),
+    (
+        "cat <<\\EOF\n\\EOF\n" + NEXTEST_INSTALLER + "\nEOF",
+        False,
+        "a-here-document-opened-with-an-escaped-delimiter",
+    ),
+    (
+        f"set +e\nset -e && true &\n{NEXTEST_INSTALLER}\ntrue",
+        False,
+        "an-errexit-change-in-an-asynchronous-and-list",
+    ),
+    (
+        f"set -n\n{NEXTEST_INSTALLER}",
+        False,
+        "noexec-enabled-before-the-installer",
+    ),
+    (
+        f"set -o noexec\n{NEXTEST_INSTALLER}",
+        False,
+        "noexec-named-before-the-installer",
+    ),
+    (
+        f"false && (\n{NEXTEST_INSTALLER}\n)\ntrue",
+        False,
+        "an-installer-in-a-maybe-skipped-subshell-group",
+    ),
+    (
+        f"cat <<'EOF' &&\necho example; {NEXTEST_INSTALLER}\nEOF\ntrue",
+        False,
+        "a-here-document-body-inside-a-continued-list",
+    ),
 )

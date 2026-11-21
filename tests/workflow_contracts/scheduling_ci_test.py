@@ -188,15 +188,16 @@ def test_the_installer_selector_reads_executable_use(
     nothing; and ``errexit`` itself can be turned off, so ``set +e`` before
     the installer makes its failure ignorable until ``set -e`` restores it.
     A container decides where a command runs, and this reading tracks none:
-    an installer inside an ``if`` body is refused whether the branch is taken
-    or not, because a branch is not an unconditional installation. A ``set``
-    inside a pipeline element or a backgrounded command runs in a subshell of
-    its own, so it changes nothing the enclosing script sees and leaves
-    ``errexit`` as it was. A here-document's terminator is compared as the
-    shell compares it: a quoted delimiter makes the body literal, so a
-    backslash there is a character, while an unquoted body deletes
-    backslash-newline pairs and can close on a line the literal body would
-    keep.
+    an installer inside an ``if`` body or a parenthesised group is refused
+    whether the branch is taken or not, because neither is an unconditional
+    installation. A ``set`` inside a pipeline element or a backgrounded list
+    runs in a subshell of its own, so it changes nothing the enclosing script
+    sees and leaves ``errexit`` as it was, and ``set -n`` or ``set -o noexec``
+    stops execution altogether, so nothing after it installs. A here-document
+    is read as the shell reads it: its body starts at the newline that ends
+    the opening line even when a list operator continues past it, a quoted
+    delimiter makes the body literal, and a command substitution inside a
+    quoted word keeps its own quotes to itself.
     """
     assert installs_nextest(script) is expected, (
         f"installs_nextest must return {expected} for {script!r}"

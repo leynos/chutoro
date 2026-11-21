@@ -194,14 +194,39 @@ def _runs_unconditionally(line: cabc.Sequence[Command], index: int) -> bool:
     return line[index - 1].follows == OWN_LIST_END
 
 
+def _ends_the_list(line: cabc.Sequence[Command], index: int) -> int:
+    """Return the index of the last command in ``line[index]``'s list.
+
+    A list runs from ``;`` to ``;``, and ``&`` ends the list it backgrounds.
+    A command in the middle of ``a && b &`` therefore sits in a list whose
+    last command is backgrounded, so it runs in a subshell as surely as the
+    last one does.
+
+    Examples
+    --------
+    >>> backgrounded = [Command(["a"], "&&"), Command(["b"], "&")]
+    >>> _ends_the_list(backgrounded, 0)
+    1
+    >>> separate = [Command(["a"], "&"), Command(["b"], "")]
+    >>> _ends_the_list(separate, 1)
+    1
+    """
+    end = index
+    while end + 1 < len(line) and line[end].follows not in {"", OWN_LIST_END, "&"}:
+        end += 1
+    return end
+
+
 def _runs_in_a_subshell(line: cabc.Sequence[Command], index: int) -> bool:
     """Return whether ``line[index]`` runs in a subshell of its own.
 
     Every element of a pipeline runs in a subshell in Bash, so a ``set``
     written there changes nothing the enclosing script sees. A backgrounded
-    command is asynchronous in the same way, while the command after a lone
-    ``&`` runs in the parent, so only ``|`` and ``|&`` make the command after
-    them a pipeline element.
+    list is asynchronous in the same way, and ``&`` backgrounds the whole
+    AND/OR list it ends rather than only the command before it, so
+    ``set -e && true &`` leaves the parent's state alone. The command after a
+    lone ``&`` runs in the parent, so only ``|`` and ``|&`` make the command
+    after them a pipeline element.
 
     Examples
     --------
@@ -212,13 +237,18 @@ def _runs_in_a_subshell(line: cabc.Sequence[Command], index: int) -> bool:
     True
     >>> _runs_in_a_subshell([Command(["set", "-e"], "&")], 0)
     True
+    >>> async_list = [Command(["set", "-e"], "&&"), Command(["true"], "&")]
+    >>> _runs_in_a_subshell(async_list, 0)
+    True
     >>> after = [Command(["true"], "&"), Command(["set", "-e"], "")]
     >>> _runs_in_a_subshell(after, 1)
     False
     """
     if line[index].follows in SUBSHELL_OPERATORS:
         return True
-    return index > 0 and line[index - 1].follows in PIPELINE_OPERATORS
+    if index > 0 and line[index - 1].follows in PIPELINE_OPERATORS:
+        return True
+    return line[_ends_the_list(line, index)].follows == "&"
 
 
 def errexit_states(
@@ -233,8 +263,9 @@ def errexit_states(
     branch taken leaves it exempt. A later change that certainly runs reports
     its own state again, because it runs whatever the uncertain branch did.
     A change made in a subshell is ignored rather than applied: Bash runs
-    every pipeline element and every backgrounded command in a subshell, so
-    ``set -e | true`` leaves the parent's state exactly as it was.
+    every pipeline element and every backgrounded list in a subshell, so
+    ``set -e | true`` and ``set -e && true &`` leave the parent's state
+    exactly as it was.
 
     Examples
     --------
@@ -263,6 +294,12 @@ def errexit_states(
     >>> errexit_states([
     ...     [Command(["set", "+e"], "")],
     ...     [Command(["set", "-e"], "|"), Command(["true"], "")],
+    ...     [Command(["a"], "")],
+    ... ])
+    [[True], [False, False], [False]]
+    >>> errexit_states([
+    ...     [Command(["set", "+e"], "")],
+    ...     [Command(["set", "-e"], "&&"), Command(["true"], "&")],
     ...     [Command(["a"], "")],
     ... ])
     [[True], [False, False], [False]]
