@@ -1467,6 +1467,10 @@ the test file focused on the behaviour under test. Current examples:
   Parquet fixture builders for dense and dev-dependent tests.
 - `chutoro-providers/dense/src/tests/support.rs` — provider-specific helpers
   for converting record batches into providers.
+- `chutoro-providers/text/tests/support/failing_reader.rs` — failure-injecting
+  reader included by `#[path]` in both the text provider's unit tests and its
+  `textsource` integration test; each target keeps its own reader boundary
+  without a dependency edge or a published testing feature.
 - `chutoro-cli/src/cli/test_fixtures.rs` — CLI path and temporary-directory
   wrapper over the shared Parquet writer.
 - `chutoro-cli/src/cli/test_helpers.rs` — builders for common CLI test

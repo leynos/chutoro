@@ -5,6 +5,10 @@ use chutoro_core::{DataSource, DataSourceError};
 use strsim::levenshtein;
 use thiserror::Error;
 
+#[cfg(test)]
+#[path = "../tests/support/failing_reader.rs"]
+mod failing_reader;
+
 /// Errors produced when constructing a [`TextProvider`].
 #[derive(Debug, Error)]
 pub enum TextProviderError {
@@ -144,28 +148,10 @@ impl DataSource for TextProvider {
 mod tests {
     //! Unit tests for the text data-source provider.
 
+    use std::io::Cursor;
+
+    use super::failing_reader::FailingReader;
     use super::*;
-    use std::io::{self, BufRead, Cursor, Read};
-
-    struct FailingReader;
-
-    impl Read for FailingReader {
-        fn read(&mut self, _buf: &mut [u8]) -> io::Result<usize> {
-            Err(io::Error::other("boom"))
-        }
-    }
-
-    impl BufRead for FailingReader {
-        fn fill_buf(&mut self) -> io::Result<&[u8]> {
-            Err(io::Error::other("boom"))
-        }
-
-        fn consume(&mut self, _amt: usize) {}
-
-        fn read_line(&mut self, _buf: &mut String) -> io::Result<usize> {
-            Err(io::Error::other("boom"))
-        }
-    }
 
     #[test]
     fn read_lines_populates_collection() {
