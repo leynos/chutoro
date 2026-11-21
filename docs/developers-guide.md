@@ -1748,7 +1748,7 @@ and `Lint dense portable SIMD backend` — and the gate logged
 
 An earlier run,
 [44903789820](https://github.com/leynos/chutoro/actions/runs/44903789820),
-reached and passed the four Cargo steps, then failed in Clippy on
+passed the dense test and both compile-contract steps, then failed in Clippy on
 `clippy::chunks-exact-to-as-chunks` under the unpinned nightly. That lint is
 newer than the pinned stable Clippy and the kernel now uses stable `as_chunks`;
 the run above is the re-dispatch. Run
