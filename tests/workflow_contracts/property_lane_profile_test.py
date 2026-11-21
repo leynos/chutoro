@@ -1,19 +1,23 @@
 """The property lanes select the profile sized for their workload.
 
-Both lanes share one anchored run step, so the selected nextest profile is
-the only difference between them. The pull-request lane runs 250 cases and
-keeps the CI allowance; the weekly and manual lane runs 25,000 forked cases
-and selects ``property-heavy``, which inherits ``ci`` and raises only the
-dense SIMD parity allowance. Pinning the selection here means an edit that
-moves the shared step back to one profile fails rather than silently running
-the weekly workload under the pull-request budget (#264).
+All lanes share one anchored run step, so the selected nextest profile is the
+only difference between them. The pull-request lane runs 250 cases and keeps
+the CI allowance. The weekly and manual lane runs 25,000 forked cases, and
+only its ``dense_simd`` leg selects ``property-heavy``, which raises the dense
+SIMD parity allowance on measurement. The other weekly legs stay on ``ci``:
+the pinned cargo-nextest 0.9.143 consults only the selected profile's own
+overrides and ``profile.default``'s, so a profile inheriting ``ci`` silently
+drops ``ci``'s 1500-second HNSW allowances (fixed in 0.9.145).
+
+Pinning the selection here means an edit that moves the shared step back to
+one profile, or that sends another leg through the heavy profile, fails
+rather than silently changing a lane's budget (#264).
 
 See "Dense SIMD parity suite" in ``docs/developers-guide.md``.
 """
 
 import typing as typ
 
-import pytest
 from nextest_durations import _seconds
 from timeout_budgets import (
     NEXTEST_CONFIG,
@@ -31,13 +35,15 @@ PR_JOB: typ.Final[str] = "property-tests-pr"
 WEEKLY_JOB: typ.Final[str] = "property-tests-weekly"
 PR_PROFILE: typ.Final[str] = "ci"
 WEEKLY_PROFILE: typ.Final[str] = "property-heavy"
+MATRIX_PROFILE_EXPRESSION: typ.Final[str] = "${{ matrix.nextest_profile }}"
 
 #: Time the weekly lane spends outside nextest's own clock: checkout, the
 #: Rust toolchain, the nextest download, and the cold build of the workspace
-#: and its dependencies before the first test starts. Thirty minutes is well
-#: above the setup and compile phases measured on the forced measurement runs,
-#: and below the inherited whole-run budget it is added to, so it bounds the
-#: ceiling's headroom rather than consuming it.
+#: and its dependencies before the first test starts. Measured at 61 s from
+#: job start to nextest start on run 44915040254; thirty minutes bounds a cold
+#: runner image, toolchain download and full rebuild, and still leaves the
+#: inherited whole-run budget plus the rest of the job below the 7200 s
+#: ceiling.
 PROPERTY_LANE_SETUP_ALLOWANCE_SECONDS: typ.Final[float] = 30 * 60.0
 
 
@@ -118,27 +124,46 @@ def _dense_parity_allowance(config_text: str, profile: str) -> float:
     return _seconds(str(timeout["period"])) * float(terminate_after)
 
 
-@pytest.mark.parametrize(
-    ("job_name", "profile"),
-    [
-        pytest.param(PR_JOB, PR_PROFILE, id="pull-request-lane"),
-        pytest.param(WEEKLY_JOB, WEEKLY_PROFILE, id="weekly-and-manual-lane"),
-    ],
-)
-def test_property_jobs_select_the_profile_sized_for_their_workload(
-    job_name: str, profile: str
-) -> None:
-    """The shared step must read the profile from the job that runs it.
+def _matrix_profiles(job_name: str) -> dict[str, str]:
+    """Return the nextest profile each matrix leg selects.
 
-    A job-level variable is what lets one anchored step serve both lanes.
-    Checking only that the variable exists would accept a job that sets it
-    and a step that ignores it, so every nextest invocation is required to
-    name the variable and no invocation may hard-code a profile.
+    Returns
+    -------
+    dict[str, str]
+        Suite name to profile name.
+
+    Raises
+    ------
+    AssertionError
+        If the job's matrix is not an ``include`` list of suites carrying a
+        profile. A missing profile would expand the shared step's
+        ``--profile`` argument to nothing.
     """
-    environment = _job_environment(job_name)
-    assert environment.get(PROFILE_VARIABLE) == profile, (
-        f"{job_name} must select {PROFILE_VARIABLE}={profile!r}"
+    matrix = job(WORKFLOW, job_name).get("strategy", {}).get("matrix")
+    assert isinstance(matrix, dict), f"{job_name} must declare a matrix"
+    include = matrix.get("include")
+    assert isinstance(include, list), (
+        f"{job_name}'s matrix must be an include list carrying nextest_profile"
     )
+    profiles: dict[str, str] = {}
+    for entry in include:
+        assert isinstance(entry, dict), f"{job_name}'s matrix entries must be mappings"
+        suite = entry.get("suite")
+        profile = entry.get("nextest_profile")
+        assert isinstance(suite, str) and isinstance(profile, str), (
+            f"{job_name}'s matrix entry must name a suite and a profile: {entry}"
+        )
+        profiles[suite] = profile
+    return profiles
+
+
+def _assert_shared_step_reads_the_variable(job_name: str) -> None:
+    """Require every nextest invocation in a job to name the variable.
+
+    Checking only that the variable exists would accept a job that sets it
+    and a step that hard-codes a profile, so the step's own text is checked
+    too.
+    """
     scripts = _nextest_run_scripts(job_name)
     assert scripts, f"{job_name} must invoke cargo nextest"
     for script in scripts:
@@ -146,6 +171,37 @@ def test_property_jobs_select_the_profile_sized_for_their_workload(
             f"{job_name}'s nextest invocation must read {PROFILE_VARIABLE}: "
             f"{script}"
         )
+
+
+def test_the_pull_request_lane_selects_the_ci_profile() -> None:
+    """The 250-case lane keeps the profile every other CI run uses."""
+    environment = _job_environment(PR_JOB)
+    assert environment.get(PROFILE_VARIABLE) == PR_PROFILE, (
+        f"{PR_JOB} must select {PROFILE_VARIABLE}={PR_PROFILE!r}"
+    )
+    _assert_shared_step_reads_the_variable(PR_JOB)
+
+
+def test_only_the_dense_weekly_leg_selects_the_heavy_profile() -> None:
+    """A profile inheriting ``ci`` drops its overrides on nextest 0.9.143.
+
+    The heavy profile is the only one whose own override matters to this
+    lane. Sending the HNSW or edge-harvest legs through it would silently
+    replace their 1500-second and 600-second allowances with the default
+    profile's, because the pinned nextest does not consult an intermediate
+    profile's overrides.
+    """
+    environment = _job_environment(WEEKLY_JOB)
+    assert environment.get(PROFILE_VARIABLE) == MATRIX_PROFILE_EXPRESSION, (
+        f"{WEEKLY_JOB} must take {PROFILE_VARIABLE} from its matrix"
+    )
+    assert _matrix_profiles(WEEKLY_JOB) == {
+        "hnsw": "ci",
+        "edge_harvest": "ci",
+        "mst": "ci",
+        "dense_simd": WEEKLY_PROFILE,
+    }, "only the dense SIMD leg may select the heavy profile"
+    _assert_shared_step_reads_the_variable(WEEKLY_JOB)
 
 
 def test_the_heavy_dense_allowance_stays_inside_the_global_timeout() -> None:

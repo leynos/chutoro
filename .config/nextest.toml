@@ -189,10 +189,10 @@ slow-timeout = { period = "1500s", terminate-after = 1, grace-period = "5s" }
 
 [[profile.ci.overrides]]
 # The pull-request lane runs the dense SIMD parity suite at 250 cases, which
-# finishes well inside this allowance, but the profile also serves any deeper
-# local run and the base 60s was sized for neither. Bounded here so a stuck
-# case fails the lane instead of monopolizing it; the weekly and manual lanes
-# select `property-heavy`, whose own entry carries the measured allowance.
+# finishes well inside this allowance, but both the base 60s and the profile
+# were sized for other suites. Bounded here so a stuck case fails the lane
+# instead of monopolizing it; the weekly and manual dense leg selects
+# `property-heavy`, whose own entry carries the measured allowance.
 filter = "package(chutoro-providers-dense) & test(/simd::tests::parity::/)"
 slow-timeout = { period = "180s", terminate-after = 1, grace-period = "5s" }
 
@@ -231,9 +231,23 @@ inherits = "ci"
 # dense entry below replaces the 180s one rather than accompanying it.
 
 [[profile.property-heavy.overrides]]
-# Provisional until the forced dispatches complete; the measured evidence and
-# sizing rule replace this comment before the branch merges. A provisional
-# allowance wide enough for a 25,000-case run to complete is the only way to
-# obtain that measurement without treating a timeout as one.
+# Dense parity at the weekly lane's 25,000 forked cases. Measured on three
+# forced `workflow_dispatch` runs of property-tests.yml (44915040254,
+# 44915045535, 44915050995) on the x64 `ubuntu-latest` pool, with
+# PROPTEST_CASES=25000, CHUTORO_PBT_FORK=true and the fixed seed
+# 0x600D_5EED_C047_0207. Slowest completed duration per test across the three
+# runs: pairwise 14.6s, non-finite pairwise 18.9s, query-to-points 37.3s and
+# non-finite query-to-points 81.1s. The last is the sizing case: three times
+# 81.1s is 243.4s, rounded up to a whole minute is 300s, about 3.7x the
+# slowest observed run and far below the inherited 4800s global timeout.
+# Timeouts are unresolved work, not completed measurements, so the 60s
+# failures recorded in #264 are excluded from this sizing.
+#
+# Only the `dense_simd` matrix leg selects this profile. The pinned
+# cargo-nextest 0.9.143 consults only the selected profile's own overrides
+# and `profile.default`'s; overrides in an intermediate profile such as `ci`
+# were silently skipped until 0.9.145, so selecting this profile for the
+# whole weekly job would drop the 1500s HNSW allowances. The other legs stay
+# on `ci` and keep the budgets they had.
 filter = "package(chutoro-providers-dense) & test(/simd::tests::parity::/)"
-slow-timeout = { period = "600s", terminate-after = 1, grace-period = "5s" }
+slow-timeout = { period = "300s", terminate-after = 1, grace-period = "5s" }

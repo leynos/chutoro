@@ -145,13 +145,23 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        suite: [hnsw, edge_harvest, mst, dense_simd]
+        include:
+          - suite: hnsw
+            nextest_profile: ci
+          - suite: edge_harvest
+            nextest_profile: ci
+          - suite: mst
+            nextest_profile: ci
+          - suite: dense_simd
+            nextest_profile: property-heavy
     env:
       CARGO_TERM_COLOR: always
-      # The 25,000-case lane selects the profile that carries the measured
-      # dense parity allowance. It inherits `ci`, so every other suite keeps
-      # exactly the budget the pull-request lane gives it.
-      NEXTEST_PROFILE: "property-heavy"
+      # Only the dense leg selects the heavy profile. The pinned
+      # cargo-nextest 0.9.143 consults only the selected profile's own
+      # overrides and `profile.default`'s, so a profile inheriting `ci`
+      # silently loses `ci`'s 1500s HNSW allowances. The other legs stay on
+      # `ci` and keep the budgets they had before #264.
+      NEXTEST_PROFILE: ${{ matrix.nextest_profile }}
       RUST_BACKTRACE: "1"
       PROGTEST_CASES: "25000"
       PROPTEST_CASES: "25000"
