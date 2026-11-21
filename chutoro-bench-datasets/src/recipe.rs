@@ -96,7 +96,19 @@ pub trait DatasetRecipe: Send + Sync {
     /// Roll back side effects of a partial run.
     ///
     /// Recipes whose prepare phase writes intermediates to [`crate::Storage`]
-    /// should override this method to clean those entries up.
+    /// should override this method to clean those entries up. The state
+    /// carries the last phase that completed successfully, not the phase that
+    /// failed: a fetch failure reports `None`, and a prepare failure reports
+    /// [`crate::Phase::Validate`]. Because the failed phase may already have
+    /// written output, a recipe must treat the reported phase as a lower bound
+    /// on the side effects to remove.
+    ///
+    /// The driver neither tracks writes made through [`crate::Storage`] nor
+    /// supplies cache keys. A recipe that needs to remove partial output must
+    /// record the [`crate::CacheKey`] values it wrote, or derive them
+    /// deterministically from its inputs. It must also remove them through its
+    /// own mechanism, because [`crate::Storage`] has no deletion operation.
+    ///
     /// [`crate::driver::run_recipe`] invokes cleanup only when a phase returns
     /// [`Err`]. It does not run cleanup when a phase panics, because phase
     /// execution currently attaches cleanup with `Result::map_err` and does

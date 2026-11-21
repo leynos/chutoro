@@ -693,6 +693,10 @@ Create `chutoro-bench-datasets/src/newtypes.rs` with:
 - `PartialState` (struct carrying the highest completed phase and any cleanup
   hint such as the `CacheKey` of an orphaned intermediate; `#[non_exhaustive]`).
 
+  Implementation note (2026-11-21): the shipped `PartialState` carries only
+  `highest_completed_phase`. The cleanup-hint field was sketched but never
+  populated, and issue #216 removed it; recipes own cache-key tracking.
+
 Create `chutoro-bench-datasets/src/published.rs`:
 
 ```rust
@@ -1219,3 +1223,8 @@ Dev-only:
 2026-07-14: Final revision reconciles the completed implementation and review
 follow-ups with the concurrency, adapter, and compatibility decisions recorded
 during delivery.
+
+2026-11-21: Records issue #216. `PartialState` no longer carries
+`orphaned_cache_key`; the driver reports only the highest completed phase, and
+recipes track the cache keys they write. The Stage B sketch above is retained
+as design history.

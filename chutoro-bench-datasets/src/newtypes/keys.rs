@@ -115,13 +115,16 @@ pub enum PortName {
 }
 
 /// Partial recipe state passed to cleanup after a phase failure.
+///
+/// The driver reports only the highest completed phase. It does not track
+/// writes made through [`Storage`](crate::Storage) and supplies no cache keys,
+/// so a recipe that must remove partial output records the [`CacheKey`] values
+/// it wrote, or derives them deterministically from its inputs.
 #[non_exhaustive]
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub struct PartialState {
     /// Highest phase completed before the failure.
     pub highest_completed_phase: Option<Phase>,
-    /// Optional cache entry that may need removal by a recipe-specific cleanup.
-    pub orphaned_cache_key: Option<CacheKey>,
 }
 
 impl PartialState {
@@ -134,13 +137,11 @@ impl PartialState {
     ///
     /// let state = PartialState::new(Some(Phase::Validate));
     /// assert_eq!(state.highest_completed_phase, Some(Phase::Validate));
-    /// assert!(state.orphaned_cache_key.is_none());
     /// ```
     #[must_use]
     pub const fn new(highest_completed_phase: Option<Phase>) -> Self {
         Self {
             highest_completed_phase,
-            orphaned_cache_key: None,
         }
     }
 }
