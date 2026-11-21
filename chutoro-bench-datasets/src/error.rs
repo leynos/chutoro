@@ -343,8 +343,8 @@ impl RecipeError {
     #[must_use]
     pub fn cleanup_with_phase_error(
         phase: Phase,
-        phase_error: RecipeError,
-        cleanup_error: RecipeError,
+        phase_error: Self,
+        cleanup_error: Self,
     ) -> Self {
         Self::Cleanup {
             phase,
