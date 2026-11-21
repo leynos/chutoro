@@ -167,7 +167,10 @@ def assert_suites_ran(completed: subprocess.CompletedProcess[str]) -> dict[str, 
         assert match is not None, (
             f"Cargo did not run the {suite} test binary:\n{completed.stderr}"
         )
-        harnesses[suite] = Path(match.group(1))
+        # Cargo prints paths relative to its working directory when it can.
+        # Resolving against the repository root keeps those usable, while an
+        # absolute capture is returned unchanged by the path join.
+        harnesses[suite] = REPO_ROOT / Path(match.group(1))
     results = re.findall(r"test result: ok\. (\d+) passed", completed.stdout)
     assert len(results) == len(GATE_SUITES), (
         "expected one passing summary per gate suite, got "
