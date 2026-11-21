@@ -202,8 +202,9 @@ Hard invariants. Violation requires escalation, not a workaround.
   `FailureClass` and `RecipeError::class()`.
 - [ ] M4 (pin contract, Stage A): mandatory `Integrity` field on `SourceSpec`
   replacing `Option<Checksum>`; `audit-unpinned` Makefile target.
-- [ ] M5 (Stage A validation): gates green; `coderabbit review --agent`; commit
-  and push; open Stage A pull request.
+- [ ] M5 (Stage A validation): gates green; every assertion-site catalogue row
+  verified with `make test`; `coderabbit review --agent`; commit and push; open
+  Stage A pull request.
 - [ ] M6 (transfer domain, Stage B): `ResumeDecision`, `decide_resume`,
   `accept_response`, `ContentRange` value parsing, `RetrySchedule`,
   `RetryClass`.
@@ -249,16 +250,76 @@ Recorded during planning; extend during implementation.
   `SourceSpec::primary(source)`. Any constructor change must update that
   fixture and re-bless the `.stderr` snapshots beside it.
 - Observation: the tests that break when `Checksum` becomes real are **not**
-  the ones an initial reading suggests. Evidence:
-  `chutoro-bench-datasets/tests/error.rs` contains exactly one test,
+  the ones an initial reading suggests, and making `Checksum` merely inhabited
+  breaks none of the four sites recorded here. One integration test and three
+  doctests are affected; `chutoro-bench-datasets/tests/error.rs` is not.
+  Evidence: at `e4b1c6f`, `tests/error.rs` contained exactly one test,
   `recipe_error_other_wraps_arbitrary_source`, which never mentions checksums.
-  The assertions that actually break are
-  `chutoro-bench-datasets/tests/newtypes.rs:45`
-  (`assert!(spec.checksum.is_none())`), and the doctests at
-  `src/newtypes/mod.rs:207` and `src/newtypes/mod.rs:231`, plus the
-  `Checksum::parse` doctest at `src/newtypes/keys.rs:93`. Impact: Stage A's
-  concrete steps name these four sites explicitly, plus the
-  `chutoro-compile-contracts` fixture noted above.
+  Issue #209 subsequently added `recipe_error_size_budget_is_respected`, so the
+  file now has two tests, but the conclusion is unchanged: neither mentions
+  checksums. The assertions below were re-derived from source and pinned to
+  commit `e4b1c6f`, whose `chutoro-bench-datasets` tree is identical to `main`
+  at `2222257`; the only difference on that branch is this ExecPlan and
+  `docs/contents.md`. The ticket's line numbers are stale and are superseded by
+  this table.
+
+  | Item name                                                            | Site at `e4b1c6f`                                | Assertion                                                                                           | Stage A trigger                                               | Failure kind                                                                                                                                                      |
+  | -------------------------------------------------------------------- | ------------------------------------------------ | --------------------------------------------------------------------------------------------------- | ------------------------------------------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+  | `source_spec_with_role_sets_role_and_no_checksum` (integration test) | `chutoro-bench-datasets/tests/newtypes.rs:45`    | `assert!(spec.checksum.is_none());`                                                                 | M4 replaces `SourceSpec.checksum` with `integrity`            | Compile: no field `checksum`                                                                                                                                      |
+  | `SourceSpec::primary` doctest                                        | `chutoro-bench-datasets/src/newtypes/mod.rs:207` | `assert!(source.checksum.is_none());`                                                               | M4 replaces `SourceSpec.checksum` with `integrity`            | Compile: no field `checksum`; doctest, so invisible to Nextest alone                                                                                              |
+  | `SourceSpec::with_role` doctest                                      | `chutoro-bench-datasets/src/newtypes/mod.rs:231` | `assert!(source.checksum.is_none());`                                                               | M4 replaces `SourceSpec.checksum` with `integrity`            | Compile: no field `checksum`; doctest, so invisible to Nextest alone                                                                                              |
+  | `Checksum::parse` doctest                                            | `chutoro-bench-datasets/src/newtypes/keys.rs:93` | `assert!(matches!(error, RecipeError::ChecksumUnsupported));` (paired with `expect_err` at line 91) | M3 deletes `ChecksumUnsupported`; M2 changes parser behaviour | Compile: no variant `ChecksumUnsupported`. Behaviour: `expect_err` panics if `"sha256:abc123"` is accepted; `matches!` fails if parsing returns a different error |
+
+  Making `Checksum` inhabited alone — a hypothetical change, not a standalone
+  milestone — breaks none of these sites: the field remains `Option<Checksum>`,
+  both constructors still set `None`, and the placeholder `Checksum::parse`
+  still returns `ChecksumUnsupported`. The breakage belongs to the M2 change as
+  planned, which inhabits `Checksum` **and** replaces the placeholder parser,
+  and to M3 (error-variant deletion) and M4 (field replacement). Keep that
+  distinction when estimating the work: the parser doctest's behaviour failure
+  comes from M2's parser change, not from inhabitation by itself. Treat the
+  parser doctest as one unit: keep its `expect_err` and `matches!` calls
+  together.
+
+  The three production `ChecksumUnsupported` deletion targets are
+  `chutoro-bench-datasets/src/error.rs:19-21` (variant definition and display
+  message), `chutoro-bench-datasets/src/newtypes/keys.rs:84` (the `# Errors`
+  documentation reference) and `chutoro-bench-datasets/src/newtypes/keys.rs:97`
+  (the construction in `parse`). The doctest assertion at `keys.rs:93` is the
+  fourth row of the table, not a fourth production site.
+
+  **Compile-only impacts if constructor signatures change.** Verified at
+  `e4b1c6f`:
+
+  - `chutoro-bench-datasets/src/testing/stub_recipe.rs:48` passes
+    `SourceSpec::primary` as a function value to `Iterator::map`, so adding a
+    parameter to `primary` breaks this call even though it is not an ordinary
+    function call.
+  - `chutoro-bench-datasets/tests/recipe_lifecycle.rs:215` calls
+    `SourceSpec::primary(source.clone())` inside `FailingRecipe::new`.
+  - `chutoro-compile-contracts/tests/trybuild/ordered_recipe_support.rs:30`
+    calls `SourceSpec::primary(source)`. Both `dataset_recipe_phase_order.rs`
+    and `dataset_recipe_skip_phase.rs` `include!` this support file, so one
+    fixture edit covers both cases.
+
+  `dataset_recipe_skip_phase.stderr` must still report E0308 with
+  ``expected `Validated`, found `Fetched` `` after the migration. Do not bless
+  a constructor-argument error as the new snapshot: that would silently replace
+  the phase-order proof with a test of the constructor signature. Review every
+  `TRYBUILD=overwrite` diff against this requirement.
+
+  `make test` runs the doctests because it invokes `make test-doc` after
+  Nextest, and CI runs `make test-doc` directly
+  (`.github/workflows/ci.yml:175`). Nextest alone and `make dev-test` do
+  **not** run doctests, so a green Nextest run does not prove these rows
+  compile. Validate them with `make test`, or with
+  `cargo test --doc -p chutoro-bench-datasets --all-features`.
+
+  Impact: Stage A must budget for three doctest edits and scope its red/green
+  loop to `make test`, not Nextest alone. Stage A's red-test list reuses
+  `recipe_error_size_budget_is_respected`, which issue #209 adds ahead of Stage
+  A, so this plan must not add it twice. The Stage A checklist below names
+  every assertion site.
 - Observation (superseded 2026-11-11): the first draft found that
   `sha2 0.10` cannot serialize hasher midstate, and adopted chunked digests in
   response. Two things have since changed. First, `main` now resolves
@@ -632,11 +693,12 @@ dependency, `sha2`. This stage should pass every gate first time.
   over arbitrary 32-byte arrays, and a rejection property over arbitrary
   strings that are not valid digests.
 - Extend `chutoro-bench-datasets/tests/error.rs` with
-  `integrity_failure_boxed_payload_preserves_source` and a
-  `recipe_error_size_budget_is_respected` test asserting
-  `size_of::<RecipeError>() <= 32`. The budget currently lives only in a
-  `const _` at the bottom of `src/error.rs`; make it visible to a reviewer
-  reading the test suite.
+  `integrity_failure_boxed_payload_preserves_source`. Reuse the
+  `recipe_error_size_budget_is_respected` test that issue #209 added ahead of
+  this stage: it already asserts `size_of::<RecipeError>() <= 32` and names the
+  `clippy::result_large_err` rationale and the `const _` guard in
+  `src/error.rs`. Do not add a duplicate; keep the guard in place as the
+  compile-time enforcement.
 
 Run them; confirm they fail to compile or fail for the intended reason; capture
 the log.
@@ -682,14 +744,40 @@ variants.
 Add a `make audit-unpinned` target that greps for `Integrity::Unpinned` and
 prints each occurrence with its justification.
 
-The sites that must change, exactly (line numbers as of `main` at `2222257`):
-`src/error.rs:19-21`, `src/newtypes/keys.rs:84`, `src/newtypes/keys.rs:93`,
-`src/newtypes/keys.rs:97` for `ChecksumUnsupported`; and `tests/newtypes.rs:45`,
-`src/newtypes/mod.rs:207`, `src/newtypes/mod.rs:231` for `checksum.is_none()`.
-If either `SourceSpec` constructor changes signature, also update
+The sites that must change, exactly, are catalogued in "Surprises &
+discoveries" and pinned to `e4b1c6f` (whose `chutoro-bench-datasets` tree
+matches `main` at `2222257`). In summary: `src/error.rs:19-21`,
+`src/newtypes/keys.rs:84` and `src/newtypes/keys.rs:97` for
+`ChecksumUnsupported`; `tests/newtypes.rs:45`, `src/newtypes/mod.rs:207` and
+`src/newtypes/mod.rs:231` for `checksum.is_none()`; and the parser doctest at
+`src/newtypes/keys.rs:91-93`. If either `SourceSpec` constructor changes
+signature, also update
 `chutoro-compile-contracts/tests/trybuild/ordered_recipe_support.rs` and
 re-bless `dataset_recipe_skip_phase.stderr` in the same directory with
-`TRYBUILD=overwrite`, reviewing the snapshot diff before committing it.
+`TRYBUILD=overwrite`, reviewing the snapshot diff before committing it. The
+snapshot must still show the phase-order E0308 (`Validated` expected, `Fetched`
+found), not a constructor-argument error.
+
+**Assertion-site catalogue checklist.** Each item maps to one row of the
+catalogue table in "Surprises & discoveries":
+
+- [ ] M4: update `source_spec_with_role_sets_role_and_no_checksum`
+  (`tests/newtypes.rs:45`).
+- [ ] M4: update the `SourceSpec::primary` doctest
+  (`src/newtypes/mod.rs:207`).
+- [ ] M4: update the `SourceSpec::with_role` doctest
+  (`src/newtypes/mod.rs:231`).
+- [ ] M3: replace the `Checksum::parse` doctest
+  (`src/newtypes/keys.rs:91-93`) as one unit, keeping `expect_err` and
+  `matches!` together.
+- [ ] M3: delete the three production `ChecksumUnsupported` sites:
+  `src/error.rs:19-21`, `src/newtypes/keys.rs:84` and `src/newtypes/keys.rs:97`.
+- [ ] M4: if a constructor signature changes, update
+  `src/testing/stub_recipe.rs:48`, `tests/recipe_lifecycle.rs:215` and
+  `chutoro-compile-contracts/tests/trybuild/ordered_recipe_support.rs:30`, and
+  confirm `dataset_recipe_skip_phase.stderr` still shows the phase-order E0308.
+- [ ] M5: verify every row with `make test` (which runs `make test-doc`), not
+  Nextest alone.
 
 Stage A validation: the red tests now pass; `make check-fmt`, `make lint`,
 `make test` all green; `coderabbit review --agent` clean or findings resolved.
@@ -1266,7 +1354,14 @@ goes into `EntryMetadata`, never into the signature.
 
 ## Revision note
 
-2026-11-21 (fifth revision, review of #199): retired the checkpointed hasher
+2026-11-21 (issue #209 catalogue corrections): Stage A now reuses the
+`recipe_error_size_budget_is_respected` test added by issue #209 instead of
+adding it again, and the claim that `tests/error.rs` contains only one test is
+marked as historical. The catalogue also distinguishes a hypothetical
+inhabitation-only change from the M2 change as planned, which inhabits
+`Checksum` and replaces the placeholder parser together.
+
+2026-11-21 (sixth revision, review of #199): retired the checkpointed hasher
 midstate. Review raised two points. The serialized state of the buffered
 `Sha256` is 104 bytes, not 40, which is now recorded under Surprises &
 discoveries. More importantly, a successfully deserialized midstate does not
@@ -1277,6 +1372,14 @@ publication. With that re-hash in place the checkpoint saved nothing, so it was
 removed along with its `hazmat` dependency, its sidecar field, and the
 `HashCheckpoint` interface. The resume cost stays linear: one extra read per
 resumed artefact.
+
+2026-11-19 (fifth revision, issue #209 catalogue): re-derived the four
+assertion sites that break when `Checksum` becomes inhabited and pinned them to
+`e4b1c6f`, correcting the ticket's stale line numbers. Added the Stage A
+catalogue checklist, recorded the constructor call sites that change only if a
+signature changes, and stated the `trybuild` snapshot requirement. Also
+recorded that `make test` runs the doctests while Nextest alone and
+`make dev-test` do not.
 
 2026-11-16 (fourth revision, rebase onto `main` at `2222257`): 17 further
 commits landed. None touched `chutoro-bench-datasets`, the resolved versions of
