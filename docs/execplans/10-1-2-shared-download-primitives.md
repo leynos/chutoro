@@ -134,19 +134,21 @@ Hard invariants. Violation requires escalation, not a workaround.
   expected digest, so two incompatible partials cannot collide. A full-length
   mismatch on a *resumed* transfer earns exactly one clean restart before being
   declared fatal.
-- Risk: if SHA-256 hasher state is not persisted across a process restart, a
-  resumed transfer must re-read its prefix to rebuild the digest, making a
-  large transfer quadratic in the number of resumes. Severity: high.
-  Likelihood: high at GIST1M and above. Mitigation: persist the hasher midstate
-  in the staging sidecar at each durable checkpoint. The workspace lockfile now
-  resolves `sha2 0.11.0` / `digest 0.11.3` / `crypto-common 0.2.2`, in which
-  `sha2::Sha256` implements `crypto_common::hazmat::SerializableState` with a
-  40-byte serialized state. A resume deserializes that state and continues
-  hashing from the recorded offset, re-reading nothing. Because the trait lives
-  in a `hazmat` module and its encoding is not a stable format, the sidecar
-  also records a state-format tag; an unrecognized tag or a deserialization
-  failure falls back to one linear re-hash of the durable prefix, never to a
-  restart or a fatal error.
+- Risk: a resumed transfer publishes bytes that do not match the pinned
+  digest, because the digest was computed over what the process *wrote* rather
+  than over what the staged file *contains*. Any design that carries hash state
+  across an interruption — chunk digests or a persisted hasher midstate — only
+  describes bytes hashed in the past; if the staged prefix changes afterwards
+  (another writer, a buggy sweeper, storage corruption), the final digest can
+  match while the published file differs. Severity: high. Likelihood: low, but
+  silent. Mitigation: a single trust boundary. Bytes hashed in-process as they
+  are written are trusted; any byte read back from disk across an interruption
+  is not, so a resumed transfer re-hashes the complete staged file before
+  publication. The cost is one linear read per resumed artefact, however many
+  times it resumed, so the quadratic re-read that motivated chunked digests
+  does not return. At DEEP1B scale (about 512 GB) that is roughly 17 minutes on
+  NVMe or 70 minutes at EBS gp3 baseline throughput, against an 11-hour
+  transfer, and only when a resume actually happened.
 - Risk: abandoned `.part` files and half-extracted temporary directories are
   invisible to a content-addressed cache scan and accumulate until a runner
   fills its disk, surfacing as `ENOSPC` in unrelated jobs. Severity: high.
@@ -194,7 +196,7 @@ Hard invariants. Violation requires escalation, not a workaround.
 - [ ] M1 (supply chain, Stage 0): `deny.toml`, a CI advisory and licence job,
   and the `bzip2-1.0.6` allowance recorded with a rationale.
 - [ ] M2 (integrity domain, Stage A): `DigestAlgorithm`, inhabited `Checksum`
-  with real hex parsing, `DigestSink` object-safe façade, `HashCheckpoint`.
+  with real hex parsing, `DigestSink` object-safe façade, `verify_file`.
 - [ ] M3 (error redesign, Stage A): boxed `IntegrityFailure`,
   `TransferFailure`, `ArchiveFailure` sub-enums; `ChecksumUnsupported` deleted;
   `FailureClass` and `RecipeError::class()`.
@@ -208,8 +210,8 @@ Hard invariants. Violation requires escalation, not a workaround.
 - [ ] M7 (Verus, Stage B): the jitter-bound proof in
   `verus/download_backoff.rs`, registered in the Makefile's `VERUS_PROOF_FILES`.
 - [ ] M8 (transfer adapters, Stage B): `ureq` `RangeFetcher`, cap-std
-  `PartialStore`/`PartialSlot` with sidecar, checkpointed hasher midstate,
-  sweep, free-space preflight, advisory lock.
+  `PartialStore`/`PartialSlot` with sidecar, re-hash of resumed partials before
+  publication, sweep, free-space preflight, advisory lock.
 - [ ] M9 (context wiring, Stage B): `RecipeContext::with_transfer` and
   `transfer()`; end-to-end scenario driven through `run_recipe`.
 - [ ] M10 (Stage B tests): `ScriptedHttpServer`; resume sequence proptest; the
@@ -268,8 +270,21 @@ Recorded during planning; extend during implementation.
   latent flaw: per-chunk digests cannot be combined into the whole-artefact
   SHA-256 that a manifest pins, so under `sha2 0.10` the chunked design would
   still have needed a full prefix re-read on every cross-process resume.
-  Impact: the plan now persists the hasher midstate instead; see the Decision
-  log. Issue #210 records the original finding.
+  Impact: the 2026-11-11 revision replaced chunked digests with a persisted
+  hasher midstate; the 2026-11-21 revision retired that too, in favour of
+  re-hashing a resumed partial before publication. See the Decision log. Issue
+  #210 records the original finding.
+- Observation: the serialized state of the buffered `sha2::Sha256` is 104
+  bytes under the locked dependencies, not 40. Evidence: `Sha256VarCore` has
+  `SerializedStateSize = U40` (`sha2-0.11.0/src/block_api.rs:104`), but the
+  public `Sha256` is a `digest::buffer_fixed!` wrapper whose size is the core
+  state plus `block_buffer::SerializedBufferSize<U64, Eager>`
+  (`digest-0.11.3/src/buffer_macros/fixed.rs:429-435`), and `Eager` adds
+  `Overhead = U0` (`block-buffer-0.12.1/src/sealed.rs:36`): 40 + 64 = 104.
+  Reported in review of #199. Impact: none now, because the checkpoint was
+  retired; recorded so that any future reintroduction uses
+  `SerializedState<Sha256>` from the trait rather than a hard-coded array
+  length.
 - Observation: `cap-std` has no file locking. Evidence: `cap-std 4.0.3`
   (the resolved version, re-checked 2026-11-11; `3.4.5` behaved identically)
   exposes only `into_std()` and `as_fd()` on `cap_std::fs::File`; there is no
@@ -380,22 +395,29 @@ Recorded during planning; extend during implementation.
   assertion, and second-tier `<= 128` assertions on each sub-enum bound the
   headroom rather than leaving it unmeasured. Date/Author: 2026-08-16, plan
   author, after design review.
-- Decision (supersedes the 2026-08-16 chunked-digest decision): the staging
-  sidecar records a hasher checkpoint — the durable offset, the 40-byte
-  `SerializableState` encoding of `sha2::Sha256`, and a state-format tag — and
-  a resume restores the hasher from it. Rationale: the chunked design could not
-  meet its own acceptance property, because per-chunk digests do not compose
-  into the whole-artefact SHA-256 that the manifest pins; it would still have
-  re-read the prefix on every cross-process resume. `main` now resolves
-  `sha2 0.11`, which persists midstate directly, and choosing the lockfile's
-  existing generation was already this plan's pinning rule. The checkpoint is
-  written in the same atomic sidecar update as the durable offset, so the two
-  can never disagree. The `hazmat` encoding is treated as untrusted: any
-  restore failure degrades to one linear prefix re-hash. The retrieval design's
-  §7.13 "per-shard checksum manifests" and §9 sharded object keys concern
-  sharded artefacts in object storage, owned by 10.1.3 and 10.1.4, and are not
-  met or blocked by this choice. Date/Author: 2026-11-11, plan author, during
-  the rebase onto `main` at `14f1829`.
+- Decision (supersedes both the 2026-08-16 chunked-digest decision and the
+  2026-11-11 checkpointed-midstate decision): no hash state crosses an
+  interruption. An uninterrupted transfer streams every byte through a
+  `DigestSink` as it is written and verifies the result on completion. A
+  transfer that resumed from a non-zero durable offset — in this process or a
+  later one — discards streaming continuity and, after the final fsync,
+  re-hashes the complete staged file from offset zero through a fresh read
+  handle, publishing only on a match. The advisory lock is held from that
+  re-hash through the publishing rename, so nothing this crate controls can
+  change the file between verification and publication. Rationale: review of
+  #199 pointed out that a successfully deserialized midstate proves only what
+  the process once hashed, not what the staged file now contains, and an
+  advisory lock cannot enforce a boundary against other writers or storage
+  faults. Once the re-hash exists, a persisted checkpoint saves nothing — the
+  resumed path reads the file once either way — while adding a dependency on
+  the unstable `crypto_common::hazmat` encoding and a sidecar field. Total
+  extra I/O is one linear pass per resumed artefact, regardless of the number
+  of resumes, so the quadratic cost that started this line of design is still
+  avoided. The 104-byte state-size correction from the same review is recorded
+  under Surprises & discoveries. The retrieval design's §7.13 "per-shard
+  checksum manifests" and §9 sharded object keys concern sharded artefacts in
+  object storage, owned by 10.1.3 and 10.1.4, and are not met or blocked by
+  this choice. Date/Author: 2026-11-21, plan author, after review of #199.
 - Decision: delete `RecipeError::ChecksumUnsupported` rather than repurpose it.
   Rationale: repurposing keeps a name saying "unsupported" attached to a
   failure that is usually "malformed hex", and — decisively — any
@@ -634,18 +656,16 @@ object-safe** — `update<B: AsRef<[u8]>>` is generic and `new() -> Self` requir
 façade: `fn update(&mut self, chunk: &[u8])` and
 `fn finish(self: Box<Self>) -> Checksum`.
 
-In `src/integrity/checkpoint.rs`, define
-`HashCheckpoint { offset: u64, format: StateFormat, state: [u8; 40] }` and two
-functions: `checkpoint(&Sha256, offset) -> HashCheckpoint` and
-`restore(&HashCheckpoint) -> Result<Sha256, IntegrityFailure>`, using
-`sha2::digest::crypto_common::hazmat::SerializableState`. `StateFormat` is a
-one-variant enum naming the `sha2 0.11` encoding; a sidecar carrying any other
-tag is rejected by `restore`. Property-test, over arbitrary inputs and
-**arbitrary split points** (not only 64-byte block boundaries, because the
-buffered wrapper serializes its partial block), that hashing a prefix,
-checkpointing, restoring, and hashing the suffix yields the same digest as
-hashing straight through. Add a case that a corrupted or truncated state array
-is rejected rather than silently producing a wrong digest.
+In `src/integrity/verify.rs`, define
+`verify_file(reader: impl Read, expected: &Checksum) -> Result<(), IntegrityFailure>`,
+which streams the reader through a fresh `DigestSink` in fixed-size buffers
+and compares the result with `expected`. It is the only path by which a resumed
+partial reaches publication, so it must not trust any state other than the
+bytes it reads. Property-test that, over arbitrary contents and arbitrary
+interruption points, the digest from streaming the bytes in one pass, the
+digest from `verify_file` over the assembled bytes, and the reference SHA-256
+all agree. Add a mutation case: flip one byte anywhere in the input, and
+`verify_file` must return a digest mismatch.
 
 In `src/error.rs`, replace `ChecksumUnsupported` with the three boxed variants
 and add the second-tier size assertions. Add `FailureClass` (deliberately
@@ -760,10 +780,9 @@ test against the scripted server, not a comment.
 `staging.rs` implements `PartialStore` and the RAII `PartialSlot`. The staging
 file is named by **expected digest**, so two incompatible partials cannot
 collide. The sidecar records
-`{url, expected_digest, expected_size, validator,
-hash_checkpoint, created_at, last_progress_at}`,
-where `hash_checkpoint` is the `HashCheckpoint` from Stage A and its `offset`
-is the durable offset.
+`{url, expected_digest, expected_size, validator, durable_offset,
+created_at, last_progress_at}`.
+It deliberately carries no hash state: see the trust boundary below.
 
 Two durability invariants, both load-bearing:
 
@@ -774,6 +793,18 @@ Two durability invariants, both load-bearing:
    to the recorded offset. Resume must `set_len(recorded_offset)` **before**
    appending, or a partially written tail is silently incorporated. This is the
    single most important line in the feature.
+
+The trust boundary: bytes hashed in-process as they are written are trusted;
+bytes read back from disk after an interruption are not. A transfer that starts
+from `durable_offset > 0` therefore never verifies with its streaming digest.
+After the final data fsync it re-hashes the whole staged file with
+`verify_file`, holding the advisory lock from that read through the publishing
+rename. A mismatch on a resumed transfer earns the existing single clean
+restart; a mismatch on that restart is fatal. Behavioural tests must cover:
+interrupt, corrupt one byte in the staged prefix, resume — publication is
+refused with `IntegrityFailure` and the clean restart then succeeds; and an
+uninterrupted transfer performs no read-back (assert through the `PartialStore`
+test double's read counter), so the common case pays nothing.
 
 Locking uses `rustix::fs::flock` on the borrowed file descriptor from
 `cap_std::fs::Dir` — `cap-std` has no `lock`, and `into_std()` returns the
@@ -889,9 +920,10 @@ the time of writing; `adr-0005` is already taken by the Cranelift ADR, so as of
   `Fetcher` rather than replacing it, with the transport-neutral `RangeOutcome`
   seam and the reasoning about 10.1.4.
 - ADR-0007: the in-repo pin as integrity root because upstream publishes
-  nothing; mandatory `Integrity` with a greppable `Unpinned`; checkpointed
-  hasher midstate, and why chunked digests were rejected; and the divergence
-  from `pooch` on retry after a digest mismatch.
+  nothing; mandatory `Integrity` with a greppable `Unpinned`; the trust
+  boundary that re-hashes resumed partials before publication, and why chunked
+  digests and a persisted hasher midstate were both rejected; and the
+  divergence from `pooch` on retry after a digest mismatch.
 - ADR-0008: archive extraction policy — reject symlinks, hardlinks, and sparse
   entries; never call `Archive::unpack`; the three-axis expansion budget.
 
@@ -1122,17 +1154,16 @@ cap-std = { version = "4.0.3", optional = true, features = ["fs_utf8"] }
 
 `sha2` is unconditional because integrity is domain, not infrastructure.
 `sha2 0.11` unifies with the existing lockfile entry reached through
-`rstest-bdd → i18n-embed → rust-embed → rust-embed-utils`, and it is the
-generation that persists hasher midstate; the `[bans]` rule in `deny.toml`
-prevents a second `digest` generation appearing. `ureq 3.5` and `rustls 0.23`
-already resolve in the lockfile through `chutoro-benches`, and `flate2 1.1`
-resolves there too, so the HTTP and gzip paths add features rather than
-packages; `cap-std 4.0.3` matches the existing testing-only requirement.
-`flate2` with `zlib-rs` matches cargo, rustup, and uv. `bzip2 0.6` defaults to
-the pure-Rust `libbz2-rs-sys` backend, so no C toolchain. `liblzma` replaces
-the stale `xz2` (last released 2022) and is the heaviest item at 5.5 MB of
-vendored C, hence its own feature. `cap-std` moves from testing-only to a real
-optional dependency.
+`rstest-bdd → i18n-embed → rust-embed → rust-embed-utils`, so the crate adds no
+second `digest` generation to the build; the `[bans]` rule in `deny.toml` keeps
+it that way. `ureq 3.5` and `rustls 0.23` already resolve in the lockfile
+through `chutoro-benches`, and `flate2 1.1` resolves there too, so the HTTP and
+gzip paths add features rather than packages; `cap-std 4.0.3` matches the
+existing testing-only requirement. `flate2` with `zlib-rs` matches cargo,
+rustup, and uv. `bzip2 0.6` defaults to the pure-Rust `libbz2-rs-sys` backend,
+so no C toolchain. `liblzma` replaces the stale `xz2` (last released 2022) and
+is the heaviest item at 5.5 MB of vendored C, hence its own feature. `cap-std`
+moves from testing-only to a real optional dependency.
 
 Signatures below are the contract each stage must produce.
 
@@ -1152,11 +1183,8 @@ pub trait DigestSink: Send {
     fn finish(self: Box<Self>) -> Checksum;
 }
 
-// src/integrity/checkpoint.rs — midstate via `crypto_common::hazmat`.
-pub enum StateFormat { Sha2V011 }
-pub struct HashCheckpoint { pub offset: u64, pub format: StateFormat, pub state: [u8; 40] }
-pub fn checkpoint(hasher: &sha2::Sha256, offset: u64) -> HashCheckpoint;
-pub fn restore(checkpoint: &HashCheckpoint) -> Result<sha2::Sha256, IntegrityFailure>;
+// src/integrity/verify.rs — the only route from a resumed partial to publication.
+pub fn verify_file(reader: impl std::io::Read, expected: &Checksum) -> Result<(), IntegrityFailure>;
 
 // src/newtypes/mod.rs
 #[non_exhaustive]
@@ -1237,6 +1265,18 @@ counts toward `too-many-arguments-threshold = 4`; any future per-entry datum
 goes into `EntryMetadata`, never into the signature.
 
 ## Revision note
+
+2026-11-21 (fifth revision, review of #199): retired the checkpointed hasher
+midstate. Review raised two points. The serialized state of the buffered
+`Sha256` is 104 bytes, not 40, which is now recorded under Surprises &
+discoveries. More importantly, a successfully deserialized midstate does not
+prove that the staged prefix still holds the bytes it describes. The plan now
+draws an explicit trust boundary: bytes hashed in-process as written are
+trusted, and a resumed partial is re-hashed in full, under the lock, before
+publication. With that re-hash in place the checkpoint saved nothing, so it was
+removed along with its `hazmat` dependency, its sidecar field, and the
+`HashCheckpoint` interface. The resume cost stays linear: one extra read per
+resumed artefact.
 
 2026-11-16 (fourth revision, rebase onto `main` at `2222257`): 17 further
 commits landed. None touched `chutoro-bench-datasets`, the resolved versions of
