@@ -244,6 +244,36 @@ demonstrates:
   `chutoro-core/src/mst/tests/kani_model_equivalence.rs`, and out-of-domain
   inputs fail loudly with invariant violations.
 
+### 2026-11-21: Base-Layer Connectivity Healing Proof (Issue 255)
+
+- A direct Kani harness now reaches the production
+  `ConnectivityHealer::ensure_base_connectivity` through the `#[cfg(kani)]`
+  bridge `ensure_base_connectivity_for_kani` in
+  `chutoro-core/src/hnsw/insert/mod.rs`. The harness
+  `verify_base_layer_healing_links_isolated_node_2_nodes` builds two level-0
+  nodes with fresh lists, heals node 1 with a base-layer limit of two, and
+  asserts the exact post-state: node 0 lists `[1]`, node 1 lists `[0]`, and the
+  entry point is unchanged.
+- The harness verifies in 9.57 s on Kani 0.67.0 with rustc 1.99.1 (24 CPUs,
+  125 GiB RAM): 0 of 1240 checks failed, both `kani::cover!` properties were
+  satisfied, and the trace contains zero aborted paths. The only unwind failure
+  at `#[kani::unwind(4)]` was `memcmp.unwind.0`; `unwind(9)` covers the
+  eight-byte slice comparison.
+- The earlier direct harness's 2,590-path, twenty-minute abort is not inherent
+  to the healer. A three-node widening with one symbolic boolean
+  (`kani::any::<bool>()`) for an optional spare neighbour exceeded 600 s with
+  more than 6,400 aborted paths before being stopped, which confirms the
+  two-to-three-node cliff. The concrete two-node rung is the retained proof.
+- The proof is non-vacuous. Temporarily skipping the reverse directed link in
+  `link_new_node_inner` makes the harness fail with
+  `healing must link the isolated node back to the entry node`; temporarily
+  pre-seeding the reciprocal edge makes it fail with
+  `healing precondition: both base lists must start empty`. Both mutations were
+  reverted.
+- The normal healing tests and the `LinearVisitedSet` equivalence tests remain.
+  The proof covers link creation on fresh lists only; eviction cascades,
+  re-healing of evicted nodes, and global connectivity remain test-covered.
+
 ### Verification Targets (Next Invariants)
 
 The following invariants are explicitly defined to avoid ambiguity, and are
@@ -326,6 +356,10 @@ intended as future formal verification targets:
   to scheduling beyond that critical section must be accompanied by a bounded
   scheduler or lock model plus production-path regressions, not by extending
   these structural harnesses.
+- 2026-11-21: Proved base-layer healing link creation on a concrete two-node
+  graph (issue 255), added the `ensure_base_connectivity_for_kani` bridge and
+  the fast-tier harness, and recorded the three-node symbolic cliff measured
+  while widening it.
 
 ## Amendments
 

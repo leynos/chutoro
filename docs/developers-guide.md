@@ -2759,9 +2759,13 @@ only covers the version its own manifest pins, a matching `PROVER_TOOLS_SOURCE`
 bump.
 
 The two minimum-spanning-tree (MST) harnesses are fast-tier proofs and run in
-`make kani`. The full tier remains the package-wide sweep across every declared
-harness, including the distance and HNSW invariant proofs that are not in the
-fast list.
+`make kani`. The base-layer connectivity healing proof,
+`verify_base_layer_healing_links_isolated_node_2_nodes`, is fast-tier too: it
+drives the production `ConnectivityHealer::ensure_base_connectivity` on a
+concrete two-node graph and asserts the exact reciprocal base lists. It
+verifies in about ten seconds on the measurement host. The full tier remains
+the package-wide sweep across every declared harness, including the distance
+and HNSW invariant proofs that are not in the fast list.
 
 What the HNSW harnesses prove is bounded. The graph-structure obligations FV04
 and FV08 model graph state — adjacency, reciprocity, level membership, and the
@@ -2799,6 +2803,13 @@ removed-edge reconciliation, and deferred scrubs in one formula was intractable
 even on a two-node graph, while per-call proofs of `ensure_reverse_edge` verify
 in about a minute.
 
+The healer proof measures the same cliff. An all-concrete two-node harness
+verifies in about ten seconds with no aborted paths, while a three-node sibling
+that adds one symbolic boolean for an optional spare neighbour exceeded ten
+minutes of solving with more than six thousand aborted paths. A concrete
+fixture is therefore not merely a convenience: it is what makes the healing
+path tractable, and one symbolic node choice is enough to lose that.
+
 Harness construction must avoid panic-capable paths such as `.expect(...)` and
 production errors that build messages with `format!` before an invariant
 assertion. Prefer
@@ -2830,7 +2841,10 @@ Standard hash collections must not appear on any Kani-reachable path. The
 default `HashMap`/`HashSet` hasher seeds symbolic SipHash state that makes even
 fully deterministic harnesses intractable. Substitute a bounded linear-scan
 structure under `#[cfg(kani)]`, as `ConnectivityHealer`'s visited set does in
-`chutoro-core/src/hnsw/insert/connectivity.rs`.
+`chutoro-core/src/hnsw/insert/connectivity.rs`. That substitute's insertion
+semantics are pinned by `rstest` equivalence cases, and the concrete two-node
+healing path itself is now proved by the fast-tier harness above; the
+substitute remains in use because the proof drives it.
 
 Keep each `#[kani::unwind(N)]` bound as tight as the harness permits; do not
 increase a default bound to compensate for proof cost. For a demonstrably slow

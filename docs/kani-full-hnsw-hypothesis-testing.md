@@ -306,6 +306,83 @@ across `chutoro-core` and `chutoro-providers-dense` verify successfully in 17
 minutes 50 seconds of wall-clock time (including Kani compilation) on a
 six-core development machine, well within the nightly 120-minute budget.
 
+## 2026-11-21: Base-layer connectivity healing retry (issue 255)
+
+The 2026-08-24 conclusion left the healing path unproved because a direct
+harness timed out after twenty minutes and aborted 2,590 paths. This retry
+separated input nondeterminism from the production code's cost and found a
+tractable design.
+
+### Environment
+
+- Kani 0.67.0 from `tools/kani/VERSION`; rustc 1.99.1.
+- 24 CPUs, 125 GiB RAM; compile admission healthy with four slots.
+- Every command used the Makefile's `KANI_ENV`, that is, the pinned toolchain
+  library on `LD_LIBRARY_PATH`.
+
+### Baseline: unchanged `make kani`
+
+| Harness                                                       | Verification time |
+| ------------------------------------------------------------- | ----------------- |
+| `verify_bidirectional_links_smoke_2_nodes_1_layer`            | 69.2 s            |
+| `verify_bidirectional_links_reconciliation_2_nodes_1_layer`   | 149.6 s           |
+| `verify_mst_structural_correctness_4_nodes`                   | 191.4 s           |
+| `verify_mst_minimality_3_nodes`                               | 137.0 s           |
+| `verify_dense_simd_dispatch_selection_respects_support_masks` | 0.65 s            |
+| `verify_dense_simd_tail_padding_lane_bounds`                  | 3.98 s            |
+
+Total wall time 1001.5 s, exit code 0, all six harnesses successful. The wall
+time is dominated by compiling `chutoro-providers-dense`, not by solving.
+
+### Concrete probe
+
+```sh
+LD_LIBRARY_PATH="$HOME/.kani/kani-0.67.0/toolchain/lib:$LD_LIBRARY_PATH" \
+  timeout 1200s cargo kani -p chutoro-core --default-unwind 10 \
+  --harness verify_base_layer_healing_links_isolated_node_2_nodes
+```
+
+```text
+SUMMARY:
+ ** 0 of 1240 failed (23 unreachable)
+
+ ** 2 of 2 cover properties satisfied
+
+VERIFICATION:- SUCCESSFUL
+Verification Time: 9.5732382s
+```
+
+Exit code 0. The trace contains no `aborting path on assume(false)` lines. At
+`#[kani::unwind(4)]` the only failure was `memcmp.unwind.0` at
+`<builtin-library-memcmp>:25`, because the exact one-element slice comparison
+runs an eight-byte `memcmp`; `unwind(9)` covers it. No solver other than
+`kissat` was needed.
+
+### Widening
+
+A three-node sibling with one `kani::any::<bool>()` selecting an optional spare
+neighbour and `#[kani::unwind(17)]` exceeded 600 s of solver time with more
+than 6,400 aborted paths before it was stopped. This is the documented
+two-to-three-node cliff: one symbolic node choice loses the tractability of the
+concrete fixture, so the widened harness was not retained.
+
+### Non-vacuity controls
+
+- Skipping the reverse directed link in `link_new_node_inner`:
+  `VERIFICATION:- FAILED`,
+  `Failed Checks: healing must link the isolated node back to the entry node`.
+- Pre-seeding the reciprocal `0 <-> 1` edge: `VERIFICATION:- FAILED`,
+  `Failed Checks: healing precondition: both base lists must start empty`.
+- Both mutations were reverted before the final run.
+
+### Conclusion
+
+The all-concrete two-node healing path is tractable and proved. The harness
+asserts the exact reciprocal base lists and a preserved entry point, and it
+runs in both `make kani` and `make kani-full`. Eviction cascades, re-healing of
+evicted nodes, and global connectivity remain with the normal healing tests; the
+`LinearVisitedSet` equivalence tests remain the substitute's contract.
+
 ## Notes for executing agent
 
 - Run diagnostic commands sequentially; do not run Kani jobs in parallel.

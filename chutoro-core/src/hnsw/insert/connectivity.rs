@@ -17,8 +17,8 @@ use crate::hnsw::graph::Graph;
 /// Visited-node set for the iterative healing queues.
 ///
 /// Production builds use a `HashSet`. Under Kani the default hasher's
-/// randomized `SipHash` state is symbolic, which makes bounded verification of
-/// any healing path intractable, so the linear-scan set below is substituted;
+/// randomized `SipHash` state is symbolic, which makes a healing path with
+/// symbolic inputs intractable, so the linear-scan set below is substituted;
 /// healing queues visit each node at most once, so the scan stays bounded.
 #[cfg(not(kani))]
 type VisitedSet = HashSet<usize>;
@@ -29,10 +29,9 @@ type VisitedSet = LinearVisitedSet;
 /// Linear-scan visited set standing in for `HashSet` under Kani.
 ///
 /// Compiled under `cfg(test)` as well so its equivalence to `HashSet`
-/// semantics is asserted in normal CI: the healing path itself is past the
-/// tractable CBMC state space even at two nodes (a direct harness timed out
-/// in symbolic execution), so this substitute is validated by test rather
-/// than by proof.
+/// semantics is asserted in normal CI. The concrete two-node, spare-capacity
+/// healing path is proved by the `kani_proofs::connectivity` harness; eviction
+/// cascades and wider graphs remain covered by the normal healing tests.
 #[cfg(any(kani, test))]
 #[derive(Debug, Default)]
 struct LinearVisitedSet {
