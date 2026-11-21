@@ -8,6 +8,7 @@ publish = false
 
 [features]
 default = []
+http = ["dep:cap-std", "dep:rustix"]
 testing = ["dep:cap-std"]
 
 [dependencies]
@@ -16,6 +17,9 @@ camino = "1.1"
 cap-std = { version = "4.0.3", optional = true, features = ["fs_utf8"] }
 thiserror = "2.0"
 tracing = "0.1"
+
+[target.'cfg(not(windows))'.dependencies]
+rustix = { version = "1.1.4", optional = true, features = ["fs"] }
 
 [dev-dependencies]
 chutoro-bench-datasets = { path = ".", features = ["testing"] }

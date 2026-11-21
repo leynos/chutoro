@@ -3253,15 +3253,28 @@ overwrite semantics, and `Publisher` is the final write-once sink. `CacheKey`
 and `ObjectKey` are opaque string newtypes: recipes treat them as identifiers,
 and any interpretation of a key as a filesystem path, object-store prefix, or
 other backend-specific address belongs to the `Storage` and `Publisher`
-adapters. Network download, archive extraction, object-store adapters,
-lockfiles, fetch-time checksum verification, and licence gates are deferred to
-later roadmap items.
+adapters. Network download, archive extraction, object-store adapters, the
+roadmap 10.1.5 cache lockfile, fetch-time checksum verification, and licence
+gates are deferred to later roadmap items.
+
+All filesystem access goes through `cap_std::fs_utf8` relative to a `Dir`
+capability root. Do not call `std::fs`, and do not call `into_std()` to recover
+an ambient handle. The staging lock in `src/transfer/lock.rs`, enabled by the
+`http` feature, opens its `.lock` file through the capability root and borrows
+the descriptor with `AsFd` for `rustix::fs::flock`; this is the sanctioned
+pattern for an operation `cap-std` does not expose. The lock is advisory, so
+the cache root must be a local filesystem: `flock` is unreliable on NFS and may
+be emulated on overlay mounts. See
+[`ADR-007`](adrs/adr-0007-staging-lock-via-rustix-flock.md).
 
 Enable the crate's `testing` feature for adapter contract tests. It exposes
 `InMemoryFetcher`, `InMemoryStorage`, `InMemoryPublisher`, `FilesystemFetcher`,
 and `StubRecipe`. The behavioural tests in
 `chutoro-bench-datasets/tests/recipe_bdd.rs` run the same fetcher contract
-against both in-memory and filesystem-backed adapters.
+against both in-memory and filesystem-backed adapters. The `http` feature
+exposes `StagingLock`, `StagingLockGuard`, `LockPolicy`, and their outcome
+types; it enables `cap-std` and `rustix` but changes neither `default` nor
+`testing`.
 
 The design rationale is recorded in
 [`ADR-004`](adrs/adr-0004-bench-dataset-recipe-trait.md). The broader dataset

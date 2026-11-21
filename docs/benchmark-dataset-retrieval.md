@@ -93,6 +93,27 @@ consumption._
   scope for 10.1.2 and 10.3.10 (see
   [ADR 008](adrs/adr-0008-glove-source-and-zip-scope.md)).
 
+#### Staging lock semantics
+
+Concurrent matrix jobs that prepare the same dataset must exclude each other
+while a partial download is appended, committed, or discarded. The
+`chutoro-bench-datasets` `http` feature therefore provides an advisory staging
+lock. The governing decision is
+[`ADR-007`](adrs/adr-0007-staging-lock-via-rustix-flock.md).
+
+- The lock file is a stable, relative `.lock` file inside the cache root. It is
+  created if missing, opened without truncation, and never removed or renamed.
+- Acquisition uses a non-blocking exclusive `flock` in a bounded loop. A hard
+  timeout and a single warning on first contention stop a dead holder from
+  wedging every other job.
+- `flock` is advisory and per open file description. On NFS and overlay mounts
+  the filesystem may not honour it, so the cache root must be a local
+  filesystem. In-process double acquisition is caught by a process-wide
+  registry rather than by `flock`.
+- The staging lock is not the roadmap 10.1.5 cache index or lockfile. It
+  excludes writers to one staging artefact only; it does not deduplicate recipe
+  preparation, index cache entries, or coordinate object-store publication.
+
 ### 3.3. Governance and telemetry
 
 - Enforce provenance and licence metadata gates; fail fast when an upstream

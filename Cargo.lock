@@ -469,6 +469,7 @@ dependencies = [
  "rstest",
  "rstest-bdd",
  "rstest-bdd-macros",
+ "rustix",
  "tempfile",
  "thiserror 2.0.21",
  "tracing",
