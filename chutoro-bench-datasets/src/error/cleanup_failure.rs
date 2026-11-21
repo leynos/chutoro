@@ -32,6 +32,9 @@ impl CleanupFailure {
 
     /// Borrow the error returned by the phase that failed before cleanup.
     ///
+    /// # Returns
+    /// The [`RecipeError`] the failed phase produced before cleanup ran.
+    ///
     /// # Examples
     ///
     /// ```
@@ -57,6 +60,9 @@ impl CleanupFailure {
     }
 
     /// Borrow the error returned by the recipe cleanup hook.
+    ///
+    /// # Returns
+    /// The [`RecipeError`] the cleanup hook produced.
     ///
     /// # Examples
     ///

@@ -328,6 +328,16 @@ impl RecipeError {
 
     /// Create a cleanup failure that retains the original phase error.
     ///
+    /// # Parameters
+    /// - `phase`: Phase whose execution returned `phase_error`.
+    /// - `phase_error`: Error returned by the failed phase. It becomes the
+    ///   source of the retained cleanup failure.
+    /// - `cleanup_error`: Error returned by the recipe cleanup hook.
+    ///
+    /// # Returns
+    /// [`RecipeError::Cleanup`] whose source is a boxed [`CleanupFailure`]
+    /// retaining both errors.
+    ///
     /// # Examples
     ///
     /// ```
@@ -356,9 +366,11 @@ impl RecipeError {
 
     /// Borrow the failures retained by a driver-created cleanup error.
     ///
-    /// Returns [`None`] for every other variant and for cleanup errors built
-    /// through [`RecipeError::cleanup`], which retains only the cleanup
-    /// failure.
+    /// # Returns
+    /// [`Some`] with the retained payload for an error built through
+    /// [`RecipeError::cleanup_with_phase_error`]; [`None`] for every other
+    /// variant and for cleanup errors built through [`RecipeError::cleanup`],
+    /// which retains only the cleanup failure.
     ///
     /// # Examples
     ///
@@ -470,7 +482,20 @@ pub enum IntegrityFailure {
 
 
 
+
+
+
+
 const _: () = assert!(std::mem::size_of::<RecipeError>() <= 32);
+
+// `RecipeError` boxes cleanup payloads as `dyn Error + Send + Sync`, so the
+// compound failure must satisfy the same bounds as every other boxed source.
+
+// `RecipeError` boxes cleanup payloads as `dyn Error + Send + Sync`, so the
+// compound failure must satisfy the same bounds as every other boxed source.
+
+// `RecipeError` boxes cleanup payloads as `dyn Error + Send + Sync`, so the
+// compound failure must satisfy the same bounds as every other boxed source.
 
 // `RecipeError` boxes cleanup payloads as `dyn Error + Send + Sync`, so the
 // compound failure must satisfy the same bounds as every other boxed source.
