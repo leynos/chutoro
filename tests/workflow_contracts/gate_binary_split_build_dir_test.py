@@ -160,9 +160,12 @@ def assert_suites_ran(completed: subprocess.CompletedProcess[str]) -> dict[str, 
     """
     harnesses: dict[str, Path] = {}
     for suite in GATE_SUITES:
+        # The capture is greedy and anchored to the line end, so a temporary
+        # directory containing parentheses keeps its full path.
         match = re.search(
-            rf"Running tests[\\/]{re.escape(suite)}\.rs \(([^)]*)\)",
+            rf"Running tests[\\/]{re.escape(suite)}\.rs \((.+)\)\s*$",
             completed.stderr,
+            re.MULTILINE,
         )
         assert match is not None, (
             f"Cargo did not run the {suite} test binary:\n{completed.stderr}"
