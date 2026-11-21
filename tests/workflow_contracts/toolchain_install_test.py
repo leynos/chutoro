@@ -10,115 +10,37 @@ could see the difference, because the flag is only wrong at the point
 rustup parses it.
 
 These tests read the invocation rather than the step's name, so deleting
-the fix while keeping the step fails them.
+the fix while keeping the step fails them. The reading itself, and the
+nightly lane's presence contract over it, live in `rustup_install_reading.py`
+so this module stays within the 400-line limit.
 
 Run via ``make test-workflow-contracts``.
 """
 
 from __future__ import annotations
 
-import itertools as it
-import re
 import tomllib
 import typing as typ
 
 import pytest
+from rustup_install_reading import (
+    COMPONENT_FLAG,
+    CONTINUATION,
+    NIGHTLY_JOB,
+    NIGHTLY_WORKFLOW,
+    assert_nightly_installer,
+    component_groups,
+    rustup_installs,
+    rustup_invocations,
+    run_scripts,
+)
 from workflow_support import (
     ROOT,
+    job,
     jobs,
     load_workflow,
-    run_script,
-    steps,
     workflow_names,
 )
-
-#: A `rustup` invocation, however its line continuations are written. The
-#: script is joined first, so a command split across lines is one match
-#: rather than none.
-RUSTUP_INVOCATION = re.compile(r"\brustup\s+toolchain\s+install\b[^\n;&|]*")
-
-#: The flag whose repeated form is the whole point of this module.
-COMPONENT_FLAG = "--component"
-
-#: A shell line continuation, and only that.
-#:
-#: The shell joins lines on a backslash immediately followed by a newline. A
-#: backslash followed by a space or a tab escapes that character instead, and
-#: the command ends at the newline. Matching the looser `\\\s*\n` would join
-#: lines the shell does not, so a truncated install would read here as a
-#: well-formed one, which is the opposite of what a contract is for.
-CONTINUATION = re.compile(r"\\\n[ \t]*")
-
-
-class ComponentGroup(typ.NamedTuple):
-    """One `--component` flag, with enough context to name it in a failure."""
-
-    job_name: str
-    invocation: str
-    values: list[str]
-
-
-def _rustup_installs(script: str) -> list[str]:
-    """Return each rustup toolchain install in a step's script.
-
-    Genuine continuations are joined first, so a command split across lines
-    is one invocation rather than none. A backslash the shell would not treat
-    as a continuation is left alone, and the invocation then ends on it, which
-    is what `test_no_rustup_install_ends_on_a_dangling_backslash` looks for.
-    """
-    joined = CONTINUATION.sub(" ", script)
-    return [match.group(0) for match in RUSTUP_INVOCATION.finditer(joined)]
-
-
-def _component_values(invocation: str) -> list[list[str]]:
-    """Return the tokens following each `--component` flag.
-
-    A value run ends at the next flag, so a `--component` immediately
-    followed by one yields an empty list rather than swallowing it.
-    """
-    tokens = invocation.split()
-    return [
-        list(it.takewhile(lambda token: not token.startswith("-"), tokens[index + 1 :]))
-        for index, token in enumerate(tokens)
-        if token == COMPONENT_FLAG
-    ]
-
-
-def _rustup_invocations(workflow_name: str) -> typ.Iterator[tuple[str, str]]:
-    """Yield every rustup toolchain install in a workflow, with its job name."""
-    for job_name, definition in jobs(load_workflow(workflow_name)).items():
-        for step in steps(definition):
-            for invocation in _rustup_installs(run_script(step)):
-                yield job_name, invocation
-
-
-def _run_scripts(workflow_name: str) -> typ.Iterator[tuple[str, str]]:
-    """Yield every workflow `run` script with its job name."""
-    for job_name, definition in jobs(load_workflow(workflow_name)).items():
-        for step in steps(definition):
-            script = run_script(step)
-            if script:
-                yield job_name, script
-
-
-def _component_groups_in_step(step: dict[str, typ.Any]) -> typ.Iterator[tuple[str, list[str]]]:
-    """Yield each `--component` flag found in one step, with its invocation."""
-    for invocation in _rustup_installs(run_script(step)):
-        for values in _component_values(invocation):
-            yield invocation, values
-
-
-def _component_groups(workflow_name: str) -> typ.Iterator[ComponentGroup]:
-    """Yield every `--component` flag in a workflow, wherever it appears."""
-    for job_name, definition in jobs(load_workflow(workflow_name)).items():
-        for invocation, values in _steps_of(definition):
-            yield ComponentGroup(job_name, invocation, values)
-
-
-def _steps_of(definition: dict[str, typ.Any]) -> typ.Iterator[tuple[str, list[str]]]:
-    """Yield each `--component` flag across one job's steps."""
-    for step in steps(definition):
-        yield from _component_groups_in_step(step)
 
 
 @pytest.mark.parametrize("workflow_name", workflow_names())
@@ -129,7 +51,7 @@ def test_each_rustup_component_carries_its_own_flag(workflow_name: str) -> None:
     installing anything, so the step fails and every step after it is
     skipped.
     """
-    for group in _component_groups(workflow_name):
+    for group in component_groups(workflow_name):
         assert len(group.values) == 1, (
             f"{workflow_name}:{group.job_name} installs {group.values} under "
             f"one {COMPONENT_FLAG} flag; rustup reads {group.values[1:]} as "
@@ -142,7 +64,7 @@ def test_no_rustup_install_asks_for_a_component_it_does_not_name(
     workflow_name: str,
 ) -> None:
     """Every `--component` flag has a value, rather than swallowing the next flag."""
-    for group in _component_groups(workflow_name):
+    for group in component_groups(workflow_name):
         assert group.values, (
             f"{workflow_name}:{group.job_name} passes {COMPONENT_FLAG} with no "
             f"value in {group.invocation!r}"
@@ -160,7 +82,7 @@ def test_no_rustup_install_ends_on_a_dangling_backslash(workflow_name: str) -> N
     reports it. The reading above leaves such a backslash in place precisely
     so it can be seen here.
     """
-    for job_name, invocation in _rustup_invocations(workflow_name):
+    for job_name, invocation in rustup_invocations(workflow_name):
         assert not invocation.rstrip().endswith("\\"), (
             f"{workflow_name}:{job_name} ends a rustup install on a backslash "
             f"the shell does not read as a continuation, so everything after "
@@ -168,11 +90,126 @@ def test_no_rustup_install_ends_on_a_dangling_backslash(workflow_name: str) -> N
         )
 
 
+def test_the_nightly_lane_installs_nightly_with_clippy_and_rustfmt() -> None:
+    """Selecting the installer by its `run` content keeps the contract real.
+
+    A workflow that dropped the installer would otherwise pass a contract
+    written as "every installer names both components", because the loop
+    over an empty selection proves nothing. The assertion therefore requires
+    the one invocation before it reads anything from it.
+    """
+    assert_nightly_installer(job(NIGHTLY_WORKFLOW, NIGHTLY_JOB))
+
+
+#: The stage of the nightly lane whose installer the injected cases vary.
+_INSTALLER = "rustup toolchain install nightly --profile minimal"
+
+#: A compile-contract step, so the no-installer case still describes a lane
+#: that would try to run its tests were the installer present.
+_CONTRACT_STEP = {
+    "name": "Test portable SIMD compile contract",
+    "run": (
+        "cargo +nightly test -p chutoro-compile-contracts "
+        "--test portable_simd_gating"
+    ),
+}
+
+
+def _nightly_workflow(installer: str | None) -> dict[str, typ.Any]:
+    """Return a one-job workflow carrying *installer*, or none when ``None``."""
+    install_steps = [] if installer is None else [{"run": installer}]
+    return {
+        "jobs": {
+            NIGHTLY_JOB: {
+                "steps": [
+                    {
+                        "uses": (
+                            "actions/checkout@"
+                            "3d3c42e5aac5ba805825da76410c181273ba90b1"
+                        )
+                    },
+                    *install_steps,
+                    _CONTRACT_STEP,
+                ]
+            }
+        }
+    }
+
+
+@pytest.mark.parametrize(
+    ("workflow", "is_accepted"),
+    (
+        pytest.param(
+            _nightly_workflow(
+                f"{_INSTALLER} --component clippy --component rustfmt"
+            ),
+            True,
+            id="repeated-flags",
+        ),
+        pytest.param(
+            _nightly_workflow(f"{_INSTALLER} --component clippy,rustfmt"),
+            True,
+            id="comma-list",
+        ),
+        pytest.param(
+            _nightly_workflow(
+                f"{_INSTALLER} \\\n  --component clippy --component rustfmt"
+            ),
+            True,
+            id="continued-repeated-flags",
+        ),
+        pytest.param(_nightly_workflow(None), False, id="no-installer"),
+        pytest.param(
+            _nightly_workflow(f"{_INSTALLER} --component clippy"),
+            False,
+            id="missing-rustfmt",
+        ),
+        pytest.param(
+            _nightly_workflow(
+                "rustup toolchain install stable --profile minimal "
+                "--component clippy --component rustfmt"
+            ),
+            False,
+            id="wrong-toolchain",
+        ),
+        pytest.param(
+            _nightly_workflow(
+                "rustup toolchain install nightly --profile default "
+                "--component clippy --component rustfmt"
+            ),
+            False,
+            id="wrong-profile",
+        ),
+    ),
+)
+def test_the_nightly_installer_contract_rejects_only_broken_installers(
+    workflow: dict[str, typ.Any],
+    is_accepted: bool,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """The presence, toolchain, profile, and component checks must all bite.
+
+    Each case injects a parsed workflow, so the assertion is exercised
+    without editing the real lane. The malformed single-flag command is
+    absent here on purpose: `test_each_rustup_component_carries_its_own_flag`
+    already rejects it for every workflow, and repeating it would test one
+    defect twice.
+    """
+    monkeypatch.setattr(f"{__name__}.load_workflow", lambda name: workflow)
+
+    job_definition = jobs(load_workflow(NIGHTLY_WORKFLOW))[NIGHTLY_JOB]
+    if is_accepted:
+        assert_nightly_installer(job_definition)
+    else:
+        with pytest.raises(AssertionError):
+            assert_nightly_installer(job_definition)
+
+
 def test_nightly_lane_runs_portable_simd_compile_contract() -> None:
     """Nightly must execute the feature-enabled portable-SIMD contract."""
     commands = [
         " ".join(CONTINUATION.sub(" ", script).split())
-        for _, script in _run_scripts("nightly-portable-simd.yml")
+        for _, script in run_scripts("nightly-portable-simd.yml")
         if "cargo +nightly test" in script
     ]
     assert (
@@ -191,7 +228,7 @@ def test_nightly_lane_runs_portable_simd_contract_without_feature() -> None:
     """Nightly also checks the compile refusal before enabling the feature."""
     commands = [
         " ".join(CONTINUATION.sub(" ", script).split())
-        for _, script in _run_scripts("nightly-portable-simd.yml")
+        for _, script in run_scripts("nightly-portable-simd.yml")
         if "cargo +nightly test" in script
     ]
     assert (
@@ -248,4 +285,4 @@ def test_the_reading_joins_only_what_the_shell_joins(
     Joining it anyway would let a truncated install read as a well-formed one,
     which is the defect this module exists to catch rather than to hide.
     """
-    assert _rustup_installs(script) == expected
+    assert rustup_installs(script) == expected

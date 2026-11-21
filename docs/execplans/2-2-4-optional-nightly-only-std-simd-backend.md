@@ -452,9 +452,11 @@ Stage A.
 - [x] 1.6.3. Sequence the workflow steps as checkout, recent-commit gate by
   fetching `origin/main` and comparing `git log -1 --format=%ct origin/main`
   against current UTC time with `force_run=true` bypass support, nightly
-  toolchain install via
-  `rustup toolchain install nightly --profile minimal --component clippy rustfmt`,
-  and the following commands:
+  toolchain install via `rustup toolchain install nightly --profile minimal`,
+  adding `--component clippy --component rustfmt`, and the following commands.
+  The original single flag, `--component clippy rustfmt`, made rustup read
+  `rustfmt` as a second toolchain name and exit 1, so the lane never ran its
+  tests; see #262.
 
   ```sh
   RUSTFLAGS="-D warnings" cargo +nightly test -p chutoro-providers-dense --features nightly_portable_simd

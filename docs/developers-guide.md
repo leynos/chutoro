@@ -1704,13 +1704,37 @@ to eight seconds. The lane was red when it tried to work and green when it did
 nothing, which reads as flakiness rather than as a lane that has never run. See
 issue #262.
 
-`tests/workflow_contracts/toolchain_install_test.py` now reads every
+`tests/workflow_contracts/rustup_install_reading.py` owns the reading of every
 `rustup toolchain install` in every workflow and requires each `--component`
-flag to carry exactly one value. It joins line continuations first, so a
+flag to carry exactly one value. `toolchain_install_test.py` holds the
+contracts over that reading. The reading joins line continuations first, so a
 command split across lines is one invocation rather than none, and it reads the
 invocation rather than the step's name, so deleting the fix while keeping the
 step fails it. Both correct spellings pass: a repeated flag, and one flag with
 a comma-separated list.
+
+The same module selects the nightly lane's one installer by its `run` content
+and requires it to name `nightly`, the `minimal` profile, and both `clippy` and
+`rustfmt`. Reading a selection it never required to be non-empty would accept a
+workflow that deleted the step, which is the vacuous pass one level up, so the
+assertion fails on an absent installer as well as a wrong one.
+`nightly_portable_simd_lane_test.py` pins the lane's shape around it: the gate
+step must precede the nightly and `mold` installers, both installers must
+precede all four Cargo steps, and every selected step must carry the gate's
+`steps.gate.outputs.should_run == 'true'` condition. Injected workflows in the
+same modules remove an installer, omit `rustfmt`, name the wrong toolchain or
+profile, ungate an installer, and move an installer after a Cargo step, so each
+assertion is shown to fail on the defect it exists to catch.
+
+The lane installs the linker with `scripts/install-mold.sh`, the same
+checksum-verified release archive `make install-dev-fast` uses, appends
+`$HOME/.local/bin` to `$GITHUB_PATH`, and prints `ld.mold --version` before the
+first Cargo step. An `ubuntu-latest` runner does not carry `mold`, so without
+that step each Cargo command would fail at link time. The gate writes one line
+to `$GITHUB_STEP_SUMMARY` for each outcome — forced dispatch, a recent `main`
+commit with its timestamp, or no `main` commit in the last 24 hours — so a
+skipped green run is visible in the job summary rather than only in the step's
+duration.
 
 ## Cancelling superseded pull-request runs
 
