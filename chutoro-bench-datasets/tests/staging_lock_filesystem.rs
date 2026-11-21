@@ -151,12 +151,26 @@ fn rejected_duplicate_leaves_the_first_lock_usable(root_res: io::Result<StagingR
             policy(Duration::from_millis(50)).expect("policy"),
         )
         .expect("first acquisition should succeed");
-    let _ = lock
+    let duplicate = lock
         .acquire(
             "shared.lock",
             policy(Duration::from_millis(50)).expect("policy"),
         )
         .expect_err("a second in-process acquisition should fail");
+    assert!(
+        matches!(
+            duplicate,
+            RecipeError::StagingLockContended {
+                waited_millis: 0,
+                ..
+            }
+        ),
+        "the duplicate must be rejected before any wait"
+    );
+    assert!(
+        hold_externally(&root.join("shared.lock")).is_err(),
+        "the first guard must still hold the lock against an independent descriptor"
+    );
 
     drop(held);
     let reacquired = lock
