@@ -44,9 +44,10 @@ GATE_SUITES: dict[str, str] = {
 }
 
 #: Cargo appends a 16-hex-digit metadata hash to every artefact compiled for
-#: the ``deps`` directory, optionally followed by ``.d`` for a dep-info file.
-#: This is the harness shape a filename scan could mistake for a binary.
-HASHED_ARTEFACT = re.compile(r"-[0-9a-f]{16}(?:\.d)?$")
+#: the ``deps`` directory, optionally followed by ``.d`` for a dep-info file or
+#: the platform executable suffix. This is the harness shape a filename scan
+#: could mistake for a binary.
+HASHED_ARTEFACT = re.compile(r"-[0-9a-f]{16}(?:\.d|\.exe)?$")
 
 #: Variables a caller may have set that would make this contract repeat a
 #: layout instead of creating two. ``GITHUB_OUTPUT`` is cleared because the
@@ -116,10 +117,11 @@ def split_build_environment(target: Path, build: Path) -> dict[str, str]:
     stay inherited so the repository's pinned toolchain and the shared crate
     cache are used rather than downloaded again.
 
-    Quiet output is turned off rather than merely cleared: the suite assertion
-    reads Cargo's ``Running tests/<suite>.rs`` lines, and an inherited or
-    configured ``term.quiet`` would suppress them. The environment value is
-    assigned because it outranks a user's Cargo configuration.
+    Quiet and verbose output are turned off rather than merely cleared: the
+    suite assertion reads Cargo's ``Running tests/<suite>.rs`` lines, which an
+    inherited or configured ``term.quiet`` would suppress and ``term.verbose``
+    would replace with a compiler-style command line. The environment values
+    are assigned because they outrank a user's Cargo configuration.
     """
     environment = os.environ.copy()
     for name in CLEARED_VARIABLES:
@@ -128,6 +130,7 @@ def split_build_environment(target: Path, build: Path) -> dict[str, str]:
     environment["CARGO_BUILD_BUILD_DIR"] = str(build)
     environment["CARGO_TERM_COLOR"] = "never"
     environment["CARGO_TERM_QUIET"] = "false"
+    environment["CARGO_TERM_VERBOSE"] = "false"
     return environment
 
 
@@ -158,7 +161,7 @@ def assert_suites_ran(completed: subprocess.CompletedProcess[str]) -> dict[str, 
     harnesses: dict[str, Path] = {}
     for suite in GATE_SUITES:
         match = re.search(
-            rf"Running tests/{re.escape(suite)}\.rs \(([^)]*)\)",
+            rf"Running tests[\\/]{re.escape(suite)}\.rs \(([^)]*)\)",
             completed.stderr,
         )
         assert match is not None, (
