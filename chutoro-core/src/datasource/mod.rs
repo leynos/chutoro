@@ -104,15 +104,28 @@ impl From<(usize, usize)> for PointPair {
 ///
 /// # Concurrency and re-entrancy
 ///
-/// During HNSW insertion, distance callbacks are invoked while the caller holds
-/// the index's insertion mutex. An implementation must not re-enter the same
-/// index, block on another insertion into it, or wait for work from the Rayon
-/// pool that is driving the build. The callback already runs under the mutex
-/// that waiting work needs, so any of these can deadlock a parallel
-/// construction. The constraint applies to [`Self::distance`],
-/// [`Self::distance_batch`], [`Self::batch_distances`], and
-/// [`Self::metric_descriptor`] alike, because trim batch construction reads
-/// the metric while the mutex is held; the fix recorded in ADR-006 removes
+/// During HNSW insertion, callbacks are invoked while the caller holds the
+/// index's insertion mutex. During `CpuHnsw::search`, they are invoked while
+/// the caller holds the graph read guard. An implementation must not, from any
+/// callback:
+///
+/// - call `insert`, or otherwise re-enter the same index in a way that needs
+///   its insertion mutex or graph write guard;
+/// - call `CpuHnsw::search`, or otherwise re-enter the same index in a way
+///   that needs its graph read guard: a writer queued behind the outer search
+///   can keep the nested reader waiting until the outer call returns, which it
+///   cannot do while the callback is running;
+/// - block on another insertion into the same index;
+/// - dispatch work to, or wait for work from, the Rayon pool that is driving
+///   the build or the search.
+///
+/// An insertion callback already runs under the mutex that waiting work needs,
+/// and a search holds a read guard that a pending writer is queued behind, so
+/// any of these can deadlock or stall. The constraint applies to
+/// [`Self::len`], [`Self::distance`], [`Self::distance_batch`],
+/// [`Self::batch_distances`], and [`Self::metric_descriptor`] alike, because
+/// the index reads the source's length and metric as well as its distances
+/// while the insertion mutex is held. The fix recorded in ADR-006 removes
 /// nested Rayon dispatch owned by the core, not dispatch owned by a source
 /// implementation.
 ///

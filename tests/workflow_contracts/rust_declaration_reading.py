@@ -1,6 +1,7 @@
-"""Read which module a Rust function is declared in.
+"""Read where a Rust function is declared, and whether it is a test.
 
-The development route excludes one poisoned-lock regression by nextest path:
+Two contracts ask this module a question. The development route excludes one
+poisoned-lock regression by nextest path:
 ``hnsw::cpu::test_helpers::tests::graph_helpers_report_poisoning_without_reconfiguring``.
 nextest selects a case by that trailing module segment and name, and an
 exclusion that matches nothing is not an error, so a declaration that moved
@@ -11,6 +12,13 @@ Only the shape that path can mean is accepted: ``case`` declared *directly*
 inside a top-level ``mod tests``. A declaration in a nested module or an
 ``impl`` has a longer path, one inside a comment does not exist, and one after
 the module closed belongs to the file root.
+
+The scheduling contract asks the other question: the Make target names two
+regressions, and a function of that name that no attribute registers is never
+discovered, so ``--no-tests=fail`` cannot fire for it. :func:`declares_test`
+answers that with the same lexing and the same attribute recognition the
+development route already uses, blanking literals as well as comments so an
+example inside a string is not read as a declaration.
 
 The lexing is :mod:`rust_source_reading`'s, this suite's one Rust reader. It
 already knows where code stops and a comment, string, raw string, byte string
@@ -29,7 +37,7 @@ from __future__ import annotations
 import re
 import typing as typ
 
-from rust_source_reading import _FUNCTION, _blank, _regions
+from rust_source_reading import _FUNCTION, _blank, _is_test, _regions
 
 #: One brace's effect on nesting depth. Everything outside this mapping leaves
 #: the depth alone, so the scan counts structure rather than characters.
@@ -110,6 +118,52 @@ def _module_body(
         if close_offset is not None:
             return open_offset, close_offset
     return None
+
+
+def declares_test(source: str, name: str) -> bool:
+    """Return whether `source` registers `name` as a test.
+
+    A function with the right name is not evidence by itself: the harness only
+    runs it when an attribute registers it, and ``--no-tests=fail`` cannot
+    fire for a test that was never discovered. The name is taken from the
+    signature, so a mention in a comment or in a string literal is not a
+    declaration, and the attribute is read backwards from it, so a doc comment
+    or a ``#[cfg]`` between the two changes nothing.
+
+    Parameters
+    ----------
+    source
+        The contents of one Rust source file.
+    name
+        The function name the caller expects to be a test.
+
+    Examples
+    --------
+    >>> declares_test("#[test]\\nfn verify() {}", "verify")
+    True
+    >>> declares_test("fn verify() {}", "verify")
+    False
+    >>> declares_test("// fn verify() {}", "verify")
+    False
+    >>> declares_test("#[rstest]\\n/// Doc.\\nfn verify() {}", "verify")
+    True
+    >>> declares_test('const S: &str = "#[test]\\nfn verify() {}";', "verify")
+    False
+    >>> declares_test("fn verify() {}\\n#[test]\\nfn verify() {}", "verify")
+    True
+
+    Returns
+    -------
+    bool
+        True when any declaration of the name carries an attribute the
+        harness registers.
+    """
+    code = _blank(source, _regions(source))
+    return any(
+        _is_test(code, match.start())
+        for match in _FUNCTION.finditer(code)
+        if match["name"] == name
+    )
 
 
 def declared_in_module(source: str, module: str, case: str) -> bool:
