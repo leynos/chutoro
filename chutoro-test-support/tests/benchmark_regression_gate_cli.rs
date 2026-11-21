@@ -1,7 +1,7 @@
 //! Behavioural tests for the benchmark regression gate binary.
 
-use std::path::PathBuf;
-use std::process::Command;
+use std::path::{Path, PathBuf};
+use std::process::{Command, Output};
 
 use rstest::{fixture, rstest};
 
@@ -97,6 +97,30 @@ fn benchmark_gate_binary_reports_event(
     assert_eq!(printed_event, expected_event);
 }
 
+/// A default invocation must identify the gate binary by its primary key.
+///
+/// This case uses no policy override, so it holds the identity of the
+/// executable and its output contract independently of the policy table. A
+/// test harness run in place of the gate would exit successfully without
+/// printing `mode=`.
+#[rstest]
+fn benchmark_gate_binary_writes_its_primary_output(gate_runner: GateRunner) {
+    let output = gate_runner
+        .run("pull_request", None)
+        .expect("benchmark_regression_gate binary must run");
+    assert!(
+        output.status.success(),
+        "expected success, got failure: {}",
+        String::from_utf8_lossy(&output.stderr)
+    );
+
+    let stdout = String::from_utf8_lossy(&output.stdout);
+    assert!(
+        parse_value(&stdout, "mode").is_some(),
+        "a default invocation must print mode=: {stdout}"
+    );
+}
+
 #[fixture]
 fn gate_runner() -> GateRunner {
     GateRunner::new()
@@ -111,13 +135,19 @@ impl GateRunner {
     ///
     /// Cargo guarantees `CARGO_BIN_EXE_<name>` at compile time for a binary
     /// in the same package, whatever the target or build-directory layout.
+    /// The path is checked here so a build that somehow embedded the wrong
+    /// artefact fails before the gate's own assertions can misread it.
     fn new() -> Self {
-        Self {
-            binary_path: PathBuf::from(env!("CARGO_BIN_EXE_benchmark_regression_gate")),
-        }
+        let binary_path = PathBuf::from(env!("CARGO_BIN_EXE_benchmark_regression_gate"));
+        assert!(
+            binary_path.is_file(),
+            "benchmark_regression_gate binary is not a file: {}",
+            binary_path.display()
+        );
+        Self { binary_path }
     }
 
-    fn run(&self, event: &str, policy: Option<&str>) -> std::io::Result<std::process::Output> {
+    fn run(&self, event: &str, policy: Option<&str>) -> std::io::Result<Output> {
         let mut command = Command::new(&self.binary_path);
         command
             .env("GITHUB_EVENT_NAME", event)
@@ -128,8 +158,34 @@ impl GateRunner {
             command.env("CHUTORO_BENCH_CI_POLICY", value);
         }
 
-        command.output()
+        let output = command.output()?;
+        reject_test_harness(&self.binary_path, &output);
+        Ok(output)
     }
+}
+
+/// Fail when the "gate" executable was really a test harness.
+///
+/// A libtest harness run in place of the gate prints `running 0 tests` and
+/// exits successfully, so a caller would otherwise read a successful process
+/// with empty output. The gate never prints that line: every successful
+/// invocation writes at least one `key=value` line to stdout, and a rejected
+/// input writes its diagnosis to stderr. Checking the pair keeps a legitimate
+/// failure path from being mistaken for a harness.
+fn reject_test_harness(binary_path: &Path, output: &Output) {
+    let stdout = String::from_utf8_lossy(&output.stdout);
+    let stderr = String::from_utf8_lossy(&output.stderr);
+    let printed_key_value = stdout.lines().any(|line| {
+        line.split_once('=')
+            .is_some_and(|(key, _)| !key.trim().is_empty())
+    });
+    let ran_harness = stdout.contains("running 0 tests") || stderr.contains("running 0 tests");
+    assert!(
+        printed_key_value || !ran_harness,
+        "a test harness ran instead of the gate binary at {}: stdout={stdout:?}, \
+         stderr={stderr:?}",
+        binary_path.display()
+    );
 }
 
 fn parse_value<'a>(stdout: &'a str, key: &str) -> Option<&'a str> {
