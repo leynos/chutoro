@@ -140,15 +140,8 @@ impl<'graph> EdgeReconciler<'graph> {
             return false;
         }
 
-        let Some(target_node) = self.graph.node_mut(target) else {
-            return false;
-        };
-        if ctx.level >= target_node.level_count() {
-            return false;
-        }
-
-        let limit = compute_connection_limit(ctx.level, ctx.max_connections);
-        let Some(neighbours) = target_node.neighbours_mut(ctx.level) else {
+        let Some((neighbours, limit)) = Self::target_neighbours(&mut *self.graph, ctx, target)
+        else {
             return false;
         };
         if neighbours.contains(&ctx.origin) {
@@ -186,6 +179,27 @@ impl<'graph> EdgeReconciler<'graph> {
         }
 
         true
+    }
+
+    /// Returns the target's neighbour list at the update level and its limit.
+    ///
+    /// Returns `None` when the target is missing or does not expose the level.
+    /// Extracted from [`Self::ensure_reverse_edge`] so the entry point keeps a
+    /// single lookup path and a tractable cyclomatic complexity.
+    fn target_neighbours<'node>(
+        graph: &'node mut Graph,
+        ctx: &UpdateContext,
+        target: usize,
+    ) -> Option<(&'node mut Vec<usize>, usize)> {
+        let target_node = graph.node_mut(target)?;
+        if ctx.level >= target_node.level_count() {
+            return None;
+        }
+
+        let limit = compute_connection_limit(ctx.level, ctx.max_connections);
+        target_node
+            .neighbours_mut(ctx.level)
+            .map(|neighbours| (neighbours, limit))
     }
 
     /// Applies all deferred scrubs, removing one-way edges where the reverse

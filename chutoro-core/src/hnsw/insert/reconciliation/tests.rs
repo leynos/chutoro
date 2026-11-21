@@ -26,40 +26,21 @@ enum FixtureError {
     MissingOriginLevel(usize),
 }
 
-fn graph_with_two_nodes(level: usize) -> Result<Graph, HnswError> {
+fn graph_with_nodes(level: usize, node_count: usize) -> Result<Graph, HnswError> {
     let params = HnswParams::new(2, 4)?;
-    let mut graph = Graph::with_capacity(params, 2);
+    let mut graph = Graph::with_capacity(params, node_count);
     graph.insert_first(NodeContext {
         node: 0,
         level,
         sequence: 0,
     })?;
-    graph.attach_node(NodeContext {
-        node: 1,
-        level,
-        sequence: 1,
-    })?;
-    Ok(graph)
-}
-
-fn graph_with_three_nodes(level: usize) -> Result<Graph, HnswError> {
-    let params = HnswParams::new(2, 4)?;
-    let mut graph = Graph::with_capacity(params, 3);
-    graph.insert_first(NodeContext {
-        node: 0,
-        level,
-        sequence: 0,
-    })?;
-    graph.attach_node(NodeContext {
-        node: 1,
-        level,
-        sequence: 1,
-    })?;
-    graph.attach_node(NodeContext {
-        node: 2,
-        level,
-        sequence: 2,
-    })?;
+    for (node, sequence) in (1..node_count).zip(1_u64..) {
+        graph.attach_node(NodeContext {
+            node,
+            level,
+            sequence,
+        })?;
+    }
     Ok(graph)
 }
 
@@ -77,7 +58,7 @@ fn self_target_fixture(
     seeded_scrubs: &[(usize, usize, usize)],
 ) -> Result<(Graph, Vec<DeferredScrub>), FixtureError> {
     let level = 1;
-    let mut graph = graph_with_three_nodes(level)?;
+    let mut graph = graph_with_nodes(level, 3)?;
     let origin = graph.node_mut(0).ok_or(FixtureError::MissingOrigin)?;
     let origin_neighbours = origin
         .neighbours_mut(level)
@@ -113,55 +94,40 @@ fn snapshot_state(graph: &Graph, scrubs: &[DeferredScrub]) -> ReconciliationSnap
     (node_lists, queue)
 }
 
-#[test]
-fn remove_reverse_edge_reports_a_base_layer_target_it_isolates() {
-    let mut graph = graph_with_two_nodes(0).expect("test graph must be valid");
+#[rstest]
+#[case::base_layer(0, true)]
+#[case::upper_layer(1, false)]
+fn remove_reverse_edge_reports_isolation_only_at_the_base_layer(
+    #[case] level: usize,
+    #[case] is_isolated: bool,
+) {
+    let mut graph = graph_with_nodes(level, 2).expect("test graph must be valid");
     graph
         .node_mut(1)
         .expect("target node must be present")
-        .neighbours_mut(0)
-        .expect("target must have a base layer")
+        .neighbours_mut(level)
+        .expect("target must expose the level")
         .push(0);
 
     let mut reconciler = EdgeReconciler::new(&mut graph);
 
-    assert!(reconciler.remove_reverse_edge(&update_context(0), 1));
     assert_eq!(
-        reconciler
-            .graph
-            .node(1)
-            .expect("target node must be present")
-            .neighbours(0),
-        [] as [usize; 0]
+        reconciler.remove_reverse_edge(&update_context(level), 1),
+        is_isolated,
     );
-}
-
-#[test]
-fn remove_reverse_edge_does_not_report_an_upper_layer_target_as_isolated() {
-    let mut graph = graph_with_two_nodes(1).expect("test graph must be valid");
-    graph
-        .node_mut(1)
-        .expect("target node must be present")
-        .neighbours_mut(1)
-        .expect("target must have an upper layer")
-        .push(0);
-
-    let mut reconciler = EdgeReconciler::new(&mut graph);
-
-    assert!(!reconciler.remove_reverse_edge(&update_context(1), 1));
     assert_eq!(
         reconciler
             .graph
             .node(1)
             .expect("target node must be present")
-            .neighbours(1),
+            .neighbours(level),
         [] as [usize; 0]
     );
 }
 
 #[test]
 fn remove_reverse_edge_returns_false_when_the_reverse_edge_is_missing() {
-    let mut graph = graph_with_two_nodes(0).expect("test graph must be valid");
+    let mut graph = graph_with_nodes(0, 2).expect("test graph must be valid");
     let mut reconciler = EdgeReconciler::new(&mut graph);
 
     assert!(!reconciler.remove_reverse_edge(&update_context(0), 1));
@@ -169,7 +135,7 @@ fn remove_reverse_edge_returns_false_when_the_reverse_edge_is_missing() {
 
 #[test]
 fn remove_reverse_edge_returns_false_when_target_or_level_is_missing() {
-    let mut graph = graph_with_two_nodes(0).expect("test graph must be valid");
+    let mut graph = graph_with_nodes(0, 2).expect("test graph must be valid");
     let mut reconciler = EdgeReconciler::new(&mut graph);
 
     assert!(!reconciler.remove_reverse_edge(&update_context(0), 2));
@@ -180,7 +146,7 @@ fn remove_reverse_edge_returns_false_when_target_or_level_is_missing() {
 #[case(0)]
 #[case(1)]
 fn ensure_reverse_edge_links_a_valid_target_back_to_the_origin(#[case] level: usize) {
-    let mut graph = graph_with_two_nodes(level).expect("test graph must be valid");
+    let mut graph = graph_with_nodes(level, 2).expect("test graph must be valid");
     add_edge_if_missing(&mut graph, 0, 1, level);
 
     let mut reconciler = EdgeReconciler::new(&mut graph);
