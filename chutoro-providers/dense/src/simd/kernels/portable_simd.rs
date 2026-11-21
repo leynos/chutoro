@@ -67,19 +67,16 @@ pub(super) fn euclidean_distance_query_points_portable_simd_entry(
     reason = "squared-L2 accumulation combines genuine floating-point SIMD and scalar sums"
 )]
 fn squared_l2_portable_simd(left: &[f32], right: &[f32]) -> f32 {
-    let mut index = 0_usize;
     let mut acc = PortableF32x16::splat(0.0);
+    let (left_blocks, left_tail) = left.as_chunks::<PORTABLE_SIMD_LANES>();
+    let (right_blocks, right_tail) = right.as_chunks::<PORTABLE_SIMD_LANES>();
 
-    for (left_chunk, right_chunk) in left
-        .chunks_exact(PORTABLE_SIMD_LANES)
-        .zip(right.chunks_exact(PORTABLE_SIMD_LANES))
-    {
+    for (left_chunk, right_chunk) in left_blocks.iter().zip(right_blocks) {
         let left_lane = PortableF32x16::from_slice(left_chunk);
         let right_lane = PortableF32x16::from_slice(right_chunk);
         let delta = left_lane - right_lane;
         acc += delta * delta;
-        index += PORTABLE_SIMD_LANES;
     }
 
-    acc.to_array().into_iter().sum::<f32>() + squared_l2_tail(left, right, index)
+    acc.to_array().into_iter().sum::<f32>() + squared_l2_tail(left_tail, right_tail, 0)
 }
