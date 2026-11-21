@@ -256,6 +256,43 @@ fn code_strings_are_unique_per_enum(#[case] codes: Vec<&'static str>) {
     );
 }
 
+/// Synthetic table rows where `INVALID_PARAMETERS` appears only in a
+/// description.
+const ROWS_WITHOUT_CODE_ROW: [&str; 3] = [
+    "| Code variant | `as_str()` value | Producing condition |",
+    "| --- | --- | --- |",
+    "| `EmptyBuild` | `EMPTY_BUILD` | described as `INVALID_PARAMETERS` |",
+];
+
+/// Synthetic table rows where `INVALID_PARAMETERS` fills its own value cell.
+const ROWS_WITH_CODE_ROW: [&str; 3] = [
+    "| Code variant | `as_str()` value | Producing condition |",
+    "| --- | --- | --- |",
+    "| `InvalidParameters` | `INVALID_PARAMETERS` | described as `EMPTY_BUILD` |",
+];
+
+/// Verifies that a description mention does not stand in for a code's row.
+///
+/// This is the regression case: the token appears in another row's text, so
+/// the check must still report the code as missing until it owns an
+/// `as_str()` cell.
+#[test]
+fn a_description_mention_does_not_satisfy_the_row_check() {
+    assert_eq!(
+        missing_code(&ROWS_WITHOUT_CODE_ROW, &["INVALID_PARAMETERS"]),
+        Some("INVALID_PARAMETERS")
+    );
+}
+
+/// Verifies that a code in its own `as_str()` cell satisfies the row check.
+#[test]
+fn an_as_str_cell_satisfies_the_row_check() {
+    assert_eq!(
+        missing_code(&ROWS_WITH_CODE_ROW, &["INVALID_PARAMETERS"]),
+        None
+    );
+}
+
 /// Verifies the section does not name a code that no enum can produce.
 #[test]
 fn names_only_known_error_codes() {
