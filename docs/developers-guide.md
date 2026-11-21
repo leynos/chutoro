@@ -1348,7 +1348,10 @@ macro supplies `#[non_exhaustive]`, a `Display` implementation, and the
 cannot drift apart. This matters because a code enum without
 `#[non_exhaustive]` turns adding a variant into a SemVer event for downstream
 exhaustive matches, even when the accompanying error enum is already
-`#[non_exhaustive]`.
+`#[non_exhaustive]`. Each code enum also carries an `ALL` slice of its variants
+in declaration order, which the
+[users-guide sync test](#users-guide-error-code-sync-test) uses to enumerate
+the taxonomy without a hand-maintained list.
 
 The macro is not exported, so crates outside `chutoro-core` cannot use it. A
 code enum elsewhere in the workspace must carry `#[non_exhaustive]` and a
@@ -1359,6 +1362,23 @@ needs a pattern to destructure the error variant, name it in the macro: unit
 variants take no pattern, struct variants take a brace group such as `{ .. }`,
 and tuple variants take a parenthesized group such as `(_)`, for example
 `DataSource => DataSource(_) => "DATA_SOURCE"`.
+
+### Users-guide error-code sync test
+
+`chutoro-core/tests/users_guide_error_codes.rs` loads the shipped
+`docs/users-guide.md` with `include_str!` and checks the "Subsystem error
+codes" section against the public code enums in both directions. Each
+subsystem's table must name every string its enum produces and no code from
+another subsystem, and no backticked upper-snake-case token outside
+`MstErrorCode`, `HnswErrorCode`, `HierarchyErrorCode`, `ChutoroErrorCode`, and
+`DataSourceErrorCode` may appear in the section.
+
+The test reads each enum's variants from the `ALL` slice that
+`define_error_codes!` generates, so a new variant fails the test until its
+table row exists. Adding, renaming, or removing a code therefore requires the
+matching table row to change in the same commit. A wholly new code enum is
+still invisible to the test, because the test names the enums it covers; add a
+case for it when the documented surface grows.
 
 ### Graph-lock test helpers
 

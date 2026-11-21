@@ -139,6 +139,13 @@ defaults or require a migration for existing consumers. The
 [user's guide](users-guide.md#reusing-dense-fixtures-in-dependent-tests) shows
 how to enable the feature.
 
+### Additive API: `ALL` on error-code enums
+
+Every error-code enum exposes an `ALL` slice listing its variants in
+declaration order. Diagnostics and tests can enumerate the taxonomy without a
+hand-maintained list. The enums remain `#[non_exhaustive]`, so `ALL` can grow
+in a minor release; do not treat its length as a stability guarantee.
+
 ### Error-code enums are non-exhaustive and implement `Display`
 
 `MstErrorCode`, `HierarchyErrorCode`, and `HnswErrorCode` are now
