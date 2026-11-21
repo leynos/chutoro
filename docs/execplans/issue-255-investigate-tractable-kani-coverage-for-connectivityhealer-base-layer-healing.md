@@ -172,7 +172,14 @@ commands, exit codes, elapsed times, and path counts.
   the first `make test` run passed standalone in 685 s once its fixture was
   warm, confirming the timeout was environmental. The full suite is being rerun
   with warm caches.
-- [ ] `make test` full rerun and the draft pull request.
+- [x] (2026-11-21 19:02Z) Canonical `make test` passed: 1523 tests, zero
+  failures, one skip, and all doctests, in 16m14s. An earlier attempt hit the
+  suite's 80-minute global timeout while the host's compile-admission queue was
+  saturated; the same compile-contract fixtures passed once warm.
+- [x] (2026-11-21 17:41Z) Draft pull request
+  [#443](https://github.com/leynos/chutoro/pull/443) opened with the issue,
+  Lody session, and phase links.
+- [ ] CodeRabbit review and any follow-up findings.
 
 ## Surprises & discoveries
 
