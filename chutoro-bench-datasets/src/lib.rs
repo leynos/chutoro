@@ -75,7 +75,7 @@ pub mod testing;
 
 pub use context::RecipeContext;
 pub use driver::run_recipe;
-pub use error::{FetchSizeExceeded, IntegrityFailure, PortFailure, RecipeError};
+pub use error::{CleanupFailure, FetchSizeExceeded, IntegrityFailure, PortFailure, RecipeError};
 pub use info::DatasetInfo;
 pub use newtypes::{
     CacheKey, Checksum, DigestAlgorithm, ManifestDigest, ObjectKey, PartialState, Phase, PortName,

@@ -58,11 +58,26 @@ pub enum RecipeError {
         source: std::io::Error,
     },
     /// Cleanup failed after a phase error.
+    ///
+    /// The driver creates this variant through
+    /// [`RecipeError::cleanup_with_phase_error`], which stores a
+    /// [`CleanupFailure`] in `source`. That payload retains both the cleanup
+    /// failure and the original phase error, and exposes the phase error as
+    /// its source chain. [`RecipeError::cleanup`] stores only the cleanup
+    /// failure. Use [`RecipeError::cleanup_failure`] to borrow the retained
+    /// pair, and [`CleanupFailure::cleanup_error`] to borrow the cleanup
+    /// failure from a driver-created payload.
     #[error("cleanup failed in phase {phase:?}: {source}")]
     Cleanup {
         /// Phase that failed before cleanup ran.
         phase: Phase,
         /// Cleanup failure source.
+        ///
+        /// [`RecipeError::cleanup_with_phase_error`] stores a boxed
+        /// [`CleanupFailure`] here so both failures survive. The original
+        /// phase error is that payload's source, so [`Error::source`] walks
+        /// from the cleanup failure to the reason the recipe failed and on to
+        /// any error the phase error wraps.
         #[source]
         source: Box<dyn Error + Send + Sync>,
     },
@@ -305,6 +320,68 @@ impl RecipeError {
         }
     }
 
+    /// Create a cleanup failure that retains the original phase error.
+    ///
+    /// # Examples
+    ///
+    /// ```
+    /// use chutoro_bench_datasets::{Phase, PortName, RecipeError};
+    ///
+    /// let error = RecipeError::cleanup_with_phase_error(
+    ///     Phase::Prepare,
+    ///     RecipeError::prepare("archive corrupt"),
+    ///     RecipeError::port(PortName::Storage, "cache locked"),
+    /// );
+    /// assert!(matches!(
+    ///     error,
+    ///     RecipeError::Cleanup {
+    ///         phase: Phase::Prepare,
+    ///         ..
+    ///     }
+    /// ));
+    /// ```
+    #[must_use]
+    pub fn cleanup_with_phase_error(
+        phase: Phase,
+        phase_error: RecipeError,
+        cleanup_error: RecipeError,
+    ) -> Self {
+        Self::Cleanup {
+            phase,
+            source: Box::new(CleanupFailure {
+                phase_error,
+                cleanup_error,
+            }),
+        }
+    }
+
+    /// Borrow the failures retained by a driver-created cleanup error.
+    ///
+    /// Returns [`None`] for every other variant and for cleanup errors built
+    /// through [`RecipeError::cleanup`], which retains only the cleanup
+    /// failure.
+    ///
+    /// # Examples
+    ///
+    /// ```
+    /// use chutoro_bench_datasets::{Phase, PortName, RecipeError};
+    ///
+    /// let error = RecipeError::cleanup_with_phase_error(
+    ///     Phase::Fetch,
+    ///     RecipeError::port(PortName::Fetcher, "source missing"),
+    ///     RecipeError::port(PortName::Storage, "cache locked"),
+    /// );
+    /// assert!(error.cleanup_failure().is_some());
+    /// assert!(RecipeError::validate("bad manifest").cleanup_failure().is_none());
+    /// ```
+    #[must_use]
+    pub fn cleanup_failure(&self) -> Option<&CleanupFailure> {
+        match self {
+            Self::Cleanup { source, .. } => source.downcast_ref::<CleanupFailure>(),
+            _ => None,
+        }
+    }
+
     /// Create an opaque adapter-specific failure while preserving its source.
     ///
     /// # Examples
@@ -320,6 +397,77 @@ impl RecipeError {
     #[must_use]
     pub fn other(source: impl Error + Send + Sync + 'static) -> Self {
         Self::Other(Box::new(source))
+    }
+}
+
+/// Both failures retained when a recipe phase fails and cleanup also fails.
+///
+/// [`RecipeError::cleanup_with_phase_error`] stores this payload inside
+/// [`RecipeError::Cleanup`]. The cleanup error is the outer failure and the
+/// original phase error is its source, so [`Error::source`] walks from the
+/// cleanup failure to the reason the recipe failed and on to any error the
+/// phase error wraps.
+#[derive(Debug, Error)]
+#[error("{cleanup_error}; original phase error: {phase_error}")]
+pub struct CleanupFailure {
+    /// Error returned by the phase that failed before cleanup ran.
+    #[source]
+    phase_error: RecipeError,
+    /// Error returned by the recipe cleanup hook.
+    cleanup_error: RecipeError,
+}
+
+impl CleanupFailure {
+    /// Borrow the error returned by the phase that failed before cleanup.
+    ///
+    /// # Examples
+    ///
+    /// ```
+    /// use chutoro_bench_datasets::{Phase, PortName, RecipeError};
+    ///
+    /// let error = RecipeError::cleanup_with_phase_error(
+    ///     Phase::Prepare,
+    ///     RecipeError::prepare("archive corrupt"),
+    ///     RecipeError::port(PortName::Storage, "cache locked"),
+    /// );
+    /// let cleanup = error
+    ///     .cleanup_failure()
+    ///     .ok_or_else(|| std::io::Error::other("cleanup failure should be retained"))?;
+    /// assert_eq!(
+    ///     cleanup.phase_error().to_string(),
+    ///     "prepare failed: archive corrupt"
+    /// );
+    /// # Ok::<(), Box<dyn std::error::Error>>(())
+    /// ```
+    #[must_use]
+    pub const fn phase_error(&self) -> &RecipeError {
+        &self.phase_error
+    }
+
+    /// Borrow the error returned by the recipe cleanup hook.
+    ///
+    /// # Examples
+    ///
+    /// ```
+    /// use chutoro_bench_datasets::{Phase, PortName, RecipeError};
+    ///
+    /// let error = RecipeError::cleanup_with_phase_error(
+    ///     Phase::Prepare,
+    ///     RecipeError::prepare("archive corrupt"),
+    ///     RecipeError::port(PortName::Storage, "cache locked"),
+    /// );
+    /// let cleanup = error
+    ///     .cleanup_failure()
+    ///     .ok_or_else(|| std::io::Error::other("cleanup failure should be retained"))?;
+    /// assert_eq!(
+    ///     cleanup.cleanup_error().to_string(),
+    ///     "port Storage failed: cache locked"
+    /// );
+    /// # Ok::<(), Box<dyn std::error::Error>>(())
+    /// ```
+    #[must_use]
+    pub const fn cleanup_error(&self) -> &RecipeError {
+        &self.cleanup_error
     }
 }
 
@@ -390,4 +538,13 @@ pub enum IntegrityFailure {
     },
 }
 
+
 const _: () = assert!(std::mem::size_of::<RecipeError>() <= 32);
+
+// `RecipeError` boxes cleanup payloads as `dyn Error + Send + Sync`, so the
+// compound failure must satisfy the same bounds as every other boxed source.
+const _: fn() = || {
+    const fn assert_send_sync_static<T: Send + Sync + 'static>() {}
+
+    assert_send_sync_static::<CleanupFailure>();
+};

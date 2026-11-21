@@ -113,7 +113,9 @@ pub trait DatasetRecipe: Send + Sync {
     /// [`Err`]. It does not run cleanup when a phase panics, because phase
     /// execution currently attaches cleanup with `Result::map_err` and does
     /// not catch unwinds. Do not rely on this hook for panic recovery when
-    /// rolling back partial storage writes.
+    /// rolling back partial storage writes. If cleanup also fails, the
+    /// returned [`crate::RecipeError::Cleanup`] retains both the original
+    /// phase error and this hook's error.
     ///
     /// # Errors
     ///

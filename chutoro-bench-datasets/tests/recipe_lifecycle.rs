@@ -1,10 +1,12 @@
 //! Unit tests for the dataset recipe lifecycle driver.
 
+use std::error::Error;
+
 use bytes::Bytes;
 use chutoro_bench_datasets::{
-    DatasetInfo, DatasetRecipe, FetchSizeExceeded, ManifestDigest, ObjectKey, PartialState,
-    PublishedArtefact, PublishedManifest, RecipeContext, RecipeError, RecipeId, RecipeVersion,
-    SourceSpec, SourceUrl, run_recipe,
+    CleanupFailure, DatasetInfo, DatasetRecipe, FetchSizeExceeded, ManifestDigest, ObjectKey,
+    PartialState, Phase, PortName, PublishedArtefact, PublishedManifest, RecipeContext,
+    RecipeError, RecipeId, RecipeVersion, SourceSpec, SourceUrl, run_recipe,
     testing::{InMemoryFetcher, InMemoryPublisher, InMemoryStorage, StubRecipe},
 };
 use rstest::{fixture, rstest};
@@ -128,6 +130,10 @@ fn failure_invokes_cleanup_with_partial_state(
         "configured phase should fail"
     );
 
+    assert!(
+        !matches!(&error, RecipeError::Cleanup { .. }),
+        "successful cleanup should preserve the original phase error",
+    );
     assert!(error.to_string().contains(failing_phase.message()));
     let recorded = recipe
         .cleanup_state()
@@ -136,39 +142,81 @@ fn failure_invokes_cleanup_with_partial_state(
     assert_eq!(recorded.highest_completed_phase, expected_completed_phase);
 }
 
+/// Reason recorded by [`FailingRecipe`] when its cleanup hook fails.
+const CLEANUP_REASON: &str = "cleanup failed";
+
 #[rstest]
+#[case::fetch(FailingPhase::Fetch, None)]
+#[case::validate(FailingPhase::Validate, Some(Phase::Fetch))]
+#[case::prepare(FailingPhase::Prepare, Some(Phase::Validate))]
+#[case::publish(FailingPhase::Publish, Some(Phase::Prepare))]
 fn cleanup_failure_reports_failed_phase_and_cleanup_source(
     #[from(source)] source_res: Result<SourceUrl, RecipeError>,
     #[from(ctx)] ctx_res: Result<RecipeSetup, RecipeError>,
+    #[case] failing_phase: FailingPhase,
+    #[case] expected_completed_phase: Option<Phase>,
 ) {
     let source = source_res.expect("test source URL should parse");
     let ctx = ctx_res.expect("recipe setup should build");
-    let recipe =
-        FailingRecipe::new(source, FailingPhase::Validate).with_cleanup_error("cleanup failed");
+    let recipe = FailingRecipe::new(source, failing_phase).with_cleanup_error(CLEANUP_REASON);
     let context = ctx.context();
 
     let error = expect_err!(
         run_recipe(&recipe, &context),
-        "cleanup failure should replace the original phase error"
+        "a failing phase and failing cleanup should both be reported"
     );
 
-    let RecipeError::Cleanup {
-        phase,
-        source: cleanup_source,
-    } = error
-    else {
+    let RecipeError::Cleanup { phase, .. } = &error else {
         panic!("cleanup failure should return RecipeError::Cleanup");
     };
-    assert_eq!(phase, chutoro_bench_datasets::Phase::Validate);
-    assert!(cleanup_source.to_string().contains("cleanup failed"));
+    assert_eq!(*phase, failing_phase.phase());
+
+    let cleanup_failure = error
+        .cleanup_failure()
+        .expect("cleanup should retain both failures");
+    assert!(
+        failing_phase.matches_phase_error(cleanup_failure.phase_error()),
+        "phase error should be {}, got {}",
+        failing_phase.message(),
+        cleanup_failure.phase_error(),
+    );
+    let RecipeError::Port(cleanup_error) = cleanup_failure.cleanup_error() else {
+        panic!("cleanup hook should report a storage port failure");
+    };
+    assert_eq!(cleanup_error.port, PortName::Storage);
+    assert_eq!(cleanup_error.reason.as_ref(), CLEANUP_REASON);
+
+    let chained_failure = error
+        .source()
+        .expect("cleanup error should expose its source")
+        .downcast_ref::<CleanupFailure>()
+        .expect("cleanup source should be the driver payload");
+    let chained_phase_error = chained_failure
+        .source()
+        .expect("cleanup payload should expose the phase error")
+        .downcast_ref::<RecipeError>()
+        .expect("cleanup payload source should be the phase recipe error");
+    assert!(
+        failing_phase.matches_phase_error(chained_phase_error),
+        "chained phase error should be {}, got {chained_phase_error}",
+        failing_phase.message(),
+    );
+
+    let message = error.to_string();
+    assert!(
+        message.contains(failing_phase.message()),
+        "outer error should retain the phase reason: {message}",
+    );
+    assert!(
+        message.contains(CLEANUP_REASON),
+        "outer error should retain the cleanup reason: {message}",
+    );
+
     let recorded = recipe
         .cleanup_state()
         .expect("cleanup state lock should not be poisoned")
         .expect("cleanup should receive partial state");
-    assert_eq!(
-        recorded.highest_completed_phase,
-        Some(chutoro_bench_datasets::Phase::Fetch)
-    );
+    assert_eq!(recorded.highest_completed_phase, expected_completed_phase);
 }
 
 #[derive(Clone, Copy, Debug, PartialEq)]
@@ -189,12 +237,26 @@ impl FailingPhase {
         }
     }
 
-    const fn phase(self) -> chutoro_bench_datasets::Phase {
+    const fn phase(self) -> Phase {
         match self {
-            Self::Fetch => chutoro_bench_datasets::Phase::Fetch,
-            Self::Validate => chutoro_bench_datasets::Phase::Validate,
-            Self::Prepare => chutoro_bench_datasets::Phase::Prepare,
-            Self::Publish => chutoro_bench_datasets::Phase::Publish,
+            Self::Fetch => Phase::Fetch,
+            Self::Validate => Phase::Validate,
+            Self::Prepare => Phase::Prepare,
+            Self::Publish => Phase::Publish,
+        }
+    }
+
+    /// Returns whether `error` is the exact [`RecipeError`] this phase emits.
+    fn matches_phase_error(self, error: &RecipeError) -> bool {
+        let message = self.message();
+        match (self, error) {
+            (Self::Fetch, RecipeError::Port(failure)) => {
+                failure.port == PortName::Fetcher && failure.reason.as_ref() == message
+            }
+            (Self::Validate, RecipeError::Validate(reason))
+            | (Self::Prepare, RecipeError::Prepare(reason))
+            | (Self::Publish, RecipeError::Publish(reason)) => reason.as_ref() == message,
+            _ => false,
         }
     }
 }
@@ -329,3 +391,4 @@ impl DatasetRecipe for FailingRecipe {
         )
     }
 }
+// weave: run 'weave explain chutoro-bench-datasets/tests/recipe_lifecycle.rs' for per-hunk detail, 'weave check' to verify your resolution

@@ -29,8 +29,11 @@ use crate::{DatasetRecipe, PartialState, Phase, RecipeContext, RecipeError};
 ///
 /// # Errors
 ///
-/// Returns the first phase error. If cleanup also fails, returns a cleanup
-/// error describing the failed phase.
+/// Returns the first phase error. If cleanup also fails, returns
+/// [`RecipeError::Cleanup`] carrying a [`crate::CleanupFailure`] payload. That
+/// payload retains both the original phase error, which is the payload's
+/// source, and the cleanup error. Inspect the pair through
+/// [`RecipeError::cleanup_failure`].
 pub fn run_recipe<R: DatasetRecipe>(
     recipe: &R,
     ctx: &RecipeContext<'_>,
@@ -147,7 +150,11 @@ fn cleanup_after_error<R: DatasetRecipe>(
                 cleanup_error = %cleanup_error,
                 "dataset recipe phase failed and cleanup also failed",
             );
-            RecipeError::cleanup(failure.failed_phase, cleanup_error)
+            RecipeError::cleanup_with_phase_error(
+                failure.failed_phase,
+                failure.original,
+                cleanup_error,
+            )
         }
     }
 }
