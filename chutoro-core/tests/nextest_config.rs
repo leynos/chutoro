@@ -385,3 +385,8 @@ fn property_tests_runners_satisfy_the_ci_thread_count(
         "{job} should declare '{expected_runner}'",
     );
 }
+
+// The module lives in a subdirectory so Cargo does not discover it as a
+// second integration-test crate of its own.
+#[path = "nextest_config/dense_parity_overrides.rs"]
+mod dense_parity_overrides;

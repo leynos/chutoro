@@ -79,6 +79,16 @@ class TerminateAfterError(ValueError):
     """
 
 
+class ProfileInheritanceError(ValueError):
+    """Raised when a profile resolves no whole-run budget.
+
+    A cycle, an undeclared profile, or a chain that reaches ``default``
+    without a ``global-timeout`` would otherwise read as an unbounded
+    run, and every ordering comparison above it would pass against a
+    budget nextest never applies.
+    """
+
+
 def _optional_seconds(value: object) -> float | None:
     """Return a ``timeout-minutes`` value in seconds, or None."""
     # `None` is a job declaring no ceiling, which the callers report as
@@ -175,6 +185,71 @@ def parse_config(config_text: str) -> dict[str, typ.Any]:
         The parsed document.
     """
     return tomllib.loads(config_text)
+
+
+def resolved_global_timeout(config_text: str, profile: str = "default") -> float:
+    """Return the ``global-timeout`` a profile resolves to, in seconds.
+
+    nextest resolves a profile's settings by walking its ``inherits``
+    chain, which always terminates at ``default``; a custom profile that
+    names no parent inherits ``default`` directly. Reading only the
+    selected profile's own table would report the heavy lane as having no
+    whole-run budget when it inherits the CI profile's, and every
+    per-test comparison against that budget would then be skipped or
+    made against nothing.
+
+    Parameters
+    ----------
+    config_text : str
+        A nextest configuration file's text.
+    profile : str
+        The profile whose resolved budget is wanted.
+
+    Returns
+    -------
+    float
+        The whole-run budget in seconds.
+
+    Raises
+    ------
+    ProfileInheritanceError
+        If the chain names an undeclared profile, forms a cycle, or
+        reaches ``default`` without a ``global-timeout``.
+    """
+    profiles = parse_config(config_text).get("profile")
+    if not isinstance(profiles, dict):
+        message = "nextest.toml must declare a [profile] table"
+        raise ProfileInheritanceError(message)
+    chain: list[str] = []
+    current = profile
+    while True:
+        if current in chain:
+            message = (
+                f"nextest profile inheritance forms a cycle: "
+                f"{' -> '.join([*chain, current])}"
+            )
+            raise ProfileInheritanceError(message)
+        chain.append(current)
+        section = profiles.get(current)
+        if not isinstance(section, dict):
+            message = f"nextest profile {current!r} is not declared"
+            raise ProfileInheritanceError(message)
+        budget = section.get("global-timeout")
+        if isinstance(budget, str):
+            return _seconds(budget)
+        inherited = section.get("inherits")
+        if isinstance(inherited, str) and inherited != current:
+            current = inherited
+            continue
+        # A custom profile that names no parent still inherits `default`,
+        # which is the root of every nextest inheritance chain.
+        if current == "default":
+            message = (
+                f"nextest profile {profile!r} resolves no global-timeout; "
+                f"[profile.default] must set one or the run is unbounded"
+            )
+            raise ProfileInheritanceError(message)
+        current = "default"
 
 
 def _is_positive_integer(value: object) -> bool:

@@ -99,6 +99,18 @@ filter = "test(/hnsw_search_matches_brute_force_proptest/)"
 slow-timeout = { period = "180s", terminate-after = 1, grace-period = "5s" }
 
 [[profile.default.overrides]]
+# The dense SIMD parity suite compares every enabled backend against the scalar
+# oracle over generated vectors. It had no override in either profile, so the
+# weekly lane's 25,000 forked cases inherited the 60s base and the slowest
+# property was killed mid-case while its three siblings passed at 17s, 22s and
+# 38s (run 34744512753, #264). 180s covers the pull-request lane's 250 cases
+# with room for a deeper local run, and bounds a runaway case rather than
+# letting it consume the whole run. The weekly and manual lanes select
+# `property-heavy`, whose own entry carries the measured allowance.
+filter = "package(chutoro-providers-dense) & test(/simd::tests::parity::/)"
+slow-timeout = { period = "180s", terminate-after = 1, grace-period = "5s" }
+
+[[profile.default.overrides]]
 # This property builds HNSW indexes through both shared execution paths.
 # Reserve half the test slots and allow for CPU contention on busy shared hosts.
 filter = "test(/shared_execution_config_reaches_batch_and_session_paths/)"
@@ -176,6 +188,15 @@ filter = "test(/hnsw_search_matches_brute_force_proptest/)"
 slow-timeout = { period = "1500s", terminate-after = 1, grace-period = "5s" }
 
 [[profile.ci.overrides]]
+# The pull-request lane runs the dense SIMD parity suite at 250 cases, which
+# finishes well inside this allowance, but the profile also serves any deeper
+# local run and the base 60s was sized for neither. Bounded here so a stuck
+# case fails the lane instead of monopolizing it; the weekly and manual lanes
+# select `property-heavy`, whose own entry carries the measured allowance.
+filter = "package(chutoro-providers-dense) & test(/simd::tests::parity::/)"
+slow-timeout = { period = "180s", terminate-after = 1, grace-period = "5s" }
+
+[[profile.ci.overrides]]
 # Write-lock proptest can exceed the default timeout under CI load.
 filter = "test(/generated_hnsw_scoring_does_not_run_inside_write_graph_scope/)"
 slow-timeout = { period = "600s", terminate-after = 1, grace-period = "5s" }
@@ -200,3 +221,19 @@ slow-timeout = { period = "1800s", terminate-after = 1, grace-period = "5s" }
 # Tests that spawn Cargo or rustc run one at a time. Add a new spawner's binary here.
 filter = "binary(dense_testing_feature) | binary(portable_simd_gating) | binary(result_api_surface) | binary(session_api_surface) | binary(error_code_api_surface) | binary(benchmark_smoke)"
 test-group = "nested-cargo"
+
+[profile.property-heavy]
+inherits = "ci"
+# The weekly and manual property lane. It inherits the CI profile's thread
+# count, setup script and every other gate, and adds only the dense parity
+# allowance sized for that lane's 25,000 forked cases. Nextest consults the
+# selected profile's overrides before the inherited `ci` overrides, so the
+# dense entry below replaces the 180s one rather than accompanying it.
+
+[[profile.property-heavy.overrides]]
+# Provisional until the forced dispatches complete; the measured evidence and
+# sizing rule replace this comment before the branch merges. A provisional
+# allowance wide enough for a 25,000-case run to complete is the only way to
+# obtain that measurement without treating a timeout as one.
+filter = "package(chutoro-providers-dense) & test(/simd::tests::parity::/)"
+slow-timeout = { period = "600s", terminate-after = 1, grace-period = "5s" }

@@ -50,6 +50,9 @@ jobs:
         suite: [hnsw, edge_harvest, mst, dense_simd]
     env:
       CARGO_TERM_COLOR: always
+      # The 250-case lane keeps the base profile; the shared run step selects
+      # whichever profile this job names.
+      NEXTEST_PROFILE: "ci"
       PROGTEST_CASES: "250"
       PROPTEST_CASES: "250"
       CHUTORO_PBT_FORK: "false"
@@ -93,25 +96,25 @@ jobs:
           set -o pipefail
           case "${{ matrix.suite }}" in
             hnsw)
-              cargo nextest run --profile ci -p chutoro-core \
+              cargo nextest run --profile "$NEXTEST_PROFILE" -p chutoro-core \
                 hnsw::tests::property::tests::hnsw_search_matches_brute_force_proptest \
                 hnsw::tests::property::tests::hnsw_mutations_preserve_invariants_proptest \
                 hnsw::tests::property::tests::hnsw_idempotency_preserved_proptest \
                 2>&1 | tee /tmp/property-${{ matrix.suite }}.log
               ;;
             edge_harvest)
-              cargo nextest run --profile ci -p chutoro-core \
+              cargo nextest run --profile "$NEXTEST_PROFILE" -p chutoro-core \
                 hnsw::tests::property::edge_harvest_suite:: \
                 hnsw::tests::property::edge_harvest_output::suite:: \
                 2>&1 | tee /tmp/property-${{ matrix.suite }}.log
               ;;
             mst)
-              cargo nextest run --profile ci -p chutoro-core \
+              cargo nextest run --profile "$NEXTEST_PROFILE" -p chutoro-core \
                 mst::property::tests:: \
                 2>&1 | tee /tmp/property-${{ matrix.suite }}.log
               ;;
             dense_simd)
-              cargo nextest run --profile ci -p chutoro-providers-dense \
+              cargo nextest run --profile "$NEXTEST_PROFILE" -p chutoro-providers-dense \
                 simd::tests::parity:: \
                 2>&1 | tee /tmp/property-${{ matrix.suite }}.log
               ;;
@@ -145,6 +148,10 @@ jobs:
         suite: [hnsw, edge_harvest, mst, dense_simd]
     env:
       CARGO_TERM_COLOR: always
+      # The 25,000-case lane selects the profile that carries the measured
+      # dense parity allowance. It inherits `ci`, so every other suite keeps
+      # exactly the budget the pull-request lane gives it.
+      NEXTEST_PROFILE: "property-heavy"
       RUST_BACKTRACE: "1"
       PROGTEST_CASES: "25000"
       PROPTEST_CASES: "25000"
