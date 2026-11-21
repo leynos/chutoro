@@ -131,31 +131,38 @@ fn known_code_strings() -> Vec<&'static str> {
         .collect()
 }
 
+/// Returns the first code that has no row in the table.
+fn missing_code<'a>(rows: &[&str], codes: &'a [&str]) -> Option<&'a str> {
+    codes
+        .iter()
+        .copied()
+        .find(|code| !rows.iter().any(|row| row.contains(&format!("`{code}`"))))
+}
+
+/// Returns the first table token that belongs to another subsystem.
+///
+/// The section-wide check accepts any token some enum produces, so this rule
+/// is what catches a code copied into the wrong table.
+fn foreign_code(rows: &[&'static str], codes: &[&str]) -> Option<&'static str> {
+    rows.iter()
+        .flat_map(|row| backticked_upper_snake_tokens(row))
+        .find(|token| !codes.contains(token))
+}
+
 /// Asserts that a table names exactly the codes of one subsystem.
 ///
 /// Every code must appear in a row, and every upper-snake-case token in a row
-/// must be one of that subsystem's codes. The second rule catches a code
-/// copied from another subsystem, which the section-wide check would accept
-/// because some other enum still produces it.
+/// must be one of that subsystem's codes.
 fn assert_codes_tabulated(heading: &'static str, codes: &[&str]) -> Result<(), String> {
     let rows = table_rows(heading).ok_or_else(|| format!("guide must contain {heading}"))?;
-    for code in codes {
-        let token = format!("`{code}`");
-        if !rows.iter().any(|row| row.contains(&token)) {
-            return Err(format!("{heading} must tabulate {token}"));
-        }
-    }
-    for token in rows
-        .iter()
-        .flat_map(|row| backticked_upper_snake_tokens(row))
-    {
-        if !codes.contains(&token) {
-            return Err(format!(
-                "{heading} names `{token}`, which is not a code of that subsystem"
-            ));
-        }
-    }
-    Ok(())
+    missing_code(&rows, codes)
+        .map(|code| format!("{heading} must tabulate `{code}`"))
+        .or_else(|| {
+            foreign_code(&rows, codes).map(|token| {
+                format!("{heading} names `{token}`, which is not a code of that subsystem")
+            })
+        })
+        .map_or(Ok(()), Err)
 }
 
 /// Verifies the guide lists every code of each subsystem in its own table.
