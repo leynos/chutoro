@@ -115,6 +115,11 @@ def split_build_environment(target: Path, build: Path) -> dict[str, str]:
     checkout's shared directory. ``HOME``, ``CARGO_HOME`` and ``RUSTUP_HOME``
     stay inherited so the repository's pinned toolchain and the shared crate
     cache are used rather than downloaded again.
+
+    Quiet output is turned off rather than merely cleared: the suite assertion
+    reads Cargo's ``Running tests/<suite>.rs`` lines, and an inherited or
+    configured ``term.quiet`` would suppress them. The environment value is
+    assigned because it outranks a user's Cargo configuration.
     """
     environment = os.environ.copy()
     for name in CLEARED_VARIABLES:
@@ -122,6 +127,7 @@ def split_build_environment(target: Path, build: Path) -> dict[str, str]:
     environment["CARGO_TARGET_DIR"] = str(target)
     environment["CARGO_BUILD_BUILD_DIR"] = str(build)
     environment["CARGO_TERM_COLOR"] = "never"
+    environment["CARGO_TERM_QUIET"] = "false"
     return environment
 
 
