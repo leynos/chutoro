@@ -11,7 +11,7 @@ See "Dense SIMD parity suite" in ``docs/developers-guide.md``.
 """
 
 import pytest
-from timeout_budgets import ProfileInheritanceError, resolved_global_timeout
+from profile_inheritance import ProfileInheritanceError, resolved_global_timeout
 
 
 @pytest.mark.parametrize(

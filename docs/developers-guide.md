@@ -1982,9 +1982,10 @@ invoking the shared coverage action to set the watchdog explicitly, since a
 step without it inherits the 1,800 s default, which is where this repository
 started. Both workflow extensions are scanned because a coverage lane in a
 `.yaml` file would otherwise inherit that default without failing anything. The
-readings it rests on live in `timeout_budgets.py`, `nextest_durations.py` and
-`coverage_lanes.py`, and are driven past this repository's own numbers in
-`timeout_derivation_test.py` and `duration_reading_test.py`.
+readings it rests on live in `timeout_budgets.py`, `profile_inheritance.py`,
+`nextest_durations.py` and `coverage_lanes.py`, and are driven past this
+repository's own numbers in `timeout_derivation_test.py`,
+`profile_inheritance_test.py` and `duration_reading_test.py`.
 
 Durations are read the way nextest reads them, with `humantime`'s grammar: a
 sequence of values each followed by a unit, summed, so `2h 37min` and `1m30s`

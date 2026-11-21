@@ -19,11 +19,11 @@ See "Dense SIMD parity suite" in ``docs/developers-guide.md``.
 import typing as typ
 
 from nextest_durations import _seconds
+from profile_inheritance import resolved_global_timeout
 from timeout_budgets import (
     NEXTEST_CONFIG,
     _optional_seconds,
     parse_config,
-    resolved_global_timeout,
     termination_allowance_of,
 )
 from workflow_support import job, run_script, steps
