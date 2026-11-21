@@ -25,59 +25,26 @@ const HNSW_HEADING: &str = "#### HNSW errors";
 /// Heading that opens the hierarchy code table.
 const HIERARCHY_HEADING: &str = "#### Hierarchy errors";
 
-/// Every `MstErrorCode` variant, mirroring the integration error tests.
-const MST_CODES: [MstErrorCode; 5] = [
-    MstErrorCode::EmptyGraph,
-    MstErrorCode::InvalidNodeId,
-    MstErrorCode::NonFiniteWeight,
-    MstErrorCode::LockPoisoned,
-    MstErrorCode::InvariantViolation,
-];
+/// Collects the stable strings of every `MstErrorCode` variant.
+fn mst_code_strings() -> Vec<&'static str> {
+    MstErrorCode::ALL.iter().map(|code| code.as_str()).collect()
+}
 
-/// Every `HnswErrorCode` variant.
-const HNSW_CODES: [HnswErrorCode; 8] = [
-    HnswErrorCode::EmptyBuild,
-    HnswErrorCode::InvalidParameters,
-    HnswErrorCode::DuplicateNode,
-    HnswErrorCode::GraphEmpty,
-    HnswErrorCode::GraphInvariantViolation,
-    HnswErrorCode::NonFiniteDistance,
-    HnswErrorCode::LockPoisoned,
-    HnswErrorCode::DataSource,
-];
+/// Collects the stable strings of every `HnswErrorCode` variant.
+fn hnsw_code_strings() -> Vec<&'static str> {
+    HnswErrorCode::ALL
+        .iter()
+        .map(|code| code.as_str())
+        .collect()
+}
 
-/// Every `HierarchyErrorCode` variant.
-const HIERARCHY_CODES: [HierarchyErrorCode; 7] = [
-    HierarchyErrorCode::EmptyDataset,
-    HierarchyErrorCode::MinClusterSizeTooLarge,
-    HierarchyErrorCode::InvalidEdgeWeight,
-    HierarchyErrorCode::InvalidEdgeEndpoint,
-    HierarchyErrorCode::InvalidForestReference,
-    HierarchyErrorCode::InvalidClusterReference,
-    HierarchyErrorCode::InvalidPointReference,
-];
-
-/// Every `ChutoroErrorCode` variant.
-const CHUTORO_CODES: [ChutoroErrorCode; 9] = [
-    ChutoroErrorCode::InvalidMinClusterSize,
-    ChutoroErrorCode::EmptySource,
-    ChutoroErrorCode::InsufficientItems,
-    ChutoroErrorCode::BackendUnavailable,
-    ChutoroErrorCode::DataSourceFailure,
-    ChutoroErrorCode::CpuHnswFailure,
-    ChutoroErrorCode::CpuMstFailure,
-    ChutoroErrorCode::CpuHierarchyFailure,
-    ChutoroErrorCode::MemoryLimitExceeded,
-];
-
-/// Every `DataSourceErrorCode` variant.
-const DATA_SOURCE_CODES: [DataSourceErrorCode; 5] = [
-    DataSourceErrorCode::OutOfBounds,
-    DataSourceErrorCode::OutputLengthMismatch,
-    DataSourceErrorCode::DimensionMismatch,
-    DataSourceErrorCode::EmptyData,
-    DataSourceErrorCode::ZeroDimension,
-];
+/// Collects the stable strings of every `HierarchyErrorCode` variant.
+fn hierarchy_code_strings() -> Vec<&'static str> {
+    HierarchyErrorCode::ALL
+        .iter()
+        .map(|code| code.as_str())
+        .collect()
+}
 
 /// Returns the Markdown heading level when a line is an ATX heading.
 fn heading_level(line: &str) -> Option<usize> {
@@ -150,18 +117,26 @@ fn backticked_upper_snake_tokens(section: &'static str) -> Vec<&'static str> {
 }
 
 /// Collects every stable string a public error-code enum can produce.
+///
+/// Reading the macro-generated `ALL` slices keeps this list in step with the
+/// enums, so a new variant is covered without editing the test.
 fn known_code_strings() -> Vec<&'static str> {
-    MST_CODES
+    MstErrorCode::ALL
         .iter()
-        .map(|code| (*code).as_str())
-        .chain(HNSW_CODES.iter().map(|code| (*code).as_str()))
-        .chain(HIERARCHY_CODES.iter().map(|code| (*code).as_str()))
-        .chain(CHUTORO_CODES.iter().map(|code| (*code).as_str()))
-        .chain(DATA_SOURCE_CODES.iter().map(|code| (*code).as_str()))
+        .map(|code| code.as_str())
+        .chain(HnswErrorCode::ALL.iter().map(|code| code.as_str()))
+        .chain(HierarchyErrorCode::ALL.iter().map(|code| code.as_str()))
+        .chain(ChutoroErrorCode::ALL.iter().map(|code| code.as_str()))
+        .chain(DataSourceErrorCode::ALL.iter().map(|code| code.as_str()))
         .collect()
 }
 
-/// Asserts that each code appears in a row of the table under `heading`.
+/// Asserts that a table names exactly the codes of one subsystem.
+///
+/// Every code must appear in a row, and every upper-snake-case token in a row
+/// must be one of that subsystem's codes. The second rule catches a code
+/// copied from another subsystem, which the section-wide check would accept
+/// because some other enum still produces it.
 fn assert_codes_tabulated(heading: &'static str, codes: &[&str]) -> Result<(), String> {
     let rows = table_rows(heading).ok_or_else(|| format!("guide must contain {heading}"))?;
     for code in codes {
@@ -170,25 +145,17 @@ fn assert_codes_tabulated(heading: &'static str, codes: &[&str]) -> Result<(), S
             return Err(format!("{heading} must tabulate {token}"));
         }
     }
-    Ok(())
-}
-
-/// Collects the stable strings of the MST code enum.
-fn mst_code_strings() -> Vec<&'static str> {
-    MST_CODES.iter().map(|code| (*code).as_str()).collect()
-}
-
-/// Collects the stable strings of the HNSW code enum.
-fn hnsw_code_strings() -> Vec<&'static str> {
-    HNSW_CODES.iter().map(|code| (*code).as_str()).collect()
-}
-
-/// Collects the stable strings of the hierarchy code enum.
-fn hierarchy_code_strings() -> Vec<&'static str> {
-    HIERARCHY_CODES
+    for token in rows
         .iter()
-        .map(|code| (*code).as_str())
-        .collect()
+        .flat_map(|row| backticked_upper_snake_tokens(row))
+    {
+        if !codes.contains(&token) {
+            return Err(format!(
+                "{heading} names `{token}`, which is not a code of that subsystem"
+            ));
+        }
+    }
+    Ok(())
 }
 
 /// Verifies the guide lists every code of each subsystem in its own table.
