@@ -33,6 +33,10 @@ from scheduling_line_reading import logical_lines
 #: any run of them as one token, so ``|&`` arrives whole.
 _OPERATOR_CHARS = frozenset(";&|")
 
+#: The parentheses that group commands. ``shlex`` leaves them attached to the
+#: word beside them, so ``(true`` and ``true)`` arrive as single tokens.
+_GROUPING_CHARS = frozenset("()")
+
 
 class Segment(typ.NamedTuple):
     """One simple command and the operator that ends it.
@@ -47,13 +51,62 @@ class Segment(typ.NamedTuple):
     follows: str
 
 
+def _joins_descriptors(words: list[str], token: str) -> bool:
+    """Return whether `token` is the ``&`` of a descriptor duplication.
+
+    ``shlex`` splits ``2>&1`` into ``2>``, ``&`` and ``1``. The ``&`` copies
+    one descriptor onto another rather than backgrounding the command, so it
+    belongs to the redirection rather than to the segment operator.
+
+    Examples
+    --------
+    >>> _joins_descriptors(["installer", "2>"], "&")
+    True
+    >>> _joins_descriptors(["installer"], "&")
+    False
+    >>> _joins_descriptors(["installer"], ";")
+    False
+    """
+    if token != "&" or not words:
+        return False
+    return words[-1].endswith((">", "<"))
+
+
+def _flush_segment(
+    segments: list[Segment], words: list[str], operator: str
+) -> list[str]:
+    """Append the command `words` hold, ending it with `operator`, if any.
+
+    The returned list is the empty word list the next command starts from.
+
+    Examples
+    --------
+    >>> segments = []
+    >>> _flush_segment(segments, ["a"], "&&")
+    []
+    >>> segments
+    [Segment(words=['a'], follows='&&')]
+    >>> _flush_segment(segments, [], ";")
+    []
+    >>> segments
+    [Segment(words=['a'], follows='&&')]
+    """
+    if words:
+        segments.append(Segment(words, operator))
+    return []
+
+
 def read_segments(tokens: list[str], quoted: list[str]) -> list[Segment]:
     """Return one line's simple commands, each with the operator that ends it.
 
     ``shlex`` yields any run of operator characters as one token, so ``|&``
     arrives whole and an unspaced ``||true`` still separates. A word's quoted
     text was set aside before tokenizing and is restored here, so a command is
-    read with the words the shell would give it.
+    read with the words the shell would give it. A grouping parenthesis may
+    arrive attached to a word, as ``(true``, and no simple reading can place
+    the group it opens; the line is reported as one such segment instead of
+    being read as the commands it merely contains. A quoted or escaped
+    parenthesis was masked before tokenizing and stays an ordinary word.
 
     Examples
     --------
@@ -61,14 +114,23 @@ def read_segments(tokens: list[str], quoted: list[str]) -> list[Segment]:
     [Segment(words=['a'], follows='&&'), Segment(words=['b'], follows='')]
     >>> read_segments(["a", "|&", "b"], [])
     [Segment(words=['a'], follows='|&'), Segment(words=['b'], follows='')]
+    >>> read_segments(["(true"], [])
+    [Segment(words=['('], follows='')]
+    >>> read_segments(["(", "a", ")"], [])
+    [Segment(words=['('], follows='')]
+    >>> read_segments(["installer", "2>", "&", "1"], [])
+    [Segment(words=['installer', '2>', '&', '1'], follows='')]
     """
+    if any(_GROUPING_CHARS & set(token) for token in tokens):
+        return [Segment(["("], "")]
     segments: list[Segment] = []
     words: list[str] = []
     for token in tokens:
+        if _joins_descriptors(words, token):
+            words.append("&")
+            continue
         if set(token) <= _OPERATOR_CHARS:
-            if words:
-                segments.append(Segment(words, token))
-            words = []
+            words = _flush_segment(segments, words, token)
             continue
         words.append(restore_quotes(token, quoted))
     if words:

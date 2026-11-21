@@ -87,7 +87,8 @@ def _matches(expression: str) -> _Predicate:
 #:
 #: `ThreadPool`'s associated-function entry points that dispatch to the pool.
 _ASSOCIATED_ENTRY_POINTS = (
-    "install|join|scope|scope_fifo|spawn|spawn_fifo|spawn_broadcast|broadcast"
+    "install|join|scope|scope_fifo|in_place_scope|in_place_scope_fifo"
+    "|spawn|spawn_fifo|spawn_broadcast|broadcast"
 )
 _ASSOCIATED_CALL = re.compile(
     rf"\bThreadPool\s*::\s*(?:{_ASSOCIATED_ENTRY_POINTS})\b"
@@ -171,6 +172,8 @@ def _ends_a_receiver(body: str, start: int) -> bool:
     True
     >>> _ends_a_receiver("return join(a)", 7)
     False
+    >>> _ends_a_receiver("break 'outer join(a)", 13)
+    False
     >>> _ends_a_receiver("join(a)", 0)
     False
     """
@@ -182,7 +185,10 @@ def _ends_a_receiver(body: str, start: int) -> bool:
         return True
     if not last.isalnum():
         return False
-    word = before.rsplit(maxsplit=1)[-1].rsplit(".", 1)[-1]
+    words = before.split()
+    if words[-1].startswith("'"):
+        words = words[:-1]
+    word = words[-1].rsplit(".", 1)[-1] if words else ""
     return word not in _CALL_PRECEDING_WORDS
 
 
@@ -195,9 +201,10 @@ def free_call(name: str) -> _Predicate:
     path join and has to be rejected too: the character before the name is
     read back past any spaces, and a ``.`` or ``::`` there leaves the call a
     method of something else. A keyword before the name is not a receiver, so
-    ``return join(a, b)`` still reads as the dispatch it is. Rayon's free
-    functions are generic, so a turbofish may sit between the name and the
-    argument list, as ``join::<_, _, (), ()>(|| (), || ())`` shows.
+    ``return join(a, b)`` and ``break 'outer join(a, b)`` still read as the
+    dispatches they are. Rayon's free functions are generic, so a turbofish
+    may sit between the name and the argument list, as
+    ``join::<_, _, (), ()>(|| (), || ())`` shows.
 
     Examples
     --------
@@ -207,6 +214,8 @@ def free_call(name: str) -> _Predicate:
     >>> calls_free_join("join::<_, _, (), ()>(|| (), || ())")
     True
     >>> calls_free_join("return join(|| (), || ())")
+    True
+    >>> calls_free_join("break 'outer join(|| (), || ())")
     True
     >>> calls_free_join("cache_dir.join(cache_file)")
     False
@@ -224,9 +233,9 @@ def free_call(name: str) -> _Predicate:
 
         A candidate preceded by an identifier, `.` or `:` is a method,
         associated function, longer name or receiver-qualified call rather
-        than the free function, unless that identifier is a keyword, and one
-        followed by a turbofish is read past it before the argument list is
-        required.
+        than the free function, unless that identifier is a keyword or a loop
+        label after one, and one followed by a turbofish is read past it
+        before the argument list is required.
 
         Examples
         --------
@@ -298,6 +307,10 @@ DISPATCH_MARKERS: typ.Final[tuple[tuple[str, _Predicate], ...]] = (
     # generic call's turbofish.
     (".scope(", calls_the_method("scope")),
     ("scope(", free_call("scope")),
+    (".in_place_scope(", calls_the_method("in_place_scope")),
+    ("in_place_scope(", free_call("in_place_scope")),
+    (".in_place_scope_fifo(", calls_the_method("in_place_scope_fifo")),
+    ("in_place_scope_fifo(", free_call("in_place_scope_fifo")),
     (".scope_fifo(", calls_the_method("scope_fifo")),
     ("scope_fifo(", free_call("scope_fifo")),
     (".spawn(", calls_the_method("spawn")),

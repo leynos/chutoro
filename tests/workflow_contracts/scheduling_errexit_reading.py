@@ -65,18 +65,25 @@ class Command(typ.NamedTuple):
 def _names_errexit(words: cabc.Sequence[str], index: int) -> bool:
     """Return whether ``words[index]`` names errexit for ``-o`` or ``+o``.
 
+    Bash reads a cluster's final ``o`` as the option-name flag, so ``+xo
+    errexit`` turns errexit off exactly as ``+o errexit`` does, and ``-euo
+    pipefail`` sets errexit before naming pipefail.
+
     Examples
     --------
     >>> _names_errexit(["set", "-o", "errexit"], 1)
     True
     >>> _names_errexit(["set", "+o", "errexit"], 1)
     True
+    >>> _names_errexit(["set", "+xo", "errexit"], 1)
+    True
     >>> _names_errexit(["set", "-o", "pipefail"], 1)
     False
     >>> _names_errexit(["set", "-e"], 1)
     False
     """
-    if words[index] not in {"-o", "+o"}:
+    flag = words[index]
+    if flag[:1] not in {"-", "+"} or not flag[1:].endswith("o"):
         return False
     return words[index + 1 : index + 2] == [ERREXIT_OPTION]
 
@@ -147,6 +154,8 @@ def errexit_setting(words: cabc.Sequence[str]) -> bool | None:
     False
     >>> errexit_setting(["set", "-euo", "pipefail"])
     True
+    >>> errexit_setting(["set", "+xo", "errexit"])
+    False
     >>> errexit_setting(["set", "-o", "pipefail", "-e"])
     True
     >>> errexit_setting(["set", "--", "-e"]) is None

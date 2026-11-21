@@ -105,6 +105,8 @@ def test_a_syntax_only_shell_is_rejected_at_every_scope(scope: str) -> None:
         pytest.param("bash -en {0}", False, id="syntax-only-in-a-cluster"),
         pytest.param("bash -o noexec {0}", False, id="noexec-named-by-o"),
         pytest.param("bash -eo noexec {0}", False, id="noexec-after-errexit"),
+        pytest.param('bash -e "{0}"', True, id="a-quoted-operand"),
+        pytest.param('bash -et "{0}"', False, id="a-quoted-one-command"),
         pytest.param("bash -et {0}", False, id="one-command-in-a-cluster"),
         pytest.param(
             "bash -o onecmd -e {0}", False, id="one-command-named-by-o"

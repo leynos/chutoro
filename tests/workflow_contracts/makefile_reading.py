@@ -139,6 +139,26 @@ def _opens_a_definition(line: str) -> bool:
     )
 
 
+def _definition_delta(line: str) -> int:
+    """Return how `line` changes the ``define`` nesting depth.
+
+    GNU make lets a definition hold another one, so a body ends at the
+    ``endef`` that matches its own ``define`` rather than at the first one.
+
+    Examples
+    --------
+    >>> _definition_delta("define INNER")
+    1
+    >>> _definition_delta("endef")
+    -1
+    >>> _definition_delta(".PHONY: gate")
+    0
+    """
+    if _opens_a_definition(line):
+        return 1
+    return -1 if _closes_a_definition(line) else 0
+
+
 def _closes_a_definition(line: str) -> bool:
     """Return whether `line` ends a ``define`` body.
 
@@ -183,19 +203,25 @@ def _declaring_lines(text: str) -> list[str]:
     >>> defined = "define UNUSED" + chr(10) + ".PHONY: gate" + chr(10) + "endef"
     >>> _declaring_lines(defined)
     []
+    >>> nested = (
+    ...     "define OUTER" + chr(10) + "define INNER" + chr(10) + "endef"
+    ...     + chr(10) + ".PHONY: gate" + chr(10) + "endef"
+    ... )
+    >>> _declaring_lines(nested)
+    []
     """
     lines: list[str] = []
     in_comment = False
-    in_definition = False
+    depth = 0
     for line in text.splitlines():
         if in_comment:
             in_comment = _continues(line)
             continue
-        if in_definition:
-            in_definition = not _closes_a_definition(line)
+        if depth:
+            depth += _definition_delta(line)
             continue
         if _opens_a_definition(line):
-            in_definition = True
+            depth = 1
             continue
         continues = _make_comment_start(line) is not None and _continues(line)
         in_comment = continues

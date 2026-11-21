@@ -111,6 +111,25 @@ def command_arguments(command: str) -> list[str]:
     return arguments
 
 
+def _joins_descriptors(tokens: list[str], index: int) -> bool:
+    """Return whether ``tokens[index]`` is the ``&`` of a descriptor copy.
+
+    ``shlex`` splits ``2>&1`` into ``2>``, ``&`` and ``1``. The ``&`` copies a
+    descriptor rather than backgrounding the command, so it is not a separator
+    that leaves the invocation's failure to no one.
+
+    Examples
+    --------
+    >>> _joins_descriptors(["true", "2>", "&", "1"], 2)
+    True
+    >>> _joins_descriptors(["true", "&"], 1)
+    False
+    """
+    if tokens[index] != "&" or index == 0:
+        return False
+    return tokens[index - 1].endswith((">", "<"))
+
+
 def is_nextest_invocation(command: str) -> bool:
     """Return whether `command` runs nextest in its executable position.
 
@@ -147,10 +166,15 @@ def is_nextest_invocation(command: str) -> bool:
     False
     >>> is_nextest_invocation("$(CARGO) nextest run -p chutoro-core --no-run")
     False
+    >>> is_nextest_invocation("$(CARGO) nextest run -p chutoro-core 2>&1")
+    True
     """
     tokens = shell_tokens(command)
     rejected = SHELL_SEPARATORS.union(COMPILE_ONLY_FLAGS)
-    if any(token in rejected for token in tokens):
+    if any(
+        token in rejected and not _joins_descriptors(tokens, index)
+        for index, token in enumerate(tokens)
+    ):
         return False
     return (
         len(tokens) >= 3

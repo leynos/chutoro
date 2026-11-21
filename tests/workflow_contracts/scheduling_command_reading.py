@@ -158,6 +158,8 @@ def closing_quote(line: str, start: int) -> int | None:
     >>> substituted = '"$(printf "%s" " #")"'
     >>> closing_quote(substituted, 0) == len(substituted) - 1
     True
+    >>> closing_quote("$'$('", 1)
+    4
     """
     quote = line[start]
     escape_aware = quote == '"' or _is_ansi_c_string(line, start)
@@ -166,7 +168,7 @@ def closing_quote(line: str, start: int) -> int | None:
         if escape_aware and line[index] == "\\":
             index += 2
             continue
-        if escape_aware and line.startswith("$(", index):
+        if quote == '"' and line.startswith("$(", index):
             index = _after_substitution(line, index)
             continue
         if line[index] == quote:

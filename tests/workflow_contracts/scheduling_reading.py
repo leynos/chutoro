@@ -53,10 +53,13 @@ QUALIFIED_REGRESSIONS = {
     ),
 }
 
-#: The nextest flags that carry a filter expression. An unfamiliar spelling
-#: yields no expression, which the caller rejects rather than counting as
-#: coverage: a filter the reading cannot see is a filter it cannot vouch for.
-FILTER_FLAGS = ("-E", "--filter-expr")
+#: The nextest flags that carry a filter expression, in every spelling nextest
+#: accepts, including the ``=`` form. Nextest unions two filtersets, so an
+#: argument the reader skipped could widen the selection past the one
+#: regression an invocation is meant to name. A command carrying one is read
+#: in full and rejected when the count is not exactly one, rather than read as
+#: if the extra filter were not there.
+FILTER_ARGUMENTS = ("-E", "--filter-expr", "--filterset", "--filter")
 
 #: Every spelling that selects a feature set. The regressions are
 #: feature-independent, so the gate must build the default set: a feature flag
@@ -239,17 +242,68 @@ def filter_expressions(command: str) -> list[str]:
     []
     >>> filter_expressions("nextest run >log#1 -E 'test(=a)'")
     ['test(=a)']
+    >>> filter_expressions("nextest run --filter-expr='test(=a)'")
+    ['test(=a)']
+    >>> filter_expressions("nextest run --filterset=slow -E 'test(=a)'")
+    ['slow', 'test(=a)']
     """
     tokens = shlex.split(command, comments=False)
     expressions: list[str] = []
     for index, token in enumerate(tokens):
-        if token not in FILTER_FLAGS:
+        if not _carries_a_filter(token):
             continue
-        if index + 1 == len(tokens):
+        value = _filter_value(tokens, index)
+        if value is None:
             message = f"{token} is missing its expression in {command!r}"
             raise ValueError(message)
-        expressions.append(tokens[index + 1])
+        expressions.append(value)
     return expressions
+
+
+def _filter_value(tokens: list[str], index: int) -> str | None:
+    """Return the value the filter flag at `index` carries, if complete.
+
+    Nextest takes the value as the word after the flag, or after an ``=`` in
+    the flag itself. A flag with neither has no value the reader can vouch for.
+
+    Examples
+    --------
+    >>> _filter_value(["-E", "test(=a)"], 0)
+    'test(=a)'
+    >>> _filter_value(["--filter-expr=test(=a)"], 0)
+    'test(=a)'
+    >>> _filter_value(["--filterset=slow"], 0)
+    'slow'
+    >>> _filter_value(["-E"], 0) is None
+    True
+    """
+    token = tokens[index]
+    if "=" in token:
+        return token.split("=", 1)[1]
+    return tokens[index + 1] if index + 1 < len(tokens) else None
+
+
+def _carries_a_filter(token: str) -> bool:
+    """Return whether `token` is a nextest flag that carries a filter.
+
+    Nextest accepts a filterset as ``-E expr``, ``--filter-expr expr`` or in
+    the ``=`` form of either long flag, and also accepts ``--filterset`` and
+    ``--filter``. A reader that skipped an unfamiliar spelling would count the
+    named expression alone while nextest ran the union of both.
+
+    Examples
+    --------
+    >>> _carries_a_filter("-E")
+    True
+    >>> _carries_a_filter("--filter-expr=test(=a)")
+    True
+    >>> _carries_a_filter("--filterset")
+    True
+    >>> _carries_a_filter("--no-tests=fail")
+    False
+    """
+    name = token.split("=", 1)[0]
+    return name in FILTER_ARGUMENTS
 
 
 def selected_regression(command: str) -> str:

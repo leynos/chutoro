@@ -222,15 +222,50 @@ def _tail_lines(lines: list[str], pending: str, joined: str) -> list[str]:
     return lines
 
 
+def _command_step(
+    physical: str, joined: str, pending: str, lines: list[str]
+) -> tuple[str, str, list[HereDocument]]:
+    """Absorb one physical command line and return the state it leaves.
+
+    A comment's trailing backslash is comment text, so the line is stripped of
+    its comment before its continuation is read. A line that still continues
+    leaves `joined` open and absorbs nothing yet; a complete line is absorbed
+    and may open here-documents.
+
+    Examples
+    --------
+    >>> lines = []
+    >>> _command_step("installer", "", "", lines)[:2]
+    ('', '')
+    >>> lines
+    ['installer']
+    >>> _command_step("installer " + chr(92), "", "", lines)[0].endswith(" ")
+    True
+    >>> _command_step("# note " + chr(92), "", "", lines)[:2]
+    ('', '')
+    >>> _command_step("cat <<'EOF'", "", "", [])[2]
+    [HereDocument(word='EOF', strips_tabs=False, literal=True)]
+    """
+    commented = strip_shell_comment(physical)
+    text, continues = _continuation(commented)
+    joined = f"{joined}{text}"
+    if continues:
+        return joined, pending, []
+    pending, documents = _absorb(pending, joined, lines)
+    return "", pending, documents
+
+
 def logical_lines(script: str) -> list[str]:
     """Return `script` as the command lines a shell would read.
 
-    Backslash continuations are resolved first. Each resulting line then
-    absorbs the next while it ends in a list operator: the shell parses the
-    next line as that operator's right-hand side, so ``true ||`` followed by
-    an installer line skips the installer, and an installer followed by
-    ``&&`` carries its failure into the next line rather than ending as a
-    command of its own. A here-document's body is not a command line either:
+    A comment is removed before its line's continuation is read, because the
+    backslash that ends a comment is comment text and continues nothing; the
+    shell runs the next physical line as a command of its own. Backslash
+    continuations are then resolved. Each resulting line absorbs the next
+    while it ends in a list operator: the shell parses the next line as that
+    operator's right-hand side, so ``true ||`` followed by an installer line
+    skips the installer, and an installer followed by ``&&`` carries its
+    failure into the next line rather than ending as a command of its own. A here-document's body is not a command line either:
     the line that opened it names the word that ends the body, and every
     physical line up to and including that word is dropped without joining,
     as the shell reads it. The word has to repeat exactly for ``<<``, so
@@ -286,10 +321,7 @@ def logical_lines(script: str) -> list[str]:
         if documents:
             body = _body_step(documents, physical, body)
             continue
-        text, continues = _continuation(physical)
-        joined = f"{joined}{text}"
-        if continues:
-            continue
-        pending, documents = _absorb(pending, joined, lines)
-        joined = ""
+        joined, pending, documents = _command_step(
+            physical, joined, pending, lines
+        )
     return _tail_lines(lines, pending, joined)

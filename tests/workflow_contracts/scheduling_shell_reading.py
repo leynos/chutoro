@@ -11,31 +11,26 @@ override order and then reading the template for an option that never runs the
 script — a syntax check, a help or version report, a command or stdin mode —
 or for a missing ``errexit``.
 
-This module holds that reading. ``scheduling_shell_test`` holds the assertions
-over the precedence and the template forms, and ``scheduling_ci_test`` applies
-``runs_the_script`` to the step that runs the scheduling target; the split
-keeps each file inside the 400-line limit ``AGENTS.md`` sets.
-
-Re-use policy: import from ``scheduling_shell_test`` and ``scheduling_ci_test``
-only. A new shell-template rule belongs here with the GitHub behaviour it
-models stated beside it, so a later reader can check the rule against the
-runner rather than against the tests.
+This module holds that reading; ``scheduling_shell_test`` asserts the
+precedence and the template forms, and ``scheduling_ci_test`` applies
+``runs_the_script`` to the scheduling step. A new shell-template rule belongs
+here with the GitHub behaviour it models stated beside it, so a later reader
+can check the rule against the runner rather than against the tests.
 """
 
 from __future__ import annotations
+
+import shlex
 
 #: Shells whose execution flags this reader models. GitHub runs the default
 #: ``run`` shell as ``bash -e {0}`` on Linux, and documents the ``bash`` and
 #: ``sh`` shorthands as expanding to shells that enable ``errexit``.
 EXECUTING_SHELLS = frozenset({"bash", "sh"})
 
-#: Shell options that make the shell exit without running the script. The
-#: syntax-only modes parse it and execute none of it; ``-D`` implies ``-n``
-#: and prints the translated strings instead, with ``--dump-strings`` and
-#: ``--dump-po-strings`` as its long spellings; ``--help`` and ``--version``
-#: answer the request and exit successfully. ``bash --help -e {0}`` and
-#: ``bash -eD {0}`` are therefore no evidence that ``{0}`` ran however
-#: ``errexit`` is set.
+#: Shell options that make the shell exit without running the script: the
+#: syntax-only modes, ``-D`` and its long forms, ``--help`` and ``--version``,
+#: and ``--one-command``, which runs one command and exits. ``bash --help -e
+#: {0}`` and ``bash -eD {0}`` are no evidence that ``{0}`` ran.
 NON_EXECUTING_OPTIONS = frozenset(
     {
         "-n",
@@ -113,8 +108,8 @@ def effective_shell(
 def _is_short_cluster(word: str) -> bool:
     """Return whether `word` groups short shell options, as ``-eo`` does.
 
-    A long option such as ``--noprofile`` is not a cluster, and the single
-    word ``-`` is an operand rather than an option.
+    A long option such as ``--noprofile`` is not a cluster, and ``-`` is an
+    operand rather than an option.
 
     Examples
     --------
@@ -144,34 +139,29 @@ def _enables(word: str, letter: str) -> bool:
 
 
 def _takes_an_operand(word: str) -> bool:
-    """Return whether `word` names a shell option whose value follows it.
+    """Return whether `word` ends a short option cluster with ``o`` or ``O``.
 
-    ``-o`` and ``-O`` take the option name as the next word, and either may
-    sit inside a cluster, as in ``-eo pipefail``.
+    The option name follows as the next word, even after a cluster, as in
+    ``-eo pipefail``.
 
     Examples
     --------
-    >>> _takes_an_operand("-o")
-    True
     >>> _takes_an_operand("-eo")
     True
     >>> _takes_an_operand("-e")
     False
     """
-    return word in {"-o", "-O"} or _enables(word, "o")
+    return _is_short_cluster(word) and word.endswith(("o", "O"))
 
 
 def _executes_nothing(options: list[str]) -> bool:
     """Return whether these options leave the script unexecuted.
 
     Bash reads short options as a cluster, so ``-en`` is ``-e`` plus ``-n``,
-    and names an option with ``-o``, so ``-o noexec`` and ``-eo noexec``
-    reach the same mode in two words. ``-D`` is a syntax mode of its own: it
-    implies ``-n`` while dumping the translated strings, so it may sit in a
-    cluster as ``-eD``. ``-t`` runs one command and exits, so a script of
-    several commands stops after the first and the rest is no evidence.
-    ``--help`` and ``--version`` are not syntax modes, but Bash reports and
-    exits on either, so the script is just as unrun.
+    and names one with ``-o``, so ``-o noexec`` reaches the same mode in two
+    words. ``-D`` implies ``-n`` while dumping strings, ``-t`` runs one
+    command and exits, and ``--help`` or ``--version`` exits without running
+    the script at all.
 
     Examples
     --------
@@ -309,6 +299,35 @@ def _reaches_the_script(options: list[str]) -> bool:
     return True
 
 
+#: The word the script's path is replaced with before a template is split, so
+#: a quoted ``{0}`` is read as the one operand the runner substitutes for.
+_SCRIPT_WORD = "__CHUTORO_SCRIPT_PATH__"
+
+
+def _template_words(shell: str) -> list[str]:
+    """Return a shell template's words, with ``{0}`` as one placeholder word.
+
+    GitHub substitutes the script's path before the shell parses the
+    template, so a quoted ``"{0}"`` is one operand word rather than a stray
+    quote before the operand. An unbalanced template yields no words.
+
+    Examples
+    --------
+    >>> _template_words("bash -e {0}")
+    ['bash', '-e', '__CHUTORO_SCRIPT_PATH__']
+    >>> _template_words('bash -e "{0}"')
+    ['bash', '-e', '__CHUTORO_SCRIPT_PATH__']
+    >>> _template_words('bash -c "run {0}"')
+    ['bash', '-c', 'run __CHUTORO_SCRIPT_PATH__']
+    >>> _template_words('bash "{0}')
+    []
+    """
+    try:
+        return shlex.split(shell.replace("{0}", _SCRIPT_WORD))
+    except ValueError:
+        return []
+
+
 def runs_the_script(shell: str | None) -> bool:
     """Return whether `shell` runs the step's script under ``errexit``.
 
@@ -330,6 +349,8 @@ def runs_the_script(shell: str | None) -> bool:
     True
     >>> runs_the_script("bash {0}")
     False
+    >>> runs_the_script('bash -e "{0}"')
+    True
     >>> runs_the_script("sh {0}")
     False
     >>> runs_the_script("bash -n {0}")
@@ -361,7 +382,10 @@ def runs_the_script(shell: str | None) -> bool:
         return True
     if "{0}" not in shell:
         return False
-    command = shell.split("{0}", 1)[0].split()
+    words = _template_words(shell)
+    if _SCRIPT_WORD not in words:
+        return False
+    command = words[: words.index(_SCRIPT_WORD)]
     if not _runs_under_a_modelled_interpreter(command):
         return False
     options = command[1:]

@@ -1,0 +1,40 @@
+"""The filter reading that keeps an invocation to one regression.
+
+``selected_regression`` reads a nextest command's filters and refuses anything
+other than exactly one exact-match expression, so a widened selection cannot
+keep an invocation non-empty after its regression is renamed. Nextest accepts
+a filter in several spellings and unions two filtersets, so the reader has to
+see every spelling: one it skipped could widen the selection while the
+expression it did recognise still looked right.
+
+These cases live apart from ``scheduling_contract_test`` so the target-recipe
+assertions and this reading keep their files inside the 400-line limit
+``AGENTS.md`` sets.
+
+Run via ``make test-workflow-contracts``.
+"""
+
+from __future__ import annotations
+
+import pytest
+from scheduling_reading import (
+    QUALIFIED_REGRESSIONS,
+    REGRESSIONS,
+    selected_regression,
+)
+
+
+def test_a_second_filter_argument_is_rejected() -> None:
+    """A filterset beside the expression widens the selection.
+
+    Nextest unions two filtersets, so ``--filterset`` beside ``-E`` selects
+    more tests than the named regression while the exact filter is still
+    there. The reading has to see the extra argument and refuse the command,
+    not count the expression it recognised and ignore the rest.
+    """
+    widened = (
+        "cargo nextest run --filterset=slow -E "
+        f"'test(={QUALIFIED_REGRESSIONS[REGRESSIONS[0]]})'"
+    )
+    with pytest.raises(ValueError, match="exactly one filter expression"):
+        selected_regression(widened)

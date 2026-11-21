@@ -248,4 +248,34 @@ SELECTOR_CASES: typ.Final[tuple[tuple[str, bool, str], ...]] = (
         False,
         "a-here-document-body-inside-a-continued-list",
     ),
+    (
+        "# note " + chr(92) + "\n" + NEXTEST_INSTALLER,
+        True,
+        "a-comment-that-ends-with-a-backslash",
+    ),
+    (
+        f"{NEXTEST_INSTALLER} 2>&1",
+        True,
+        "a-descriptor-copy-after-the-installer",
+    ),
+    (
+        f"set +xo errexit\n{NEXTEST_INSTALLER}\ntrue",
+        False,
+        "an-errexit-cluster-naming-errexit",
+    ),
+    (
+        f"echo $'$(' ; {NEXTEST_INSTALLER}",
+        True,
+        "a-literal-substitution-in-an-ansi-c-string",
+    ),
+    (
+        f"echo '(' ; {NEXTEST_INSTALLER}",
+        True,
+        "a-quoted-parenthesis",
+    ),
+    (
+        f"false && (true\n{NEXTEST_INSTALLER}\ntrue)",
+        False,
+        "an-unspaced-parenthesised-group",
+    ),
 )
