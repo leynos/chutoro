@@ -260,10 +260,12 @@ demonstrates:
   at `#[kani::unwind(4)]` was `memcmp.unwind.0`; `unwind(9)` covers the
   eight-byte slice comparison.
 - The earlier direct harness's 2,590-path, twenty-minute abort is not inherent
-  to the healer. A three-node widening with one symbolic boolean
-  (`kani::any::<bool>()`) for an optional spare neighbour exceeded 600 s with
-  more than 6,400 aborted paths before being stopped, which confirms the
-  two-to-three-node cliff. The concrete two-node rung is the retained proof.
+  to the healer. A three-node probe that also added one symbolic boolean
+  (`kani::any::<bool>()`) for an optional spare neighbour and raised the unwind
+  bound exceeded 600 s with more than 6,400 aborted paths before being stopped.
+  Because it changed three factors together, it is consistent with the recorded
+  two-to-three-node cliff but does not isolate which factor dominated. The
+  concrete two-node rung is the retained proof.
 - The proof is non-vacuous. Temporarily skipping the reverse directed link in
   `link_new_node_inner` makes the harness fail with
   `healing must link the isolated node back to the entry node`; temporarily

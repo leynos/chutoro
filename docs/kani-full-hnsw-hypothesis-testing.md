@@ -362,9 +362,11 @@ runs an eight-byte `memcmp`; `unwind(9)` covers it. No solver other than
 
 A three-node sibling with one `kani::any::<bool>()` selecting an optional spare
 neighbour and `#[kani::unwind(17)]` exceeded 600 s of solver time with more
-than 6,400 aborted paths before it was stopped. This is the documented
-two-to-three-node cliff: one symbolic node choice loses the tractability of the
-concrete fixture, so the widened harness was not retained.
+than 6,400 aborted paths before it was stopped. This is consistent with the
+documented two-to-three-node cliff, but the probe changed the node count, the
+symbolic choice, and the unwind bound together, and it stopped before the
+20-minute limit. It therefore establishes neither which factor dominated nor a
+general boundary for symbolic widening; the widened harness was not retained.
 
 ### Non-vacuity controls
 

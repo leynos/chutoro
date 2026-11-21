@@ -144,10 +144,12 @@ commands, exit codes, elapsed times, and path counts.
   reverted.
 - [x] (2026-11-21 10:50Z) Widened rung (three nodes plus one symbolic boolean,
   `unwind(17)`) exceeded 600 s of solver time with more than 6,400 aborted
-  paths and was stopped. The three-node cliff is real; the concrete two-node
-  rung is the tractable maximum. Widened harness removed.
-- [x] `EP-M2` complete: the concrete rung is non-vacuous and no bounded
-  symbolic widening fits the budget.
+  paths and was stopped. This probe changed the node count, the symbolic
+  choice, and the unwind bound together, and it stopped before the 20-minute
+  limit, so it does not establish a general boundary for symbolic widening.
+  Widened harness removed.
+- [x] `EP-M2` complete: the concrete rung is non-vacuous. The one widened probe
+  tried was stopped past 600 s, which was not enough evidence to retain it.
 - [x] (2026-11-21 11:00Z) `EP-M3` tier integration: the harness command is in
   the `kani:` fast-tier recipe at `--default-unwind 9`, and the developers'
   guide, ADR 0002, hypothesis-testing document, contents index, and ExecPlan
@@ -242,10 +244,10 @@ in both `make kani` and `make kani-full`.
 
 The decisive lesson is that input nondeterminism, not the healer's control
 flow, caused the earlier timeout. The same production routine on a concrete
-two-node graph verifies in about ten seconds with zero aborted paths. One
-symbolic node choice in a three-node sibling is enough to exceed ten minutes of
-solving, so the tractable boundary is the concrete fixture, and further
-coverage belongs to tests rather than to widened bounds.
+two-node graph verifies in about ten seconds with zero aborted paths, whereas
+the one widened probe tried exceeded ten minutes of solving. That probe is
+evidence that widening is expensive here, not proof of a general boundary, so
+further coverage belongs to tests rather than to wider bounds.
 
 What would be done differently: the first experiment should have measured a
 fully concrete fixture before concluding that the path was past the CBMC state
@@ -263,9 +265,10 @@ The healing routine lives in `chutoro-core/src/hnsw/insert/connectivity.rs`
 `ConnectivityHealer::ensure_base_connectivity(node, max_connections)`. The
 healer is constructed with `ConnectivityHealer::new(&mut graph)` and mutates
 `Graph` adjacency lists through `link_new_node_inner` and `link_directed`,
-which use `Node::neighbours_mut`. The visited set is selected by the
-`VisitedSet` type alias: `HashSet<usize>` in normal builds and
-`LinearVisitedSet` under `cfg(kani)` and `cfg(test)`.
+which use `Node::neighbours_mut`. The `VisitedSet` type alias selects
+`HashSet<usize>` in normal and `cfg(test)` builds, so unit tests exercise the
+production alias, and `LinearVisitedSet` under `cfg(kani)`. The linear set also
+compiles under `cfg(test)` solely so its equivalence tests can run.
 
 The graph is `chutoro-core/src/hnsw/graph`:
 `Graph::with_capacity(HnswParams, capacity)`, `insert_first_for_kani`, and

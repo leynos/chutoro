@@ -2804,11 +2804,12 @@ even on a two-node graph, while per-call proofs of `ensure_reverse_edge` verify
 in about a minute.
 
 The healer proof measures the same cliff. An all-concrete two-node harness
-verifies in about ten seconds with no aborted paths, while a three-node sibling
-that adds one symbolic boolean for an optional spare neighbour exceeded ten
-minutes of solving with more than six thousand aborted paths. A concrete
-fixture is therefore not merely a convenience: it is what makes the healing
-path tractable, and one symbolic node choice is enough to lose that.
+verifies in about ten seconds with no aborted paths, while a three-node probe
+that also added one symbolic boolean for an optional spare neighbour and raised
+the unwind bound exceeded ten minutes of solving with more than six thousand
+aborted paths. The probe changed three factors together, so it does not
+separate their effects; it establishes that the tested wider configuration is
+not fast-tier material, and the concrete fixture remains the retained proof.
 
 Harness construction must avoid panic-capable paths such as `.expect(...)` and
 production errors that build messages with `format!` before an invariant

@@ -6,11 +6,12 @@
 //! unchanged production routine on a bounded graph and asserts the resulting
 //! adjacency lists rather than re-implementing the algorithm.
 //!
-//! The tractable configuration is a concrete two-node fixture. A three-node
-//! sibling with one symbolic boolean already exceeds the practical CBMC state
-//! space (more than 600 seconds of solving with thousands of aborted paths), so
-//! the proof deliberately stops at the smallest case that exercises link
-//! creation, and the wider behaviour stays with the normal healing tests.
+//! The retained configuration is a concrete two-node fixture. A three-node
+//! probe that also added one symbolic boolean and raised the unwind bound
+//! exceeded 600 seconds of solving with thousands of aborted paths, so the
+//! proof stops at the smallest case that exercises link creation. That probe
+//! changed three factors together and does not isolate which one dominated;
+//! the wider behaviour stays with the normal healing tests.
 
 use crate::hnsw::{
     graph::{Graph, NodeContext},
