@@ -1770,6 +1770,14 @@ contract step, and `portable_simd_compiles_with_feature` in the feature-enabled
 one. A run that reports success in seconds, or a step whose only line is
 `running 0 tests`, is the failure mode issue #262 recorded, not a pass.
 
+The first forced run to meet that bar is
+[run 44924723497](https://github.com/leynos/chutoro/actions/runs/44924723497),
+on commit `0da76322d205d2afc070e9cfad6a99ff5d5c2007`, under
+`rustc 1.102.0-nightly (c7d5ba59d 2026-11-20)`. It installed `mold` 2.41.0,
+reported `141 passed` and `2 passed` in the dense step, `1 passed` in each
+compile-contract step, and reached the end of the Clippy step with no
+diagnostics. Issues #262 and #268 close on that record.
+
 ## Cancelling superseded pull-request runs
 
 Every push to a pull request starts a fresh run of each gate. The run already
