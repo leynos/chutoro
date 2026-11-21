@@ -200,6 +200,34 @@ def test_nightly_lane_runs_portable_simd_contract_without_feature() -> None:
     ), "nightly lane must run the portable SIMD compile contract without its feature"
 
 
+def test_nightly_lane_installs_the_pinned_mold_linker() -> None:
+    """The lane links with mold, so it must install it on the runner.
+
+    Every step after the toolchain install assigns `RUSTFLAGS` with the build
+    standard's `-fuse-ld=mold` argument, and an assigned `RUSTFLAGS` replaces
+    the configuration's. The runner image ships neither `mold` nor `ld.mold`,
+    so without this step the first link fails with "cannot find 'ld'" before
+    any test or lint executes. The step must stay under the same gate as the
+    work it serves, and must put the installer's prefix on `PATH`; a hosted
+    runner does not carry `~/.local/bin` by default.
+    """
+    definition = jobs(load_workflow("nightly-portable-simd.yml"))["nightly-portable-simd"]
+    install_steps = [
+        step for step in steps(definition) if "scripts/install-mold.sh" in run_script(step)
+    ]
+    assert len(install_steps) == 1, (
+        "nightly lane must install the pinned mold linker exactly once"
+    )
+    step = install_steps[0]
+    assert step.get("if") == "${{ steps.gate.outputs.should_run == 'true' }}", (
+        "the mold install must run under the lane's work gate, not on skipped runs"
+    )
+    script = " ".join(run_script(step).split())
+    assert '"${HOME}/.local/bin" >> "${GITHUB_PATH}"' in script, (
+        "the mold install must put its prefix on PATH for later steps"
+    )
+
+
 def test_portable_simd_feature_forwards_to_the_dense_provider() -> None:
     """The compile-contract feature resolves the provider's public feature edge."""
     contracts = tomllib.loads(

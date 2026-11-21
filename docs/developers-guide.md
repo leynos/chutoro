@@ -1712,6 +1712,64 @@ invocation rather than the step's name, so deleting the fix while keeping the
 step fails it. Both correct spellings pass: a repeated flag, and one flag with
 a comma-separated list.
 
+#### The first run of the lane found two more gaps
+
+Fixing the installer was necessary and not sufficient. The lane had never
+reached the steps below it, so the first run that did found two further reasons
+it could not pass, neither visible to any earlier check.
+
+The first was `mold`. Every step after the toolchain install assigns
+`RUSTFLAGS: -D warnings -Clink-arg=-fuse-ld=mold`, which is the build
+standard's Linux linker flag, and an assigned `RUSTFLAGS` replaces
+`.cargo/config.toml`'s `rustflags`. A GitHub-hosted runner ships neither `mold`
+nor `ld.mold`, so the first link failed with
+`collect2: fatal error: cannot find 'ld'` while compiling a build script, long
+before a test ran. The lane does not use `setup-rust`, so it does not inherit
+that action's `install-mold` input; it now runs `scripts/install-mold.sh` and
+appends `${HOME}/.local/bin`, the installer's default prefix, to `GITHUB_PATH`.
+The step sits under the same `should_run` gate as the work it serves, so a
+skipped run still costs nothing.
+`test_nightly_lane_installs_the_pinned_mold_linker` pins the install, its gate
+and the `PATH` line, because the existing contracts read `RUSTFLAGS` and would
+happily agree with a step whose link is impossible.
+
+The second was the portable kernel itself. A module compiled only under
+`--features nightly_portable_simd` had never been measured against the
+workspace lint policy, and the first pass over it reported thirteen findings
+(issue #268): missing private-item documentation, `indexing_slicing` at the
+packed-view reads and the output writes, and one genuine `float_arithmetic`
+site. Those were fixed in #287, and the module now carries the same shape as
+its scalar and architecture-specific siblings.
+
+The newest nightly then found a further one that did not exist when #287 merged:
+`clippy::chunks_exact_to_as_chunks`, raised twice on the pairwise loop's
+`chunks_exact(PORTABLE_SIMD_LANES)` pair. That is the hazard of a lane that
+floats on `nightly` rather than a dated pin, and it is why the lane is not a
+merge gate. The loop now uses `as_chunks::<PORTABLE_SIMD_LANES>()` and zips the
+exact blocks, which is the same iteration in the same order with the same
+scalar tail, so accumulation order and every distance are unchanged.
+
+#### What a forced run must show
+
+The lane's gate skips the work unless there was a commit to `main` in the last
+24 hours, so a forced dispatch is the only way to check it on demand:
+
+```sh
+gh workflow run nightly-portable-simd.yml --ref BRANCH -f force_run=true
+```
+
+A green run is evidence only if the steps actually executed. Accept it when
+`should_run=true`, the installer, the `mold` install, all three test steps and
+the Clippy step each ran and passed, and the logs show the named tests rather
+than an empty harness: `portable_simd_pairwise_matches_scalar`,
+`portable_simd_query_points_matches_scalar`,
+`portable_simd_canonicalizes_non_finite_to_nan` and the `simd::tests::parity`
+properties in the dense step,
+`portable_simd_is_rejected_on_nightly_without_feature` in the no-feature
+contract step, and `portable_simd_compiles_with_feature` in the feature-enabled
+one. A run that reports success in seconds, or a step whose only line is
+`running 0 tests`, is the failure mode issue #262 recorded, not a pass.
+
 ## Cancelling superseded pull-request runs
 
 Every push to a pull request starts a fresh run of each gate. The run already
