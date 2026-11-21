@@ -1756,8 +1756,11 @@ the run above is the re-dispatch. Run
 `force_run=false` took the commit-recency branch, logged
 `nightly-portable-simd: running because origin/main has a commit at
 2026-11-20T16:31:30Z within the last 24 hours.`,
-and also passed every step. `main` still held a commit inside the 24-hour
-window, so the skip branch has not yet been exercised in a hosted run.
+and also passed every step. A later `force_run=false` dispatch, run
+[44925931699](https://github.com/leynos/chutoro/actions/runs/44925931699), took
+the skip branch once `main` aged past 24 hours. It succeeded in seconds with
+`Install nightly Rust`, `Install mold` and the four Cargo steps `skipped`, and
+logged a skip line naming the latest `main` commit.
 
 Under the unpinned `nightly` channel the lane installs, a future nightly can
 break the lane through a new lint or language change rather than through
