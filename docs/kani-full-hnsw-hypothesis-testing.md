@@ -309,9 +309,10 @@ six-core development machine, well within the nightly 120-minute budget.
 ## 2026-11-21: Base-layer connectivity healing retry (issue 255)
 
 The 2026-08-24 conclusion left the healing path unproved because a direct
-harness timed out after twenty minutes and aborted 2,590 paths. This retry
-separated input nondeterminism from the production code's cost and found a
-tractable design.
+harness timed out after twenty minutes and aborted 2,590 paths. This retry did
+not reconstruct that harness; it measured the production code on a fully
+concrete two-node fixture and found a tractable design. Because the harnesses
+and hosts differ, the earlier run's cause is not established here.
 
 ### Environment
 

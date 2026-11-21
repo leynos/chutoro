@@ -202,8 +202,9 @@ commands, exit codes, elapsed times, and path counts.
   twenty minutes. Evidence: `/tmp/kani-healer-unwind9-...out` contains no
   `aborting path on assume(false)` lines. Impact: the intractability was not
   inherent to `ensure_base_connectivity`; a concrete fixture is well inside
-  budget, and the earlier harness most likely introduced symbolic branching
-  (for example through a symbolic node id, level, or connection budget).
+  budget. The concrete run has no nondeterminism and never reconstructed the
+  earlier harness, so its zero abort count is consistent with, but does not
+  prove, symbolic branching in that harness.
 
 ## Decision log
 
@@ -242,17 +243,18 @@ unchanged production `ConnectivityHealer::ensure_base_connectivity`, asserts
 the exact reciprocal base-layer links and the preserved entry point, and runs
 in both `make kani` and `make kani-full`.
 
-The decisive lesson is that input nondeterminism, not the healer's control
-flow, caused the earlier timeout. The same production routine on a concrete
-two-node graph verifies in about ten seconds with zero aborted paths, whereas
-the one widened probe tried exceeded ten minutes of solving. That probe is
-evidence that widening is expensive here, not proof of a general boundary, so
-further coverage belongs to tests rather than to wider bounds.
+The observed lesson is that a fully concrete fixture is tractable: the same
+production routine on a two-node graph verifies in about ten seconds with zero
+aborted paths, whereas the one widened probe tried exceeded ten minutes of
+solving. The earlier 2,590-path timeout used a different harness on a different
+host, so these runs do not establish its cause. They establish that the
+concrete two-node path is not inherently intractable, and that the tested
+widening is expensive; the probe is not proof of a general boundary, so further
+coverage belongs to tests rather than to wider bounds.
 
-What would be done differently: the first experiment should have measured a
-fully concrete fixture before concluding that the path was past the CBMC state
-space. The old conclusion generalized from a harness whose symbolic inputs were
-not separated from the production cost.
+What would be done differently: measure a fully concrete fixture before
+concluding that a path is past the CBMC state space. The old conclusion rested
+on a single harness whose cost this work did not reproduce.
 
 Residual gaps: eviction cascades, re-healing of evicted nodes, and global
 connectivity are not proved. They remain covered by the healing tests, and the

@@ -366,8 +366,8 @@ intended as future formal verification targets:
   these structural harnesses.
 - 2026-11-21: Proved base-layer healing link creation on a concrete two-node
   graph (issue 255), added the `ensure_base_connectivity_for_kani` bridge and
-  the fast-tier harness, and recorded the three-node symbolic cliff measured
-  while widening it.
+  the fast-tier harness, and recorded the three-node probe measured while
+  widening it.
 
 ## Amendments
 
