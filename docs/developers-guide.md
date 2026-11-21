@@ -2575,9 +2575,9 @@ branch a proof must explore becomes an unsatisfiable obligation. The
 self-target guard in `EdgeReconciler::ensure_reverse_edge` is therefore
 compiled out under `cfg(kani)`. The two-node no-self-loop harnesses choose the
 target nondeterministically and prove that a self-target returns `false`
-without mutating either selected-level neighbour list, while the
-debug-profile unit test `ensure_reverse_edge_asserts_on_a_self_target` proves
-the assertion fires. Run the release-profile fallback test explicitly:
+without mutating either selected-level neighbour list, while the debug-profile
+unit test `ensure_reverse_edge_asserts_on_a_self_target` proves the assertion
+fires. Run the release-profile fallback test explicitly:
 
 ```sh
 cargo test -p chutoro-core --lib --release \

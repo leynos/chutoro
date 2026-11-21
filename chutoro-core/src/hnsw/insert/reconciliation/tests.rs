@@ -86,10 +86,10 @@ fn self_target_fixture(
 
     let scrubs = seeded_scrubs
         .iter()
-        .map(|&(origin, target, level)| DeferredScrub {
-            origin,
-            target,
-            level,
+        .map(|&(scrub_origin, scrub_target, scrub_level)| DeferredScrub {
+            origin: scrub_origin,
+            target: scrub_target,
+            level: scrub_level,
         })
         .collect();
     Ok((graph, scrubs))
@@ -223,7 +223,7 @@ fn ensure_reverse_edge_asserts_on_a_self_target(
         .map(String::as_str)
         .or_else(|| panic.downcast_ref::<&str>().copied());
     assert!(
-        message.is_some_and(|message| message.contains(
+        message.is_some_and(|text| text.contains(
             "ensure_reverse_edge requires target != origin; target 0, origin 0, level 1"
         )),
         "unexpected panic message: {message:?}",
