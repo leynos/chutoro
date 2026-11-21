@@ -54,6 +54,10 @@ _ANSI_C_SIMPLE = {
 }
 
 
+#: The hexadecimal digits an ANSI-C code escape is written with.
+_HEX_DIGITS = "0123456789abcdefABCDEF"
+
+
 def _digits(text: str, allowed: str) -> str:
     """Return the leading run of `text` made of characters in `allowed`.
 
@@ -73,31 +77,59 @@ def _digits(text: str, allowed: str) -> str:
 def _numeric_escape(text: str, index: int) -> tuple[str | None, int]:
     """Return the character a numeric ANSI-C escape at `index` denotes.
 
-    Bash reads ``\\xHH`` as one hexadecimal byte and ``\\NNN`` as up to
-    three octal digits. ``None`` reports that the text at `index` is not a
-    numeric escape; the index is then unchanged.
+    Bash reads ``\\xHH`` and ``\\uHHHH``/``\\UHHHHHHHH`` as one character by its
+    hexadecimal code, and ``\\NNN`` as up to three octal digits. ``None``
+    reports that the text at `index` is not a complete escape; the index is
+    then unchanged.
 
     Examples
     --------
     >>> _numeric_escape(chr(92) + "x41", 0)
     ('A', 4)
+    >>> _numeric_escape(chr(92) + "u006e", 0)
+    ('n', 6)
     >>> _numeric_escape(chr(92) + "101", 0)
     ('A', 4)
     >>> _numeric_escape(chr(92) + "q", 0)[0] is None
     True
     """
-    if text.startswith("\\x", index):
-        digits = _digits(text[index + 2 : index + 4], "0123456789abcdefABCDEF")
-        if digits:
-            return chr(int(digits, 16)), index + 2 + len(digits)
-        return None, index
     if text[index : index + 1] != "\\":
         return None, index
-    following = text[index + 1 : index + 2]
-    if following and following in "01234567":
+    marker = text[index + 1 : index + 2]
+    if marker in {"x", "u", "U"}:
+        return _hex_escape(text, index)
+    if marker and marker in "01234567":
         digits = _digits(text[index + 1 : index + 4], "01234567")
         return chr(int(digits, 8) & 0xFF), index + 1 + len(digits)
     return None, index
+
+
+def _hex_escape(text: str, index: int) -> tuple[str | None, int]:
+    """Return the character a ``\\x``, ``\\u`` or ``\\U`` escape denotes.
+
+    ``\\x`` takes up to two hexadecimal digits; ``\\u`` takes four and ``\\U``
+    takes eight, and a short one is not an escape the shell reads.
+
+    Examples
+    --------
+    >>> _hex_escape(chr(92) + "xe9", 0)
+    ('é', 4)
+    >>> _hex_escape(chr(92) + "u006e", 0)
+    ('n', 6)
+    >>> _hex_escape(chr(92) + "u06e", 0)[0] is None
+    True
+    """
+    marker = text[index + 1 : index + 2]
+    if marker == "x":
+        digits = _digits(text[index + 2 : index + 4], _HEX_DIGITS)
+        if not digits:
+            return None, index
+        return chr(int(digits, 16)), index + 2 + len(digits)
+    width = 4 if marker == "u" else 8
+    digits = _digits(text[index + 2 : index + 2 + width], _HEX_DIGITS)
+    if len(digits) != width:
+        return None, index
+    return chr(int(digits, 16)), index + 2 + width
 
 
 def _decode_ansi_c(text: str) -> str:
@@ -110,6 +142,8 @@ def _decode_ansi_c(text: str) -> str:
     --------
     >>> _decode_ansi_c(chr(92) + "x2dn")
     '-n'
+    >>> _decode_ansi_c(chr(92) + "u006e")
+    'n'
     >>> _decode_ansi_c("a" + chr(92) + "nb")
     'a\\nb'
     >>> _decode_ansi_c(chr(92) + "q")

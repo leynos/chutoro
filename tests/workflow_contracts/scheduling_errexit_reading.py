@@ -24,8 +24,7 @@ from __future__ import annotations
 import collections.abc as cabc
 import typing as typ
 
-#: The option name ``-o`` and ``+o`` take as their operand.
-ERREXIT_OPTION = "errexit"
+from scheduling_set_reading import errexit_setting
 
 #: The only operator that carries a command's failure to the end of an AND/OR
 #: list. ``installer && make test`` fails when the installer fails; every
@@ -60,150 +59,6 @@ class Command(typ.NamedTuple):
 
     words: cabc.Sequence[str]
     follows: str
-
-
-def set_arguments(words: cabc.Sequence[str]) -> cabc.Sequence[str]:
-    """Return `words` with a leading ``builtin`` or ``command`` removed.
-
-    Bash runs ``set`` in the current shell through either word, so
-    ``builtin set +e`` disables errexit exactly as ``set +e`` does.
-
-    Examples
-    --------
-    >>> list(set_arguments(["builtin", "set", "+e"]))
-    ['set', '+e']
-    >>> list(set_arguments(["command", "set", "-e"]))
-    ['set', '-e']
-    >>> list(set_arguments(["set", "+e"]))
-    ['set', '+e']
-    """
-    if words[:1] in (["builtin"], ["command"]):
-        return words[1:]
-    return words
-
-
-def _names_errexit(words: cabc.Sequence[str], index: int) -> bool:
-    """Return whether ``words[index]`` names errexit for ``-o`` or ``+o``.
-
-    Bash reads a cluster's final ``o`` as the option-name flag, so ``+xo
-    errexit`` turns errexit off exactly as ``+o errexit`` does, and ``-euo
-    pipefail`` sets errexit before naming pipefail.
-
-    Examples
-    --------
-    >>> _names_errexit(["set", "-o", "errexit"], 1)
-    True
-    >>> _names_errexit(["set", "+o", "errexit"], 1)
-    True
-    >>> _names_errexit(["set", "+xo", "errexit"], 1)
-    True
-    >>> _names_errexit(["set", "-o", "pipefail"], 1)
-    False
-    >>> _names_errexit(["set", "-e"], 1)
-    False
-    """
-    flag = words[index]
-    if flag[:1] not in {"-", "+"} or not flag[1:].endswith("o"):
-        return False
-    return words[index + 1 : index + 2] == [ERREXIT_OPTION]
-
-
-def _enables_errexit(flag: str) -> bool:
-    """Return whether a short-option cluster `flag` sets errexit.
-
-    Bash reads ``-euo pipefail`` as a cluster, so the ``e`` may sit beside
-    other letters rather than standing alone.
-
-    Examples
-    --------
-    >>> _enables_errexit("-e")
-    True
-    >>> _enables_errexit("+e")
-    True
-    >>> _enables_errexit("-euo")
-    True
-    >>> _enables_errexit("-x")
-    False
-    """
-    return flag[:1] in {"-", "+"} and "e" in flag[1:]
-
-
-def _takes_a_name(flag: str) -> bool:
-    """Return whether the last letter of `flag` takes an option-name operand.
-
-    ``-o``, ``+o``, ``-O`` and ``+O`` name a shell or ``shopt`` option in the
-    word that follows. A cluster's final letter does the same, as ``-euo``
-    does for ``pipefail``, while the letters before it are still set.
-
-    Examples
-    --------
-    >>> _takes_a_name("-o")
-    True
-    >>> _takes_a_name("+O")
-    True
-    >>> _takes_a_name("-euo")
-    True
-    >>> _takes_a_name("-e")
-    False
-    """
-    return flag[:1] in {"-", "+"} and flag[1:].endswith(("o", "O"))
-
-
-def errexit_setting(words: cabc.Sequence[str]) -> bool | None:
-    """Return the errexit state a ``set`` command leaves, if it changes it.
-
-    ``set +e`` turns errexit off, and ``set -e`` turns it back on; both may
-    also name the option in full, as ``set -o errexit`` and ``set +o
-    errexit``. Any other command, and a ``set`` naming other options, leaves
-    the state alone, which ``None`` reports.
-
-    Option processing stops at ``--``, at a lone ``-`` and at the first word
-    that does not begin with ``-`` or ``+``: everything from there on is a
-    positional parameter, so ``set -- -e``, ``set - -e`` and
-    ``set value -e`` set ``$1`` rather than errexit. The word after ``-o``, ``+o``, ``-O`` or ``+O`` is that option's
-    operand even though it need not begin with a sign, so ``set -o pipefail
-    -e`` is still read to its ``-e``.
-
-    Examples
-    --------
-    >>> errexit_setting(["set", "+e"])
-    False
-    >>> errexit_setting(["set", "-e"])
-    True
-    >>> errexit_setting(["set", "+o", "errexit"])
-    False
-    >>> errexit_setting(["set", "-euo", "pipefail"])
-    True
-    >>> errexit_setting(["set", "+xo", "errexit"])
-    False
-    >>> errexit_setting(["set", "-o", "pipefail", "-e"])
-    True
-    >>> errexit_setting(["set", "--", "-e"]) is None
-    True
-    >>> errexit_setting(["set", "-", "-e"]) is None
-    True
-    >>> errexit_setting(["builtin", "set", "+e"])
-    False
-    >>> errexit_setting(["set", "value", "-e"]) is None
-    True
-    >>> errexit_setting(["set", "-x"]) is None
-    True
-    >>> errexit_setting(["true"]) is None
-    True
-    """
-    words = set_arguments(words)
-    if words[:1] != ["set"]:
-        return None
-    setting: bool | None = None
-    index = 1
-    while index < len(words):
-        flag = words[index]
-        if flag in {"--", "-"} or flag[:1] not in {"-", "+"}:
-            break
-        if _names_errexit(words, index) or _enables_errexit(flag):
-            setting = flag.startswith("-")
-        index += 2 if _takes_a_name(flag) else 1
-    return setting
 
 
 def _runs_unconditionally(line: cabc.Sequence[Command], index: int) -> bool:
@@ -251,7 +106,7 @@ def _ends_the_list(line: cabc.Sequence[Command], index: int) -> int:
     return end
 
 
-def _runs_in_a_subshell(line: cabc.Sequence[Command], index: int) -> bool:
+def runs_in_a_subshell(line: cabc.Sequence[Command], index: int) -> bool:
     """Return whether ``line[index]`` runs in a subshell of its own.
 
     Every element of a pipeline runs in a subshell in Bash, so a ``set``
@@ -265,17 +120,17 @@ def _runs_in_a_subshell(line: cabc.Sequence[Command], index: int) -> bool:
     Examples
     --------
     >>> pipeline = [Command(["set", "-e"], "|"), Command(["true"], "")]
-    >>> _runs_in_a_subshell(pipeline, 0)
+    >>> runs_in_a_subshell(pipeline, 0)
     True
-    >>> _runs_in_a_subshell(pipeline, 1)
+    >>> runs_in_a_subshell(pipeline, 1)
     True
-    >>> _runs_in_a_subshell([Command(["set", "-e"], "&")], 0)
+    >>> runs_in_a_subshell([Command(["set", "-e"], "&")], 0)
     True
     >>> async_list = [Command(["set", "-e"], "&&"), Command(["true"], "&")]
-    >>> _runs_in_a_subshell(async_list, 0)
+    >>> runs_in_a_subshell(async_list, 0)
     True
     >>> after = [Command(["true"], "&"), Command(["set", "-e"], "")]
-    >>> _runs_in_a_subshell(after, 1)
+    >>> runs_in_a_subshell(after, 1)
     False
     """
     if line[index].follows in SUBSHELL_OPERATORS:
@@ -345,7 +200,7 @@ def errexit_states(
         for index, command in enumerate(line):
             line_states.append(state)
             change = errexit_setting(command.words)
-            if change is None or _runs_in_a_subshell(line, index):
+            if change is None or runs_in_a_subshell(line, index):
                 continue
             state = change if _runs_unconditionally(line, index) else None
         states.append(line_states)

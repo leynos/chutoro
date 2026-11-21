@@ -22,7 +22,7 @@ from __future__ import annotations
 
 import re
 
-from scheduling_command_reading import strip_shell_comment
+from scheduling_comment_reading import strip_shell_comment
 from scheduling_invocation_reading import command_arguments, is_nextest_invocation
 from workflow_support import ROOT
 

@@ -22,12 +22,8 @@ from __future__ import annotations
 import re
 import typing as typ
 
-from trim_scoring_call_reading import (
-    calls_the_method,
-    pool_join,
-    skip_whitespace,
-    turbofish_end,
-)
+from trim_scoring_call_reading import calls_the_method, pool_join
+from trim_scoring_syntax_reading import skip_whitespace, turbofish_end
 
 #: A test over one function body: true when the body holds the shape.
 _Predicate = typ.Callable[[str], bool]
@@ -175,6 +171,9 @@ def _ends_a_receiver(body: str, start: int) -> bool:
     False
     >>> _ends_a_receiver("break 'outer join(a)", 13)
     False
+    >>> body = "fn f(){return join(a)"
+    >>> _ends_a_receiver(body, body.index("join"))
+    False
     >>> _ends_a_receiver("join(a)", 0)
     False
     """
@@ -189,7 +188,8 @@ def _ends_a_receiver(body: str, start: int) -> bool:
     words = before.split()
     if words[-1].startswith("'"):
         words = words[:-1]
-    word = words[-1].rsplit(".", 1)[-1] if words else ""
+    match = re.search(r"[A-Za-z0-9_]+$", " ".join(words))
+    word = match.group(0) if match else ""
     return word not in _CALL_PRECEDING_WORDS
 
 

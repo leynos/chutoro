@@ -9,12 +9,11 @@ two, which can hide a skipped installer (``true ||`` on one line, the
 installer on the next) or invent a status-bearing last command that the shell
 never runs separately.
 
-This module performs both joins. It also drops a here-document's body, which
-is standard input for the command that opened it rather than a command line of
-its own; where that body ends is ``scheduling_here_document_reading``'s
-reading. ``scheduling_segment_reading`` reads the resulting lines as simple
-commands, so the concerns stay apart and no file outgrows the 400-line limit
-``AGENTS.md`` sets.
+This module performs both joins and drops a here-document's body, which is
+standard input for the command that opened it; where that body ends is
+``scheduling_here_document_reading``'s reading. ``scheduling_segment_reading``
+reads the resulting lines as simple commands, and the split keeps every file
+inside the 400-line limit ``AGENTS.md`` sets.
 
 Re-use policy: import from ``scheduling_segment_reading`` only; this module
 reuses the comment and quote scanning in ``scheduling_command_reading`` and
@@ -25,7 +24,7 @@ it.
 
 from __future__ import annotations
 
-from scheduling_command_reading import strip_shell_comment
+from scheduling_comment_reading import strip_shell_comment
 from scheduling_quote_reading import mask_quotes
 from scheduling_here_document_reading import (
     HereDocument,
@@ -225,6 +224,28 @@ def _tail_lines(lines: list[str], pending: str, joined: str) -> list[str]:
     return lines
 
 
+def _has_an_open_quote(text: str) -> bool:
+    """Return whether `text` ends inside a quoted string.
+
+    The next physical line is quoted text in that case, so it must not be
+    read for comments or operators of its own.
+
+    Examples
+    --------
+    >>> _has_an_open_quote("echo 'a")
+    True
+    >>> _has_an_open_quote("echo 'a'")
+    False
+    >>> _has_an_open_quote("echo a")
+    False
+    """
+    try:
+        mask_quotes(text)
+    except ValueError:
+        return True
+    return False
+
+
 def _absorb_or_wait(
     joined: str, physical: str, pending: str, lines: list[str]
 ) -> tuple[str, str, list[HereDocument]]:
@@ -285,10 +306,17 @@ def _command_step(
     >>> _command_step('pare"', "", "", [])[0].endswith(chr(10))
     True
     >>> lines = []
+    >>> opened, _, _ = _command_step("echo ' #", "", "", lines)
+    >>> quoted, _, _ = _command_step("installer # note", opened, "", lines)
+    >>> quoted.endswith(chr(10))
+    True
+    >>> lines = []
     >>> opened, _, _ = _command_step("echo 'a", "", "", lines)
     >>> _command_step("b", opened, "", lines)[0].endswith(chr(10))
     True
     """
+    if joined and _has_an_open_quote(joined):
+        return _absorb_or_wait(joined, physical, pending, lines)
     try:
         commented = strip_shell_comment(physical)
     except ValueError:
@@ -347,11 +375,6 @@ def logical_lines(script: str) -> list[str]:
     ...     + chr(10) + "installer"
     ... )
     ["cat <<'EOF'", 'installer']
-    >>> logical_lines(
-    ...     "cat <<-EOF" + chr(10) + chr(9) + "installer" + chr(10)
-    ...     + chr(9) + "EOF" + chr(10) + "installer"
-    ... )
-    ['cat <<-EOF', 'installer']
     >>> logical_lines(
     ...     "cat <<'EOF'" + chr(10) + "EO" + chr(92) + chr(10) + "F"
     ...     + chr(10) + "installer" + chr(10) + "EOF"

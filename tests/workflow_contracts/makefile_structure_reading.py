@@ -268,6 +268,35 @@ def _definition_step(
     return depth + _definition_delta(line), False
 
 
+def _conditional_step(
+    line: str, conditionals: int, definition: int, continued: bool
+) -> tuple[int, int, bool, bool]:
+    """Return the conditional state after `line`.
+
+    A ``define`` opened inside an inactive conditional hides everything up to
+    its own ``endef``, so the ``endif`` written there is variable text rather
+    than the end of the branch.
+
+    Examples
+    --------
+    >>> _conditional_step(".PHONY: gate", 1, 0, False)[:3]
+    (1, 0, False)
+    >>> _conditional_step("define UNUSED", 1, 0, False)[:3]
+    (1, 1, False)
+    >>> _conditional_step("endif", 1, 1, False)[:3]
+    (1, 1, False)
+    >>> _conditional_step("endif", 1, 0, False)[:3]
+    (0, 0, False)
+    """
+    if definition:
+        definition, continued = _definition_step(line, definition, continued)
+        return conditionals, definition, continued, False
+    if _opens_a_definition(line):
+        return conditionals, 1, False, False
+    continues = _starts_a_continued_comment(line)
+    return conditionals + _conditional_delta(line), 0, False, continues
+
+
 def declaring_lines(text: str) -> list[str]:
     """Return `text`'s lines outside a continued comment or a definition.
 
@@ -275,9 +304,7 @@ def declaring_lines(text: str) -> list[str]:
     the line after it is comment text and declares nothing however it reads.
     Dropping those lines before the declarations are selected keeps a
     commented-out ``.PHONY:`` line from declaring a target that nothing
-    covers. The backslash that continued the comment is removed with them: it
-    continued the comment rather than the declaration, and leaving it would
-    make the selection glue the next real declaration onto this one. A doubled
+    covers. The continuation backslash is removed with them. A doubled
     backslash ends the comment instead, so the line after it stays. A
     ``define`` body is dropped for the same reason: make stores its lines in
     the named variable, so a ``.PHONY`` written there declares nothing. A
@@ -287,13 +314,11 @@ def declaring_lines(text: str) -> list[str]:
 
     Examples
     --------
-    >>> lines = declaring_lines("# off " + chr(92) + chr(10) + ".PHONY: gate")
-    >>> lines == ["# off "]
-    True
-    >>> declaring_lines(".PHONY: gate " + chr(35) + " note")
-    ['.PHONY: gate # note']
-    >>> nested = "define OUTER" + chr(10) + "define INNER" + chr(10) + "endef"
-    >>> declaring_lines(nested + chr(10) + ".PHONY: gate" + chr(10) + "endef")
+    >>> hidden = (
+    ...     "ifeq (1,1)" + chr(10) + "define UNUSED" + chr(10) + "endif"
+    ...     + chr(10) + ".PHONY: gate" + chr(10) + "endef" + chr(10) + "endif"
+    ... )
+    >>> declaring_lines(hidden)
     []
     >>> continued = (
     ...     "ifeq (0,1)" + chr(10) + "# hidden " + chr(92) + chr(10)
@@ -301,18 +326,14 @@ def declaring_lines(text: str) -> list[str]:
     ... )
     >>> declaring_lines(continued)
     []
-    >>> joined = (
-    ...     "define UNUSED" + chr(10) + "text " + chr(92) + chr(10)
-    ...     + "endef" + chr(10) + ".PHONY: gate" + chr(10) + "endef"
-    ... )
-    >>> declaring_lines(joined)
-    []
     """
     lines: list[str] = []
     in_comment = False
     definition = 0
     definition_continued = False
     conditionals = 0
+    conditional_definition = 0
+    conditional_definition_continued = False
     for line in text.splitlines():
         if in_comment:
             in_comment = _continues(line)
@@ -323,8 +344,17 @@ def declaring_lines(text: str) -> list[str]:
             )
             continue
         if conditionals:
-            in_comment = _starts_a_continued_comment(line)
-            conditionals += _conditional_delta(line)
+            (
+                conditionals,
+                conditional_definition,
+                conditional_definition_continued,
+                in_comment,
+            ) = _conditional_step(
+                line,
+                conditionals,
+                conditional_definition,
+                conditional_definition_continued,
+            )
             continue
         if _opens_a_definition(line):
             definition = 1

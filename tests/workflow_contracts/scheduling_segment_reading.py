@@ -144,6 +144,33 @@ def read_segments(tokens: list[str], quoted: list[str]) -> list[Segment]:
     return segments
 
 
+def argument_words(words: list[str]) -> list[str]:
+    """Return `words` without redirection operators or their targets.
+
+    A redirection configures a file descriptor rather than passing an argument,
+    so ``bash scripts/install-nextest.sh 2>&1`` runs the installer from a
+    shell and the descriptor copy is not one of that shell's arguments.
+
+    Examples
+    --------
+    >>> argument_words(["bash", "installer"])
+    ['bash', 'installer']
+    >>> argument_words(["bash", "installer", "2>", "&", "1"])
+    ['bash', 'installer']
+    >>> argument_words(["installer", ">", "log"])
+    ['installer']
+    """
+    arguments: list[str] = []
+    index = 0
+    while index < len(words):
+        if is_redirection(words[index]):
+            index += 3 if words[index + 1 : index + 2] == ["&"] else 2
+            continue
+        arguments.append(words[index])
+        index += 1
+    return arguments
+
+
 def read_lines(script: str) -> list[list[Segment]]:
     """Return each line of `script` as the simple commands it runs.
 

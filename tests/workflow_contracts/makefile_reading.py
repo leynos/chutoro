@@ -24,10 +24,6 @@ from makefile_structure_reading import (
     make_comment_start,
 )
 
-#: The word that opens a phony-target declaration.
-_PHONY = ".PHONY:"
-
-
 def _declared_names(line: str) -> list[str]:
     """Return the target names one declaration line adds.
 
@@ -65,15 +61,17 @@ def _declared_targets(declaration: str) -> list[str]:
     []
     >>> _declared_targets(".PHONY: gate = value")
     []
+    >>> _declared_targets(".PHONY : gate")
+    ['gate']
     >>> _declared_targets("clean: gate")
     []
     """
-    if not declaration.startswith(_PHONY):
+    if "=" in declaration:
         return []
-    rest = declaration[len(_PHONY) :]
-    if "=" in rest:
+    colon = declaration.find(":")
+    if colon == -1 or declaration[:colon].split() != [".PHONY"]:
         return []
-    return _declared_names(rest)
+    return _declared_names(declaration[colon + 1 :])
 
 
 def phony_targets(text: str) -> set[str]:

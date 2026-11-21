@@ -328,4 +328,34 @@ SELECTOR_CASES: typ.Final[tuple[tuple[str, bool, str], ...]] = (
         True,
         "an-installer-after-a-multi-line-quoted-string",
     ),
+    (
+        f"builtin exit 0\n{NEXTEST_INSTALLER}",
+        False,
+        "an-exit-through-builtin",
+    ),
+    (
+        f"exec /bin/true\n{NEXTEST_INSTALLER}",
+        False,
+        "a-shell-replaced-by-exec",
+    ),
+    (
+        f"set -n | true\n{NEXTEST_INSTALLER}",
+        True,
+        "a-noexec-set-in-a-pipeline",
+    ),
+    (
+        f"shopt -s lastpipe\ntrue | set +e\n{NEXTEST_INSTALLER}\ntrue",
+        False,
+        "lastpipe-enabled",
+    ),
+    (
+        "set $'-" + chr(92) + "u006e" + chr(39) + "\n" + NEXTEST_INSTALLER,
+        False,
+        "noexec-spelled-by-a-unicode-escape",
+    ),
+    (
+        f"bash {NEXTEST_INSTALLER} 2>&1",
+        True,
+        "an-interpreter-with-a-descriptor-copy",
+    ),
 )

@@ -25,14 +25,18 @@ from __future__ import annotations
 import re
 import typing as typ
 
+from trim_scoring_syntax_reading import (
+    CLOSING,
+    after_generics,
+    after_turbofish,
+    bracket_change,
+    opens_a_value,
+    skip_whitespace,
+    turbofish_end,
+)
+
 #: A test over one function body: true when the body holds the shape.
 _Predicate = typ.Callable[[str], bool]
-
-#: Brackets that nest an argument without ending the list.
-_OPENING: typ.Final[frozenset[str]] = frozenset("([{")
-
-#: Brackets that close an argument or the list.
-_CLOSING: typ.Final[frozenset[str]] = frozenset(")]}")
 
 
 def pool_join(body: str) -> bool:
@@ -93,7 +97,7 @@ def _has_second_argument(text: str, start: int) -> bool:
     depth = 1
     index = start
     while index < len(text):
-        skipped = _after_generics(text, index, start)
+        skipped = after_generics(text, index, start)
         if skipped is None:
             skipped = _after_qualified_path(text, index, start)
         if skipped is not None:
@@ -101,7 +105,7 @@ def _has_second_argument(text: str, start: int) -> bool:
             continue
         if text[index] == "," and _separates_arguments(depth, text, index):
             return True
-        depth += _bracket_change(text[index])
+        depth += bracket_change(text[index])
         if depth == 0:
             return False
         index += 1
@@ -129,86 +133,12 @@ def _after_qualified_path(text: str, index: int, start: int) -> int | None:
     """
     if text[index] != "<":
         return None
-    if not _opens_a_value(text, index, start):
+    if not opens_a_value(text, index, start):
         return None
     rest = skip_whitespace(text, after_turbofish(text, index))
     if not text.startswith("::", rest):
         return None
     return rest + 2
-
-
-def _opens_a_value(text: str, index: int, start: int) -> bool:
-    """Return whether the character at `index` begins a value of its own.
-
-    A value begins the scanned list, follows the opening bracket, or follows
-    the comma that ended the previous argument. Anywhere else the character
-    follows an operand, as the ``<`` of ``a < b`` does. A reference prefix
-    leaves the value a value: ``join(&<Paths<A, B> as HasPath>::path())``
-    passes one borrowed value, and ``&mut`` marks its mutability, so the angle
-    still opens it.
-
-    Examples
-    --------
-    >>> _opens_a_value("<A>::b()", 0, 0)
-    True
-    >>> _opens_a_value("a < b", 2, 0)
-    False
-    >>> _opens_a_value("x, <A>::b", 3, 0)
-    True
-    >>> _opens_a_value("&<A>::b", 1, 0)
-    True
-    >>> _opens_a_value("&mut <A>::b", 5, 0)
-    True
-    """
-    before = text[start:index].rstrip()
-    if not before:
-        return True
-    return before[-1] in "(," or before.endswith(("&", "&mut"))
-
-
-def turbofish_end(body: str, index: int) -> int | None:
-    """Return the index past a turbofish starting at `index`, if one does.
-
-    Rust permits whitespace between ``::`` and ``<``, so the two tokens are
-    read separately; the type list itself is read by counting its angles.
-
-    Examples
-    --------
-    >>> turbofish_end("::<_, ()>(x)", 0)
-    9
-    >>> turbofish_end(":: <_, ()>(x)", 0)
-    10
-    >>> turbofish_end("(x)", 0) is None
-    True
-    """
-    if not body.startswith("::", index):
-        return None
-    angle = skip_whitespace(body, index + 2)
-    if not body.startswith("<", angle):
-        return None
-    return after_turbofish(body, angle)
-
-
-def _after_generics(text: str, index: int, start: int) -> int | None:
-    """Return the index past a ``::<...>`` list opening at `index`, if any.
-
-    Expression-position generics are written ``::<...>``, so the commas in
-    ``make_path::<A, B>()`` separate type arguments rather than the values the
-    call is given. The ``::`` requirement is what keeps a comparison such as
-    ``a < b`` from opening a list that never closes.
-
-    Examples
-    --------
-    >>> _after_generics("::<A> f", 2, 0)
-    5
-    >>> _after_generics("a < b", 2, 0) is None
-    True
-    """
-    if text[index] != "<":
-        return None
-    if not text[start:index].rstrip().endswith("::"):
-        return None
-    return after_turbofish(text, index)
 
 
 def _separates_arguments(depth: int, text: str, index: int) -> bool:
@@ -229,120 +159,6 @@ def _separates_arguments(depth: int, text: str, index: int) -> bool:
     if depth != 1:
         return False
     return _follows_a_value(text, index + 1)
-
-
-def _bracket_change(char: str) -> int:
-    """Return how `char` changes argument-list nesting.
-
-    Examples
-    --------
-    >>> _bracket_change("(")
-    1
-    >>> _bracket_change(")")
-    -1
-    >>> _bracket_change(",")
-    0
-    """
-    if char in _OPENING:
-        return 1
-    if char in _CLOSING:
-        return -1
-    return 0
-
-
-def _angle_change(text: str, index: int) -> int:
-    """Return how the character at `index` changes generic-list depth.
-
-    Examples
-    --------
-    >>> _angle_change("a<b", 1)
-    1
-    >>> _angle_change("a>b", 1)
-    -1
-    >>> _angle_change("a-b", 1)
-    0
-    >>> _angle_change("->", 1)
-    0
-    """
-    if text[index] == "<":
-        return 1
-    if _is_angle_close(text, index):
-        return -1
-    return 0
-
-
-def _is_angle_close(text: str, index: int) -> bool:
-    """Return whether the character at `index` closes a generic list.
-
-    An arrow in a function type closes nothing, since its ``>`` follows a
-    ``-``.
-
-    Examples
-    --------
-    >>> _is_angle_close("a>b", 1)
-    True
-    >>> _is_angle_close("->", 1)
-    False
-    >>> _is_angle_close("a-b", 1)
-    False
-    """
-    if text[index] != ">":
-        return False
-    return text[max(index - 1, 0)] != "-"
-
-
-def after_turbofish(text: str, start: int) -> int:
-    """Return the index just past the generic list whose ``<`` is at `start`.
-
-    A list may itself be generic, so in ``make_path::<Outer<A, B>, C>()`` the
-    commas inside ``Outer<A, B>`` belong to the inner list and the angles are
-    counted rather than the skip stopping at the first ``>``. A bracketed
-    region holds expressions rather than type delimiters: the ``<<`` of
-    ``[u8; { 1 << 2 }]`` is a shift, so the region is skipped whole, while a
-    function type's arrow is still not a close. An unclosed list ends at the
-    end of the text.
-
-    Examples
-    --------
-    >>> after_turbofish("::<A, B>())", 2)
-    8
-    >>> after_turbofish("::<Outer<A, B>, C>())", 2)
-    18
-    >>> after_turbofish("::<fn() -> u8>())", 2)
-    14
-    >>> after_turbofish("::<_, [u8; { 1 << 2 }]>(x)", 2)
-    23
-    >>> after_turbofish("::<unclosed", 2)
-    11
-    """
-    depth = 1
-    brackets = 0
-    for index in range(start + 1, len(text)):
-        if brackets:
-            brackets += _bracket_change(text[index])
-            continue
-        if text[index] in _OPENING:
-            brackets = 1
-            continue
-        depth += _angle_change(text, index)
-        if depth == 0:
-            return index + 1
-    return len(text)
-
-
-def skip_whitespace(text: str, index: int) -> int:
-    """Return the index of the first non-space character at or after `index`.
-
-    Examples
-    --------
-    >>> skip_whitespace("  x", 0)
-    2
-    >>> skip_whitespace("x", 1)
-    1
-    """
-    while index < len(text) and text[index].isspace():
-        index += 1
-    return index
 
 
 def _argument_start(body: str, name_end: int) -> int | None:
@@ -420,4 +236,4 @@ def _follows_a_value(text: str, start: int) -> bool:
     False
     """
     rest = text[start:].lstrip()
-    return bool(rest) and rest[0] not in _CLOSING
+    return bool(rest) and rest[0] not in CLOSING

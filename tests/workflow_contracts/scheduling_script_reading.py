@@ -27,17 +27,24 @@ from __future__ import annotations
 
 import typing as typ
 
+from scheduling_command_reading import is_redirection
 from scheduling_errexit_reading import (
-    set_arguments,
     CARRYING_OPERATOR,
     OWN_LIST_END,
     carries_to_the_step,
     errexit_states,
+    runs_in_a_subshell,
 )
 from scheduling_segment_reading import (
     Segment,
+    argument_words,
     has_a_compound_command,
     read_lines,
+)
+from scheduling_set_reading import (
+    builtin_arguments,
+    enables_lastpipe,
+    enables_noexec,
 )
 
 #: The script that installs ``cargo-nextest`` for the job.
@@ -133,74 +140,6 @@ def _status_reaches_the_end(line: list[Segment], index: int) -> bool:
     )
 
 
-def _takes_an_option_operand(flag: str) -> bool:
-    """Return whether `flag` takes an option name in the word after it.
-
-    ``-o``, ``+o``, ``-O`` and ``+O`` do, and so does a cluster whose last
-    letter is one of them, as ``-euo`` does for ``pipefail``.
-
-    Examples
-    --------
-    >>> _takes_an_option_operand("-o")
-    True
-    >>> _takes_an_option_operand("+O")
-    True
-    >>> _takes_an_option_operand("-e")
-    False
-    """
-    return flag[:1] in {"-", "+"} and flag[1:].endswith(("o", "O"))
-
-
-def _enables_noexec(words: list[str]) -> bool:
-    """Return whether a ``set`` command leaves ``noexec`` on.
-
-    A non-interactive Bash under ``noexec`` reads the script without running
-    it, so an installer after the change installs nothing. The option is set
-    as ``-n``, inside a cluster such as ``-eun``, or by name as
-    ``-o noexec``, and turned off again by the ``+`` forms.
-
-    Examples
-    --------
-    >>> _enables_noexec(["set", "-n"])
-    True
-    >>> _enables_noexec(["set", "-eun", "pipefail"])
-    True
-    >>> _enables_noexec(["set", "-o", "noexec"])
-    True
-    >>> _enables_noexec(["set", "-eo", "noexec"])
-    True
-    >>> _enables_noexec(["set", "-", "-n"])
-    False
-    >>> _enables_noexec(["builtin", "set", "-n"])
-    True
-    >>> _enables_noexec(["set", "+o", "noexec"])
-    False
-    >>> _enables_noexec(["set", "--", "-n"])
-    False
-    >>> _enables_noexec(["true"])
-    False
-    """
-    words = set_arguments(words)
-    if words[:1] != ["set"]:
-        return False
-    noexec = False
-    index = 1
-    while index < len(words):
-        flag = words[index]
-        if flag in {"--", "-"} or flag[:1] not in {"-", "+"}:
-            break
-        names_noexec = (
-            flag[1:].endswith("o")
-            and words[index + 1 : index + 2] == ["noexec"]
-        )
-        if names_noexec:
-            noexec = flag[:1] == "-"
-        elif "n" in flag[1:]:
-            noexec = flag[:1] == "-"
-        index += 2 if _takes_an_option_operand(flag) else 1
-    return noexec
-
-
 def _stops_the_script(lines: list[list[Segment]]) -> tuple[int, int] | None:
     """Return the first command that ends the script, if one can.
 
@@ -227,6 +166,8 @@ def _stops_the_script(lines: list[list[Segment]]) -> tuple[int, int] | None:
     """
     for number, line in enumerate(lines):
         for index, segment in enumerate(line):
+            if runs_in_a_subshell(line, index):
+                continue
             if _ends_execution(segment):
                 return number, index
     return None
@@ -248,8 +189,54 @@ def _ends_execution(segment: Segment) -> bool:
     False
     >>> _ends_execution(Segment(["true"], ""))
     False
+    >>> _ends_execution(Segment(["builtin", "exit", "0"], ""))
+    True
+    >>> _ends_execution(Segment(["exec", "/bin/true"], ""))
+    True
+    >>> _ends_execution(Segment(["exec", "2>", "&", "1"], ""))
+    False
     """
-    return segment.words[:1] == ["exit"] or _enables_noexec(segment.words)
+    words = builtin_arguments(segment.words)
+    if words[:1] == ["exit"] or _replaces_the_shell(words):
+        return True
+    return enables_noexec(segment.words)
+
+
+def _replaces_the_shell(words: list[str]) -> bool:
+    """Return whether `words` run ``exec`` with a command rather than a copy.
+
+    ``exec /bin/true`` replaces the shell, so nothing after it runs; a bare
+    redirection such as ``exec 2>&1`` only changes the file descriptors.
+
+    Examples
+    --------
+    >>> _replaces_the_shell(["exec", "/bin/true"])
+    True
+    >>> _replaces_the_shell(["exec", "2>", "&", "1"])
+    False
+    >>> _replaces_the_shell(["exit", "0"])
+    False
+    """
+    if words[:1] != ["exec"]:
+        return False
+    return any(not _is_descriptor_word(word) for word in words[1:])
+
+
+def _is_descriptor_word(word: str) -> bool:
+    """Return whether `word` is part of a redirection rather than a command.
+
+    Examples
+    --------
+    >>> _is_descriptor_word("2>")
+    True
+    >>> _is_descriptor_word("&")
+    True
+    >>> _is_descriptor_word("1")
+    True
+    >>> _is_descriptor_word("/bin/true")
+    False
+    """
+    return word == "&" or word.isdigit() or is_redirection(word)
 
 
 def _runs_installer(words: list[str]) -> bool:
@@ -268,7 +255,10 @@ def _runs_installer(words: list[str]) -> bool:
     True
     >>> _runs_installer(["bash", "-n", "scripts/install-nextest.sh"])
     False
+    >>> _runs_installer(["bash", "scripts/install-nextest.sh", "2>", "&", "1"])
+    True
     """
+    words = argument_words(words)
     if not words:
         return False
     if words[0] == NEXTEST_INSTALLER:
@@ -315,6 +305,28 @@ def _counts_as_installation(
         carries_to_the_step(lines, number, segment),
     )
     return all(checks)
+
+
+def _enables_lastpipe(lines: list[list[Segment]]) -> bool:
+    """Return whether any command in `lines` turns on ``lastpipe``.
+
+    The reading assumes a pipeline element's state change dies with it, which
+    ``lastpipe`` breaks, so a script that enables the option is refused.
+
+    Examples
+    --------
+    >>> _enables_lastpipe(read_lines("shopt -s lastpipe"))
+    True
+    >>> _enables_lastpipe(read_lines("shopt -u lastpipe"))
+    False
+    >>> _enables_lastpipe(read_lines("shopt -s nullglob"))
+    False
+    """
+    return any(
+        enables_lastpipe(segment.words)
+        for line in lines
+        for segment in line
+    )
 
 
 def installs_nextest(script: str) -> bool:
@@ -368,7 +380,7 @@ def installs_nextest(script: str) -> bool:
     False
     """
     lines = read_lines(script)
-    if has_a_compound_command(lines):
+    if has_a_compound_command(lines) or _enables_lastpipe(lines):
         return False
     states = errexit_states(lines)
     stop = _stops_the_script(lines)
