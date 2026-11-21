@@ -862,6 +862,33 @@ it never took the populated branch under `run_recipe`, so delete that branch.
 See the [0.2.0 migration notes](migration-notes.md#020) for the compatibility
 note.
 
+### Inspecting recipe failures
+
+`run_recipe` returns the phase error when cleanup succeeds. If cleanup also
+fails, `RecipeError::Cleanup` retains both failures: the cleanup error is the
+outer error and the original phase error is its source. Use
+`RecipeError::cleanup_failure()` to borrow the pair instead of parsing the
+display text.
+
+```rust
+use chutoro_bench_datasets::{Phase, PortName, RecipeError};
+
+let error = RecipeError::cleanup_with_phase_error(
+    Phase::Prepare,
+    RecipeError::prepare("archive corrupt"),
+    RecipeError::port(PortName::Storage, "cache locked"),
+);
+let failure = error
+    .cleanup_failure()
+    .ok_or_else(|| std::io::Error::other("cleanup failure should be retained"))?;
+assert!(matches!(failure.phase_error(), RecipeError::Prepare(_)));
+assert_eq!(
+    failure.cleanup_error().to_string(),
+    "port Storage failed: cache locked",
+);
+# Ok::<(), Box<dyn std::error::Error>>(())
+```
+
 ### Identifying cache and object keys
 
 `CacheKey` and `ObjectKey` are opaque identifiers in the recipe model. Recipes

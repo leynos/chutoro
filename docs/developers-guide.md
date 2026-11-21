@@ -3547,6 +3547,17 @@ deterministically from their inputs, and remove them through their own
 mechanism. The [0.2.0 migration notes](migration-notes.md#020) record the
 removal for downstream callers.
 
+When a phase fails, the driver calls `DatasetRecipe::cleanup` with the
+`PartialState` completed so far. If cleanup succeeds, the original phase error
+is returned unchanged. If cleanup also fails, the result is
+`RecipeError::Cleanup`: the cleanup error is the outer failure and the original
+phase error is its source, so `Error::source()` walks from the cleanup failure
+to the phase error and on to whatever the phase error wraps. Inspect the pair
+with `RecipeError::cleanup_failure()`, `CleanupFailure::phase_error()`, and
+`CleanupFailure::cleanup_error()`. `RecipeError::cleanup(phase, source)`
+retains only the cleanup failure, so `cleanup_failure()` returns `None` for an
+error built that way.
+
 The design rationale is recorded in
 [`ADR-004`](adrs/adr-0004-bench-dataset-recipe-trait.md). The broader dataset
 pipeline is described in
