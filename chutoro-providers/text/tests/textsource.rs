@@ -5,6 +5,11 @@ use chutoro_core::{DataSource, DataSourceError};
 use chutoro_providers_text::{TextProvider, TextProviderError};
 use rstest::rstest;
 
+#[path = "support/failing_reader.rs"]
+mod failing_reader;
+
+use failing_reader::FailingReader;
+
 #[rstest]
 #[case("kitten", "sitting", 3.0)]
 #[case("gumbo", "gambol", 2.0)]
@@ -58,26 +63,6 @@ fn try_from_reader_empty_input() {
 
 #[rstest]
 fn try_from_reader_propagates_io_error() {
-    struct FailingReader;
-
-    impl std::io::Read for FailingReader {
-        fn read(&mut self, _buf: &mut [u8]) -> std::io::Result<usize> {
-            Err(std::io::Error::other("boom"))
-        }
-    }
-
-    impl std::io::BufRead for FailingReader {
-        fn fill_buf(&mut self) -> std::io::Result<&[u8]> {
-            Err(std::io::Error::other("boom"))
-        }
-
-        fn consume(&mut self, _amt: usize) {}
-
-        fn read_line(&mut self, _buf: &mut String) -> std::io::Result<usize> {
-            Err(std::io::Error::other("boom"))
-        }
-    }
-
     let err = TextProvider::try_from_reader("demo", FailingReader)
         .expect_err("I/O failure must propagate");
     assert!(matches!(err, TextProviderError::Io(_)));
