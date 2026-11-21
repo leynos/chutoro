@@ -1,10 +1,16 @@
+use crate::{DigestAlgorithm, Phase, PortName, SourceUrl};
+
 //! Typed failures emitted by dataset recipes and their I/O ports.
+
+mod cleanup_failure;
+
+pub use cleanup_failure::CleanupFailure;
 
 use std::{error::Error, fmt, sync::Arc};
 
 use thiserror::Error;
 
-use crate::{DigestAlgorithm, Phase, PortName, SourceUrl};
+use crate::{Phase, PortName, SourceUrl};
 
 /// Failure raised by a dataset recipe, driver, or port adapter.
 #[non_exhaustive]
@@ -341,17 +347,10 @@ impl RecipeError {
     /// ));
     /// ```
     #[must_use]
-    pub fn cleanup_with_phase_error(
-        phase: Phase,
-        phase_error: Self,
-        cleanup_error: Self,
-    ) -> Self {
+    pub fn cleanup_with_phase_error(phase: Phase, phase_error: Self, cleanup_error: Self) -> Self {
         Self::Cleanup {
             phase,
-            source: Box::new(CleanupFailure {
-                phase_error,
-                cleanup_error,
-            }),
+            source: Box::new(CleanupFailure::new(phase_error, cleanup_error)),
         }
     }
 
@@ -397,77 +396,6 @@ impl RecipeError {
     #[must_use]
     pub fn other(source: impl Error + Send + Sync + 'static) -> Self {
         Self::Other(Box::new(source))
-    }
-}
-
-/// Both failures retained when a recipe phase fails and cleanup also fails.
-///
-/// [`RecipeError::cleanup_with_phase_error`] stores this payload inside
-/// [`RecipeError::Cleanup`]. The cleanup error is the outer failure and the
-/// original phase error is its source, so [`Error::source`] walks from the
-/// cleanup failure to the reason the recipe failed and on to any error the
-/// phase error wraps.
-#[derive(Debug, Error)]
-#[error("{cleanup_error}; original phase error: {phase_error}")]
-pub struct CleanupFailure {
-    /// Error returned by the phase that failed before cleanup ran.
-    #[source]
-    phase_error: RecipeError,
-    /// Error returned by the recipe cleanup hook.
-    cleanup_error: RecipeError,
-}
-
-impl CleanupFailure {
-    /// Borrow the error returned by the phase that failed before cleanup.
-    ///
-    /// # Examples
-    ///
-    /// ```
-    /// use chutoro_bench_datasets::{Phase, PortName, RecipeError};
-    ///
-    /// let error = RecipeError::cleanup_with_phase_error(
-    ///     Phase::Prepare,
-    ///     RecipeError::prepare("archive corrupt"),
-    ///     RecipeError::port(PortName::Storage, "cache locked"),
-    /// );
-    /// let cleanup = error
-    ///     .cleanup_failure()
-    ///     .ok_or_else(|| std::io::Error::other("cleanup failure should be retained"))?;
-    /// assert_eq!(
-    ///     cleanup.phase_error().to_string(),
-    ///     "prepare failed: archive corrupt"
-    /// );
-    /// # Ok::<(), Box<dyn std::error::Error>>(())
-    /// ```
-    #[must_use]
-    pub const fn phase_error(&self) -> &RecipeError {
-        &self.phase_error
-    }
-
-    /// Borrow the error returned by the recipe cleanup hook.
-    ///
-    /// # Examples
-    ///
-    /// ```
-    /// use chutoro_bench_datasets::{Phase, PortName, RecipeError};
-    ///
-    /// let error = RecipeError::cleanup_with_phase_error(
-    ///     Phase::Prepare,
-    ///     RecipeError::prepare("archive corrupt"),
-    ///     RecipeError::port(PortName::Storage, "cache locked"),
-    /// );
-    /// let cleanup = error
-    ///     .cleanup_failure()
-    ///     .ok_or_else(|| std::io::Error::other("cleanup failure should be retained"))?;
-    /// assert_eq!(
-    ///     cleanup.cleanup_error().to_string(),
-    ///     "port Storage failed: cache locked"
-    /// );
-    /// # Ok::<(), Box<dyn std::error::Error>>(())
-    /// ```
-    #[must_use]
-    pub const fn cleanup_error(&self) -> &RecipeError {
-        &self.cleanup_error
     }
 }
 
@@ -539,7 +467,16 @@ pub enum IntegrityFailure {
 }
 
 
+
+
+
 const _: () = assert!(std::mem::size_of::<RecipeError>() <= 32);
+
+// `RecipeError` boxes cleanup payloads as `dyn Error + Send + Sync`, so the
+// compound failure must satisfy the same bounds as every other boxed source.
+
+// `RecipeError` boxes cleanup payloads as `dyn Error + Send + Sync`, so the
+// compound failure must satisfy the same bounds as every other boxed source.
 
 // `RecipeError` boxes cleanup payloads as `dyn Error + Send + Sync`, so the
 // compound failure must satisfy the same bounds as every other boxed source.
