@@ -187,6 +187,57 @@ def parse_config(config_text: str) -> dict[str, typ.Any]:
     return tomllib.loads(config_text)
 
 
+def _inheritance_chain(
+    profiles: dict[str, typ.Any], profile: str
+) -> list[str]:
+    """Return the profile names nextest consults, nearest first.
+
+    The chain follows each declared ``inherits`` link. A custom profile
+    that names no parent inherits ``default``, which is the root of every
+    nextest chain, so the walk appends it rather than stopping.
+
+    Parameters
+    ----------
+    profiles : dict[str, typing.Any]
+        The parsed ``profile`` table.
+    profile : str
+        The selected profile's name.
+
+    Returns
+    -------
+    list[str]
+        The selected profile followed by each ancestor, ending at
+        ``default``.
+
+    Raises
+    ------
+    ProfileInheritanceError
+        If the chain names an undeclared profile or forms a cycle.
+    """
+    chain: list[str] = []
+    current = profile
+    while current not in chain:
+        section = profiles.get(current)
+        if not isinstance(section, dict):
+            message = f"nextest profile {current!r} is not declared"
+            raise ProfileInheritanceError(message)
+        chain.append(current)
+        inherited = section.get("inherits")
+        if isinstance(inherited, str) and inherited != current:
+            current = inherited
+        elif current == "default":
+            return chain
+        else:
+            # A custom profile with no declared parent still inherits
+            # `default`, the root of every nextest inheritance chain.
+            current = "default"
+    message = (
+        f"nextest profile inheritance forms a cycle: "
+        f"{' -> '.join([*chain, current])}"
+    )
+    raise ProfileInheritanceError(message)
+
+
 def resolved_global_timeout(config_text: str, profile: str = "default") -> float:
     """Return the ``global-timeout`` a profile resolves to, in seconds.
 
@@ -220,36 +271,15 @@ def resolved_global_timeout(config_text: str, profile: str = "default") -> float
     if not isinstance(profiles, dict):
         message = "nextest.toml must declare a [profile] table"
         raise ProfileInheritanceError(message)
-    chain: list[str] = []
-    current = profile
-    while True:
-        if current in chain:
-            message = (
-                f"nextest profile inheritance forms a cycle: "
-                f"{' -> '.join([*chain, current])}"
-            )
-            raise ProfileInheritanceError(message)
-        chain.append(current)
-        section = profiles.get(current)
-        if not isinstance(section, dict):
-            message = f"nextest profile {current!r} is not declared"
-            raise ProfileInheritanceError(message)
-        budget = section.get("global-timeout")
+    for name in _inheritance_chain(profiles, profile):
+        budget = profiles[name].get("global-timeout")
         if isinstance(budget, str):
             return _seconds(budget)
-        inherited = section.get("inherits")
-        if isinstance(inherited, str) and inherited != current:
-            current = inherited
-            continue
-        # A custom profile that names no parent still inherits `default`,
-        # which is the root of every nextest inheritance chain.
-        if current == "default":
-            message = (
-                f"nextest profile {profile!r} resolves no global-timeout; "
-                f"[profile.default] must set one or the run is unbounded"
-            )
-            raise ProfileInheritanceError(message)
-        current = "default"
+    message = (
+        f"nextest profile {profile!r} resolves no global-timeout; "
+        f"[profile.default] must set one or the run is unbounded"
+    )
+    raise ProfileInheritanceError(message)
 
 
 def _is_positive_integer(value: object) -> bool:
