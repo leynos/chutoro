@@ -166,6 +166,29 @@ def _opens_a_value(text: str, index: int, start: int) -> bool:
     return before[-1] in "(," or before.endswith(("&", "&mut"))
 
 
+def turbofish_end(body: str, index: int) -> int | None:
+    """Return the index past a turbofish starting at `index`, if one does.
+
+    Rust permits whitespace between ``::`` and ``<``, so the two tokens are
+    read separately; the type list itself is read by counting its angles.
+
+    Examples
+    --------
+    >>> turbofish_end("::<_, ()>(x)", 0)
+    9
+    >>> turbofish_end(":: <_, ()>(x)", 0)
+    10
+    >>> turbofish_end("(x)", 0) is None
+    True
+    """
+    if not body.startswith("::", index):
+        return None
+    angle = skip_whitespace(body, index + 2)
+    if not body.startswith("<", angle):
+        return None
+    return after_turbofish(body, angle)
+
+
 def _after_generics(text: str, index: int, start: int) -> int | None:
     """Return the index past a ``::<...>`` list opening at `index`, if any.
 
@@ -183,7 +206,7 @@ def _after_generics(text: str, index: int, start: int) -> int | None:
     """
     if text[index] != "<":
         return None
-    if text[max(index - 2, start):index] != "::":
+    if not text[start:index].rstrip().endswith("::"):
         return None
     return after_turbofish(text, index)
 
@@ -341,8 +364,9 @@ def _argument_start(body: str, name_end: int) -> int | None:
     True
     """
     index = skip_whitespace(body, name_end)
-    if body.startswith("::<", index):
-        index = skip_whitespace(body, after_turbofish(body, index + 2))
+    turbofish = turbofish_end(body, index)
+    if turbofish is not None:
+        index = skip_whitespace(body, turbofish)
     if body.startswith("(", index):
         return index + 1
     return None

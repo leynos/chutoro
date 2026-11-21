@@ -25,7 +25,7 @@ from __future__ import annotations
 
 import typing as typ
 
-from scheduling_command_reading import shell_tokens
+from scheduling_command_reading import is_redirection, shell_tokens
 from scheduling_quote_reading import mask_quotes, restore_quotes
 from scheduling_line_reading import logical_lines
 
@@ -51,7 +51,7 @@ class Segment(typ.NamedTuple):
     follows: str
 
 
-def _joins_descriptors(words: list[str], token: str) -> bool:
+def _joins_descriptors(previous: str, token: str) -> bool:
     """Return whether `token` is the ``&`` of a descriptor duplication.
 
     ``shlex`` splits ``2>&1`` into ``2>``, ``&`` and ``1``. The ``&`` copies
@@ -60,16 +60,18 @@ def _joins_descriptors(words: list[str], token: str) -> bool:
 
     Examples
     --------
-    >>> _joins_descriptors(["installer", "2>"], "&")
+    >>> _joins_descriptors("2>", "&")
     True
-    >>> _joins_descriptors(["installer"], "&")
+    >>> _joins_descriptors("installer", "&")
     False
-    >>> _joins_descriptors(["installer"], ";")
+    >>> _joins_descriptors("installer", ";")
+    False
+    >>> _joins_descriptors("scheduling>", "&")
     False
     """
-    if token != "&" or not words:
+    if token != "&":
         return False
-    return words[-1].endswith((">", "<"))
+    return is_redirection(previous)
 
 
 def _flush_segment(
@@ -125,14 +127,18 @@ def read_segments(tokens: list[str], quoted: list[str]) -> list[Segment]:
         return [Segment(["("], "")]
     segments: list[Segment] = []
     words: list[str] = []
+    previous = ""
     for token in tokens:
-        if _joins_descriptors(words, token):
+        if _joins_descriptors(previous, token):
             words.append("&")
+            previous = token
             continue
         if set(token) <= _OPERATOR_CHARS:
             words = _flush_segment(segments, words, token)
+            previous = token
             continue
         words.append(restore_quotes(token, quoted))
+        previous = token
     if words:
         segments.append(Segment(words, ""))
     return segments

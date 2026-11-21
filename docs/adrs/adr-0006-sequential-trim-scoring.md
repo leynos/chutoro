@@ -173,18 +173,21 @@ section may block on, or dispatch work to, the Rayon pool.
   entry is a boundary-aware pattern, so a slice `names.join(", ")` is not read
   as a Rayon join, and a free call preceded by a keyword or a loop label — as
   `return join(left, right)` or `break 'outer join(left, right)` — is still the
-  dispatch it is. The synthetic sources these readings are checked against live
-  in `trim_scoring_samples.py`, beside the reader rather than inside it.
-  Dispatch in a listed helper is therefore caught; dispatch it cannot see still
-  evades it: an unlisted helper called by one of the five, an aliased import
-  such as `use rayon::spawn as run; run(...)`, or a `DataSource` that
-  dispatches on its own account. The scan fails closed when a pinned function
-  is missing, so a rename or a move cannot read as clean. The runtime
-  scheduling tests in `hnsw::cpu::trim_tests` remain as broader coverage, and
-  they may catch unlisted helper dispatch, but they are observations rather
-  than proofs: the caller's first distance callback waits up to two seconds for
-  another worker, and if no worker steals in that interval a dispatching
-  implementation can still finish the batch on the caller and pass.
+  dispatch it is, and so is a call through a grouped operand such as
+  `(join)(left, right)`. A turbofish may put whitespace between `::` and `<`,
+  as in `pool.install:: <_, ()>(...)`. The synthetic sources these readings are
+  checked against live in `fixtures/trim_scoring`, loaded by
+  `trim_scoring_samples.py`. Dispatch in a listed helper is therefore caught;
+  dispatch it cannot see still evades it: an unlisted helper called by one of
+  the five, an aliased import such as `use rayon::spawn as run; run(...)`, or a
+  `DataSource` that dispatches on its own account. The scan fails closed when a
+  pinned function is missing, so a rename or a move cannot read as clean. The
+  runtime scheduling tests in `hnsw::cpu::trim_tests` remain as broader
+  coverage, and they may catch unlisted helper dispatch, but they are
+  observations rather than proofs: the caller's first distance callback waits
+  up to two seconds for another worker, and if no worker steals in that
+  interval a dispatching implementation can still finish the batch on the
+  caller and pass.
 - **A watchdog stress test was considered and rejected.** An earlier
   watchdog-based stress test passed three times out of three on the unfixed
   code, because the stall is a scheduling race rather than a deterministic
@@ -260,31 +263,31 @@ and `scheduling_shell_test.py`, reading through `scheduling_reading.py`,
 `rust_declaration_reading.py`, and `workflow_support.py`, pin the target
 recipe, one invocation per fully qualified test name, each invocation's whole
 filter expression as exactly one selector — every spelling of a filter is read,
-including `--filterset` and the `=` forms, and a second filter is rejected
-because nextest unions them — the zero-test failure flag on each, the absence
-of every feature-selection flag (`--all-features`, `--no-default-features`,
-`--features` and its `=` form, and `-F`), the absence of `--no-run` (which
-compiles the selected tests without executing them), the unconditional and
-blocking execution of the step and its nextest installer within an
-unconditional job, the order that installs `cargo-nextest` before the target
-runs, and that the installer appears as a command in its own right rather than
-as an argument to `echo` or inside a comment, certain to run — no earlier `||`
-can skip it (`true || installer`), and an earlier `&&` runs it only when
-everything before it succeeded, so `false && installer` never installs it and
-only `;` starts a command list that runs whatever came before it, while a `;`
-after the installer ends the installer's own list, so its failure is not exempt
-from `errexit` and `installer; true`, `installer ; make test` and a trailing
-`installer ;` all count — in the foreground (a trailing `&` is rejected,
-whether it follows the installer or a later command, as in
-`installer && echo done &`), with no operator that would replace its status,
-neither directly after it (`|| true`) nor further along the same command line
-(`installer && echo installed || true`), nor after the chain's own line:
-`errexit` exempts a failing command inside an AND/OR list unless it is the
-command after the final `&&`, so `installer && echo installed` followed by a
-later `true` leaves the step green and only the script's last command line
-carries the status out. It also requires the recipe's commands to run nextest
-in executable position without Make's error-ignoring `-` prefix or a
-failure-masking shell suffix such as `|| true`. The zero-test flag is matched
+including `--filterset`, the `=` forms and an attached `-Eall()`, and a second
+filter is rejected because nextest unions them — the zero-test failure flag on
+each, the absence of every feature-selection flag (`--all-features`,
+`--no-default-features`, `--features` and its `=` form, and `-F`), the absence
+of `--no-run` (which compiles the selected tests without executing them), the
+unconditional and blocking execution of the step and its nextest installer
+within an unconditional job, the order that installs `cargo-nextest` before the
+target runs, and that the installer appears as a command in its own right
+rather than as an argument to `echo` or inside a comment, certain to run — no
+earlier `||` can skip it (`true || installer`), and an earlier `&&` runs it
+only when everything before it succeeded, so `false && installer` never
+installs it and only `;` starts a command list that runs whatever came before
+it, while a `;` after the installer ends the installer's own list, so its
+failure is not exempt from `errexit` and `installer; true`,
+`installer ; make test` and a trailing `installer ;` all count — in the
+foreground (a trailing `&` is rejected, whether it follows the installer or a
+later command, as in `installer && echo done &`), with no operator that would
+replace its status, neither directly after it (`|| true`) nor further along the
+same command line (`installer && echo installed || true`), nor after the
+chain's own line: `errexit` exempts a failing command inside an AND/OR list
+unless it is the command after the final `&&`, so `installer && echo installed`
+followed by a later `true` leaves the step green and only the script's last
+command line carries the status out. It also requires the recipe's commands to
+run nextest in executable position without Make's error-ignoring `-` prefix or
+a failure-masking shell suffix such as `|| true`. The zero-test flag is matched
 as a whole token, so a redirection target cannot stand in for it: neither the
 attached `>--no-tests=fail` nor the spaced `> --no-tests=fail`, whose target
 arrives as a separate word, and a file-descriptor prefix such as `2>` marks a
@@ -295,52 +298,60 @@ failure into the next line; comments and blank lines between the two are
 skipped as the shell skips them. A backslash-newline pair is deleted with
 nothing inserted in its place, so a path split as `scripts/install-\` and
 `nextest.sh` is the one word the shell runs; only an odd trailing backslash run
-continues the line, so a doubled backslash is a literal one and ends it, and a
-backslash followed by a space escapes the space rather than the newline. A
-comment's trailing backslash is comment text and continues nothing, so the line
-after a comment is a command line of its own; a descriptor copy such as `2>&1`
-is part of its command rather than a background operator. A `.PHONY`
-declaration is read with its comments removed as well, so a target named only
-after a `#` is not declared phony, and a comment continued with a trailing
-backslash keeps the next line out of the declaration too; only an unescaped
-trailing backslash continues a comment, so a doubled backslash ends it and the
-next line declares as usual. A `define` body is not declaration text, so a
-`.PHONY` written between `define` and `endef` declares nothing, and a nested
-definition is tracked to its own `endef` rather than ending the outer one.
-Comments are removed with shell word boundaries, so a `#` inside a word, as in
-a redirect to `scheduling#log`, is part of that word and the mask after it
-stays visible; an escaped operator ends no word either, so `>scheduling\;#log`
-keeps its mask too. Quoted text is data, so `echo '&&' installer` prints the
-path rather than running it; an escaped operator is data for the same reason, so
-`echo \&\& installer` prints both ampersands, and a Bash ANSI-C string
-(`$'...'`) honours its backslash escapes, so an escaped `'` does not end it.
-Commands are tokenized with shell separators rather than whitespace alone, so
-an unspaced `||true` reads as the operator it is. Finally, it checks that each
-named regression is still declared under `cpu/trim_tests` with a test
-attribute, since an undiscovered function cannot trip `--no-tests=fail`, and
-that a declaration quoted inside a string literal does not stand in for one.
-The step's effective shell is resolved through the workflow, job, and step
-scopes, and a custom `bash` or `sh` template must execute the script under
-`errexit`: `bash {0}` runs the script without it and is rejected, as is any
-template that only syntax-checks the script, whether as `bash -n {0}`, in a
-combined cluster such as `bash -en {0}`, or as `bash -o noexec {0}` or
-`bash -eo noexec {0}`; `-D`, `--dump-strings` and `--dump-po-strings` are
-syntax-only modes too, since `-D` implies `-n` while dumping translated strings.
-`errexit` can also be turned off inside the script, so `set +e` and
-`set +o errexit` — and a cluster such as `+xo errexit` — before the installer
-stop its failure from failing the step and `set -e` restores it; the reading
-skips an option operand (`set -o pipefail -e`), stops at `--` and at the first
-positional parameter (`set -- -e` sets `$1`), treats an option change after
-`&&` or `||` as uncertain rather than applied, ignores one written in a
-pipeline element or a backgrounded list because that list runs in a subshell of
-its own, and takes either an `exit` or a `set` that enables `noexec` before the
-installer as ending the script's execution. A here-document's body is stdin for
-the command that opened it, so a path written there installs nothing; the body
-starts at the newline that ends the opening line even when a list operator
-continues past it, and its closing word repeats the delimiter exactly for `<<`,
-so a closing line indented with a space or a tab is body text, while a `<<-`
-document ignores leading tabs on both body and closing line. A quoted delimiter
-makes the body literal, so a trailing backslash there is a character, while an
+continues the line, and only its final backslash is deleted, so three leave two
+for the lexer to pair, a doubled backslash is a literal one and ends the line,
+and a backslash followed by a space escapes the space rather than the newline.
+A comment's trailing backslash is comment text and continues nothing, so the
+line after a comment is a command line of its own; a descriptor copy such as
+`2>&1` is part of its command rather than a background operator, while a word
+that merely ends in `>` — a quoted file name such as `'scheduling>'` — is not a
+redirection operator and leaves the `&` after it a background operator. A
+`.PHONY` declaration is read with its comments removed as well, so a target
+named only after a `#` is not declared phony, and a comment continued with a
+trailing backslash keeps the next line out of the declaration too; only an
+unescaped trailing backslash continues a comment, so a doubled backslash ends
+it and the next line declares as usual. A `define` body is not declaration
+text, so a `.PHONY` written between `define` and `endef` declares nothing, a
+nested definition is tracked to its own `endef` rather than ending the outer
+one, and a tab-prefixed `endef` is body text rather than a directive. A
+`.PHONY` inside a conditional block declares only when that condition holds,
+and the reading does not evaluate conditions, so the block declares nothing
+either. Comments are removed with shell word boundaries, so a `#` inside a
+word, as in a redirect to `scheduling#log`, is part of that word and the mask
+after it stays visible; an escaped operator ends no word either, so
+`>scheduling\;#log` keeps its mask too. Quoted text is data, so
+`echo '&&' installer` prints the path rather than running it; an escaped
+operator is data for the same reason, so `echo \&\& installer` prints both
+ampersands, and a Bash ANSI-C string (`$'...'`) honours its backslash escapes,
+so an escaped `'` does not end it. Commands are tokenized with shell separators
+rather than whitespace alone, so an unspaced `||true` reads as the operator it
+is. Finally, it checks that each named regression is still declared under
+`cpu/trim_tests` with a test attribute, since an undiscovered function cannot
+trip `--no-tests=fail`, and that a declaration quoted inside a string literal
+does not stand in for one. The step's effective shell is resolved through the
+workflow, job, and step scopes, and a custom `bash` or `sh` template must
+execute the script under `errexit`: `bash {0}` runs the script without it and
+is rejected, as is any template that only syntax-checks the script, whether as
+`bash -n {0}`, in a combined cluster such as `bash -en {0}`, or as
+`bash -o noexec {0}` or `bash -eo noexec {0}`; `-D`, `--dump-strings` and
+`--dump-po-strings` are syntax-only modes too, since `-D` implies `-n` while
+dumping translated strings. `errexit` can also be turned off inside the script,
+so `set +e` and `set +o errexit` — and a cluster such as `+xo errexit` — before
+the installer stop its failure from failing the step and `set -e` restores it;
+a lone `-` ends option processing as `--` does, and `-eo noexec` names noexec
+through its cluster's final `o`. The reading skips an option operand
+(`set -o pipefail -e`), stops at `--` and at the first positional parameter
+(`set -- -e` sets `$1`), treats an option change after `&&` or `||` as
+uncertain rather than applied, ignores one written in a pipeline element or a
+backgrounded list because that list runs in a subshell of its own, and takes
+either an `exit` or a `set` that enables `noexec` before the installer as
+ending the script's execution. A here-document's body is stdin for the command
+that opened it, so a path written there installs nothing; the body starts at
+the newline that ends the opening line even when a list operator continues past
+it, and its closing word repeats the delimiter exactly for `<<`, so a closing
+line indented with a space or a tab is body text, while a `<<-` document
+ignores leading tabs on both body and closing line. A quoted delimiter makes
+the body literal, so a trailing backslash there is a character, while an
 unquoted body deletes backslash-newline pairs before its closing word is
 compared, and a backslash that escapes a character of the delimiter is removed
 before the closing line is compared. A script holding a compound command — a

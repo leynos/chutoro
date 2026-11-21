@@ -21,7 +21,7 @@ from __future__ import annotations
 
 import re
 
-from scheduling_command_reading import shell_tokens
+from scheduling_command_reading import is_redirection, shell_tokens
 
 #: The spellings of the Cargo executable a scheduling invocation may start
 #: with. `$(CARGO)` is what the Makefile uses; a literal `cargo` is accepted
@@ -46,12 +46,6 @@ SHELL_SEPARATORS = frozenset({";", ";;", "&&", "||", "|", "&"})
 #: though its selector, count and flags all look right.
 COMPILE_ONLY_FLAGS = ("--no-run",)
 
-#: Redirection operators, with Cargo's word after each being a file name
-#: rather than an argument. A leading file-descriptor number is part of the
-#: operator, as in ``2>``.
-_REDIRECTION = re.compile(r"\d*(?:&>>?|>>|>|<|<>|>\||<<<|<<)")
-
-
 def _is_redirection(token: str) -> bool:
     """Return whether `token` is a redirection operator.
 
@@ -63,8 +57,10 @@ def _is_redirection(token: str) -> bool:
     True
     >>> _is_redirection(">log#1")
     False
+    >>> _is_redirection("scheduling>")
+    False
     """
-    return _REDIRECTION.fullmatch(token) is not None
+    return is_redirection(token)
 
 
 def command_arguments(command: str) -> list[str]:
@@ -127,7 +123,7 @@ def _joins_descriptors(tokens: list[str], index: int) -> bool:
     """
     if tokens[index] != "&" or index == 0:
         return False
-    return tokens[index - 1].endswith((">", "<"))
+    return is_redirection(tokens[index - 1])
 
 
 def is_nextest_invocation(command: str) -> bool:
@@ -168,6 +164,10 @@ def is_nextest_invocation(command: str) -> bool:
     False
     >>> is_nextest_invocation("$(CARGO) nextest run -p chutoro-core 2>&1")
     True
+    >>> is_nextest_invocation(
+    ...     "$(CARGO) nextest run -p chutoro-core > 'scheduling>' & true"
+    ... )
+    False
     """
     tokens = shell_tokens(command)
     rejected = SHELL_SEPARATORS.union(COMPILE_ONLY_FLAGS)

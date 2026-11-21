@@ -274,10 +274,14 @@ def _filter_value(tokens: list[str], index: int) -> str | None:
     'test(=a)'
     >>> _filter_value(["--filterset=slow"], 0)
     'slow'
+    >>> _filter_value(["-Etest(=a)"], 0)
+    'test(=a)'
     >>> _filter_value(["-E"], 0) is None
     True
     """
     token = tokens[index]
+    if token.startswith("-E") and token != "-E":
+        return token[2:]
     if "=" in token:
         return token.split("=", 1)[1]
     return tokens[index + 1] if index + 1 < len(tokens) else None
@@ -299,9 +303,13 @@ def _carries_a_filter(token: str) -> bool:
     True
     >>> _carries_a_filter("--filterset")
     True
+    >>> _carries_a_filter("-Eall())")
+    True
     >>> _carries_a_filter("--no-tests=fail")
     False
     """
+    if token.startswith("-E") and token != "-E":
+        return True
     name = token.split("=", 1)[0]
     return name in FILTER_ARGUMENTS
 

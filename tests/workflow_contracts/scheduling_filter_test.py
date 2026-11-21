@@ -24,6 +24,29 @@ from scheduling_reading import (
 )
 
 
+@pytest.mark.parametrize(
+    "argument",
+    [
+        pytest.param("--filterset=slow", id="a-named-filterset"),
+        pytest.param("-E'all()'", id="an-attached-expression"),
+    ],
+)
+def test_a_filter_the_selector_does_not_name_is_rejected(argument: str) -> None:
+    """A filter beside the exact selector widens what the invocation runs.
+
+    Nextest unions filtersets, so an attached ``-E`` value or a named set
+    selects more tests than the one regression the invocation exists to run.
+    The reading counts it, so the command is refused rather than accepted on
+    the strength of the expression it happened to recognise.
+    """
+    command = (
+        f"cargo nextest run {argument} -E "
+        f"'test(={QUALIFIED_REGRESSIONS[REGRESSIONS[0]]})'"
+    )
+    with pytest.raises(ValueError, match="exactly one filter expression"):
+        selected_regression(command)
+
+
 def test_a_second_filter_argument_is_rejected() -> None:
     """A filterset beside the expression widens the selection.
 

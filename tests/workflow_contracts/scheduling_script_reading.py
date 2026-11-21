@@ -166,6 +166,10 @@ def _enables_noexec(words: list[str]) -> bool:
     True
     >>> _enables_noexec(["set", "-o", "noexec"])
     True
+    >>> _enables_noexec(["set", "-eo", "noexec"])
+    True
+    >>> _enables_noexec(["set", "-", "-n"])
+    False
     >>> _enables_noexec(["set", "+o", "noexec"])
     False
     >>> _enables_noexec(["set", "--", "-n"])
@@ -179,10 +183,14 @@ def _enables_noexec(words: list[str]) -> bool:
     index = 1
     while index < len(words):
         flag = words[index]
-        if flag == "--" or flag[:1] not in {"-", "+"}:
+        if flag in {"--", "-"} or flag[:1] not in {"-", "+"}:
             break
-        if flag in {"-o", "+o"} and words[index + 1 : index + 2] == ["noexec"]:
-            noexec = flag == "-o"
+        names_noexec = (
+            flag[1:].endswith("o")
+            and words[index + 1 : index + 2] == ["noexec"]
+        )
+        if names_noexec:
+            noexec = flag[:1] == "-"
         elif "n" in flag[1:]:
             noexec = flag[:1] == "-"
         index += 2 if _takes_an_option_operand(flag) else 1

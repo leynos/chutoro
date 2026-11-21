@@ -25,7 +25,7 @@ from __future__ import annotations
 import pytest
 from rust_declaration_reading import declares_test
 from scheduling_invocation_reading import is_nextest_invocation
-from makefile_reading import phony_targets
+from makefile_reading import declares_target, phony_targets
 from scheduling_reading import (
     QUALIFIED_REGRESSIONS,
     REGRESSIONS,
@@ -324,7 +324,7 @@ def test_the_target_is_declared_once() -> None:
     declarations = [
         line
         for line in makefile_text().splitlines()
-        if line.startswith(f"{TARGET}:")
+        if declares_target(line, TARGET)
     ]
     assert len(declarations) == 1, (
         f"{TARGET} must be declared once; found {len(declarations)} recipes"

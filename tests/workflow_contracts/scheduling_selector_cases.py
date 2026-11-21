@@ -278,4 +278,24 @@ SELECTOR_CASES: typ.Final[tuple[tuple[str, bool, str], ...]] = (
         False,
         "an-unspaced-parenthesised-group",
     ),
+    (
+        "set +e\nset - -e\n" + NEXTEST_INSTALLER + "\ntrue",
+        False,
+        "an-errexit-flag-as-a-positional-parameter",
+    ),
+    (
+        f"set -eo noexec\n{NEXTEST_INSTALLER}",
+        False,
+        "noexec-named-through-a-cluster",
+    ),
+    (
+        "printf x " + chr(92) * 3 + "\n; " + NEXTEST_INSTALLER,
+        True,
+        "a-three-backslash-continuation",
+    ),
+    (
+        f"{NEXTEST_INSTALLER} >'install>' & true",
+        False,
+        "a-background-after-a-quoted-redirection-target",
+    ),
 )

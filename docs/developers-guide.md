@@ -2885,14 +2885,16 @@ spaces, so `cache_dir . join(cache_file)` is the path join it is and not Rayon's
 `join::<_, _, (), ()>(|| left(), || right())` is still recognized by skipping
 the turbofish before the argument list, and a keyword or a loop label before
 the name is not a receiver, so `return join(left, right)` and
-`break 'outer join(left, right)` are read as the dispatches they are. The
-receiver forms skip a turbofish as well, so `pool.scope::<_, ()>(|_| ())` is
-the same dispatch as `pool.scope(|_| ())`. The synthetic sources these readings
-are checked against live in `trim_scoring_samples.py`, beside the reader rather
-than inside it. The contract also checks a checked-in copy of the former
-`score_trim_jobs` and requires it to read as a dispatch, so the fixture cannot
-drift into agreement with the fixed code. A missing function fails the contract
-rather than reading as clean. `make test-workflow-contracts` runs it.
+`break 'outer join(left, right)` are read as the dispatches they are, as is a
+call through a grouped operand, `(join)(left, right)`. Whitespace between `::`
+and `<` is allowed, so `pool.install:: <_, ()>(...)` is read as the call it is.
+The receiver forms skip a turbofish as well, so `pool.scope::<_, ()>(|_| ())`
+is the same dispatch as `pool.scope(|_| ())`. The synthetic sources these
+readings are checked against live in `trim_scoring_samples.py`, beside the
+reader rather than inside it. The contract also checks a checked-in copy of the
+former `score_trim_jobs` and requires it to read as a dispatch, so the fixture
+cannot drift into agreement with the fixed code. A missing function fails the
+contract rather than reading as clean. `make test-workflow-contracts` runs it.
 
 The scan's limits are part of the contract. It can see a listed helper that
 dispatches, but not an unlisted helper called by one of the five, not an
@@ -2920,52 +2922,52 @@ selector and count while producing no runtime evidence. The workflow contract �
 `rust_declaration_reading.py` — also requires each invocation's whole filter
 expression to be exactly one selector, so a widened expression such as
 `test(=name) | all()` cannot keep an invocation non-empty after the regression
-is renamed. Every spelling of a nextest filter is read, including `--filterset`
-and the `=` forms, and a second filter is rejected because nextest unions
-filtersets; a filter argument with no value fails the reading rather than
-passing unread. The recipe's commands must run nextest in executable position
-and must not carry Make's error-ignoring `-` prefix or a failure-masking shell
-suffix such as `|| true` (spaced or not: the commands are tokenized with shell
-separators, so `||true` is read as the operator it is), so a command that
-merely mentions nextest, or one whose failure would be suppressed, cannot stand
-in for the regression. The zero-test flag is matched as a whole token, so a
-redirection target such as `>--no-tests=fail` cannot stand in for it on a
-command that carries `--no-tests=pass`, and the spaced form
-`> --no-tests=fail`, whose target is a separate word, is dropped as the file
-name it is; a file-descriptor prefix such as `2>` is read as a redirection too.
-Shell comments are removed first, but a `#` starts one only at the start of a
-word, and an escaped operator does not end the word before it: the hash in
-`nextest run >scheduling#log || true` and in `>scheduling\;#log || true` is
-part of the redirection, and cutting there would have hidden the mask the
-command carries. Quoted text is data as well, so `echo '&&' installer` only
-prints the path; a quoted operator is an argument, not a command separator, and
-a Bash ANSI-C string (`$'...'`) honours its backslash escapes, so an escaped
-`'` does not end it and a `$(` inside one opens no substitution. Escaped
-operator text is data for the same reason, so `echo \&\& installer` prints both
-ampersands. The CI step that runs the target is pinned unconditional, as is the
-nextest installation it depends on, and that installation has to be a command
-in its own right: a step that only prints or comments the installer path
-installs nothing, and neither does one whose failure is masked
-(`installer || true`, or a `||` anywhere later in the same command line, as in
-`installer && echo installed || true`), one an earlier `||` can skip
-(`true || installer` installs nothing when `true` succeeds), one an earlier
-`&&` may skip (`false && installer` never runs either, and only `;` starts a
-command list that runs whatever came before it), one sent to the background
-(`installer &` lets the next command start first, and so does a `&` that ends a
-later command in the chain, as in `installer && echo done &`), one that only
-parses the script (`bash -n installer`), or one whose `&&` chain is followed by
-another command. A `;` is not a mask: it ends the installer's own list, so its
-failure is not exempt from `errexit` and the step stops there, which is why
-`installer; true`, `installer ; make test` and a trailing `installer ;` all
-count. The step's effective shell is resolved through the workflow, job, and
-step scopes, and a custom `bash` or `sh` template must execute the script under
-`errexit`: `bash {0}` is rejected because a failed line would not stop the
-step, and so is any template that only syntax-checks the script, whether as
-`bash -n {0}`, in a combined cluster such as `bash -en {0}`, or as
-`bash -o noexec {0}` or `bash -eo noexec {0}`. A quoted operand such as
-`bash -e "{0}"` is accepted, because the runner substitutes the script's path
-before the shell parses the template. A template that runs one command and
-exits is rejected for the same reason: `bash -et {0}` and
+is renamed. Every spelling of a nextest filter is read, including
+`--filterset`, the `=` forms and an attached `-Eall()`, and a second filter is
+rejected because nextest unions filtersets; a filter argument with no value
+fails the reading rather than passing unread. The recipe's commands must run
+nextest in executable position and must not carry Make's error-ignoring `-`
+prefix or a failure-masking shell suffix such as `|| true` (spaced or not: the
+commands are tokenized with shell separators, so `||true` is read as the
+operator it is), so a command that merely mentions nextest, or one whose
+failure would be suppressed, cannot stand in for the regression. The zero-test
+flag is matched as a whole token, so a redirection target such as
+`>--no-tests=fail` cannot stand in for it on a command that carries
+`--no-tests=pass`, and the spaced form `> --no-tests=fail`, whose target is a
+separate word, is dropped as the file name it is; a file-descriptor prefix such
+as `2>` is read as a redirection too. Shell comments are removed first, but a
+`#` starts one only at the start of a word, and an escaped operator does not
+end the word before it: the hash in `nextest run >scheduling#log || true` and in
+`>scheduling\;#log || true` is part of the redirection, and cutting there
+would have hidden the mask the command carries. Quoted text is data as well, so
+`echo '&&' installer` only prints the path; a quoted operator is an argument,
+not a command separator, and a Bash ANSI-C string (`$'...'`) honours its
+backslash escapes, so an escaped `'` does not end it and a `$(` inside one
+opens no substitution. Escaped operator text is data for the same reason, so
+`echo \&\& installer` prints both ampersands. The CI step that runs the target
+is pinned unconditional, as is the nextest installation it depends on, and that
+installation has to be a command in its own right: a step that only prints or
+comments the installer path installs nothing, and neither does one whose
+failure is masked (`installer || true`, or a `||` anywhere later in the same
+command line, as in `installer && echo installed || true`), one an earlier `||`
+can skip (`true || installer` installs nothing when `true` succeeds), one an
+earlier `&&` may skip (`false && installer` never runs either, and only `;`
+starts a command list that runs whatever came before it), one sent to the
+background (`installer &` lets the next command start first, and so does a `&`
+that ends a later command in the chain, as in `installer && echo done &`), one
+that only parses the script (`bash -n installer`), or one whose `&&` chain is
+followed by another command. A `;` is not a mask: it ends the installer's own
+list, so its failure is not exempt from `errexit` and the step stops there,
+which is why `installer; true`, `installer ; make test` and a trailing
+`installer ;` all count. The step's effective shell is resolved through the
+workflow, job, and step scopes, and a custom `bash` or `sh` template must
+execute the script under `errexit`: `bash {0}` is rejected because a failed
+line would not stop the step, and so is any template that only syntax-checks
+the script, whether as `bash -n {0}`, in a combined cluster such as
+`bash -en {0}`, or as `bash -o noexec {0}` or `bash -eo noexec {0}`. A quoted
+operand such as `bash -e "{0}"` is accepted, because the runner substitutes the
+script's path before the shell parses the template. A template that runs one
+command and exits is rejected for the same reason: `bash -et {0}` and
 `bash -o onecmd -e {0}` stop after the script's first command, so a script of
 several commands would never reach the gate. `errexit` exempts a failing
 command inside an AND/OR list unless it is the command after the final `&&`, so
@@ -2977,33 +2979,37 @@ an installer followed by `&&` carries its failure into the next line; a comment
 or blank line between the two is skipped as the shell skips it. A
 backslash-newline pair is deleted with nothing inserted, so a path split as
 `scripts/install-\` and `nextest.sh` is the one word the shell runs, and only
-an odd trailing backslash run continues the line; a comment's trailing
-backslash is comment text and continues nothing, and a descriptor copy such as
-`2>&1` belongs to its command rather than backgrounding it. A here-document's
-body begins on the newline that ends the opening line even when a list operator
-continues past it, so the body of `cat <<'EOF' &&` is not read as part of the
-continued list, and the closing word is compared as the shell compares it: a
-quoted delimiter makes the body literal, while an unquoted body has its
-backslash-newline pairs deleted first, and a backslash escaping a character of
-the delimiter is removed before the comparison. A script holding a compound
-command — a branch, loop, case, brace group or parenthesized group, spaced or
-not — is refused whole, because a simple reading cannot say which body ran. The
-declaration the recipe names must still carry a test attribute, because a plain
-function of the same name is never discovered and the zero-test flag cannot
-fire for it, and an attributed declaration quoted inside a string literal is an
-example rather than a test. The target must be declared phony, and a `.PHONY`
-declaration is read with its comments removed, so a name mentioned only after a
-`#` declares nothing, a comment continued with a trailing backslash keeps the
-next line out of the declaration as well, and a `define` body is variable text
-rather than declaration text, so a `.PHONY` written between `define` and
-`endef` declares nothing and a nested definition ends at its own `endef`. The
-direct test scores a synthetic batch in a dedicated four-worker pool and
-records the Rayon worker that serves each distance callback; it holds no lock
-and asserts that every callback is served by the calling worker. The
-insertion-path test drives a real insertion in a dedicated four-worker pool and
-records the thread, the Rayon worker, and a non-blocking `insert_mutex`
-`try_lock` for every post-planning distance callback; it asserts that the
-callbacks stay on the mutex holder.
+an odd trailing backslash run continues the line, with only its final backslash
+deleted; a comment's trailing backslash is comment text and continues nothing,
+and a descriptor copy such as `2>&1` belongs to its command rather than
+backgrounding it, while a quoted file name ending in `>` does not make the `&`
+after it a descriptor copy. A here-document's body begins on the newline that
+ends the opening line even when a list operator continues past it, so the body
+of `cat <<'EOF' &&` is not read as part of the continued list, and the closing
+word is compared as the shell compares it: a quoted delimiter makes the body
+literal, while an unquoted body has its backslash-newline pairs deleted first,
+and a backslash escaping a character of the delimiter is removed before the
+comparison. A script holding a compound command — a branch, loop, case, brace
+group or parenthesized group, spaced or not — is refused whole, because a
+simple reading cannot say which body ran. The declaration the recipe names must
+still carry a test attribute, because a plain function of the same name is
+never discovered and the zero-test flag cannot fire for it, and an attributed
+declaration quoted inside a string literal is an example rather than a test.
+The target must be declared phony, and a `.PHONY` declaration is read with its
+comments removed, so a name mentioned only after a `#` declares nothing, a
+comment continued with a trailing backslash keeps the next line out of the
+declaration as well, and a `define` body is variable text rather than
+declaration text, so a `.PHONY` written between `define` and `endef` declares
+nothing, a nested definition ends at its own `endef`, a tab-prefixed `endef`
+stays body text, and a `.PHONY` inside an unevaluated conditional block
+declares nothing. A rule header names its targets before the colon, so a
+duplicate written `target :` is still counted. The direct test scores a
+synthetic batch in a dedicated four-worker pool and records the Rayon worker
+that serves each distance callback; it holds no lock and asserts that every
+callback is served by the calling worker. The insertion-path test drives a real
+insertion in a dedicated four-worker pool and records the thread, the Rayon
+worker, and a non-blocking `insert_mutex` `try_lock` for every post-planning
+distance callback; it asserts that the callbacks stay on the mutex holder.
 
 What the two checks establish differs:
 

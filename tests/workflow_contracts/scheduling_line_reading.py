@@ -68,13 +68,16 @@ def _ends_with_operator(line: str) -> bool:
 def _continuation(line: str) -> tuple[str, bool]:
     """Return what `line` leaves before its newline, and whether it continues.
 
-    The shell processes a run of backslashes from the left: each pair leaves
-    one literal backslash, and an odd one out escapes the newline, which the
-    shell then deletes with nothing inserted. Trailing whitespace is kept, so
-    a here-document's closing line still has to repeat its word exactly, and a
-    backslash followed by a space escapes the space rather than continuing.
-    A space inserted where the pair was would turn the installer path
-    ``scripts/install-\\`` + ``nextest.sh`` into two words the step never runs.
+    The shell deletes the final backslash and the newline with nothing
+    inserted, so only an odd run continues and the rest is left as written for
+    the later reading to pair up. Three backslashes therefore leave two, which
+    the lexer reads as one literal backslash followed by an operator, rather
+    than one, which it would read as escaping that operator. Trailing
+    whitespace is kept, so a here-document's closing line still has to repeat
+    its word exactly, and a backslash followed by a space escapes the space
+    rather than continuing. A space inserted where the pair was would turn the
+    installer path ``scripts/install-\\`` + ``nextest.sh`` into two words the
+    step never runs.
 
     Examples
     --------
@@ -93,13 +96,13 @@ def _continuation(line: str) -> tuple[str, bool]:
     >>> text, continues = _continuation("a" + chr(92) * 3)
     >>> continues
     True
-    >>> text == "a" + chr(92)
+    >>> text == "a" + chr(92) * 2
     True
     """
     run = len(line) - len(line.rstrip("\\"))
     if run % 2 == 0:
         return line, False
-    return f"{line[: len(line) - run]}{chr(92) * (run // 2)}", True
+    return f"{line[: len(line) - run]}{chr(92) * (run - 1)}", True
 
 
 def _body_step(

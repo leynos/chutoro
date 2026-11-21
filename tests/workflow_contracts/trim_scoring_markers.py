@@ -23,10 +23,10 @@ import re
 import typing as typ
 
 from trim_scoring_call_reading import (
-    after_turbofish,
     calls_the_method,
     pool_join,
     skip_whitespace,
+    turbofish_end,
 )
 
 #: A test over one function body: true when the body holds the shape.
@@ -123,8 +123,9 @@ def pool_associated_call(body: str) -> bool:
     """
     for found in _ASSOCIATED_CALL.finditer(body):
         index = skip_whitespace(body, found.end())
-        if body.startswith("::<", index):
-            index = after_turbofish(body, index + 2)
+        turbofish = turbofish_end(body, index)
+        if turbofish is not None:
+            index = skip_whitespace(body, turbofish)
         if body.startswith("(", skip_whitespace(body, index)):
             return True
     return False
@@ -192,6 +193,28 @@ def _ends_a_receiver(body: str, start: int) -> bool:
     return word not in _CALL_PRECEDING_WORDS
 
 
+def _past_group(body: str, start: int, index: int) -> int:
+    """Return the index past a closing parenthesis that groups the name.
+
+    ``(join)(a, b)`` calls the free function through a grouped operand: the
+    parenthesis after the name closes the group rather than opening an
+    argument list, so the list that follows it is the call's. A ``)`` that
+    does not close a group opened before the name ends nothing here.
+
+    Examples
+    --------
+    >>> _past_group("(join)(a)", 1, 5)
+    6
+    >>> _past_group("join)(a)", 0, 4)
+    4
+    """
+    if not body[:start].rstrip().endswith("("):
+        return index
+    if body[index : index + 1] != ")":
+        return index
+    return index + 1
+
+
 def free_call(name: str) -> _Predicate:
     """Return a reading of the free function `name`'s call.
 
@@ -213,6 +236,8 @@ def free_call(name: str) -> _Predicate:
     True
     >>> calls_free_join("join::<_, _, (), ()>(|| (), || ())")
     True
+    >>> calls_free_join("join:: <_, _, (), ()>(|| (), || ())")
+    True
     >>> calls_free_join("return join(|| (), || ())")
     True
     >>> calls_free_join("break 'outer join(|| (), || ())")
@@ -225,6 +250,8 @@ def free_call(name: str) -> _Predicate:
     False
     >>> calls_free_join("rejoin(a)")
     False
+    >>> calls_free_join("(join)(|| (), || ())")
+    True
     """
     pattern = re.compile(rf"\b{name}\b")
 
@@ -247,9 +274,10 @@ def free_call(name: str) -> _Predicate:
         for found in pattern.finditer(body):
             if _ends_a_receiver(body, found.start()):
                 continue
-            index = skip_whitespace(body, found.end())
-            if body.startswith("::<", index):
-                index = after_turbofish(body, index + 2)
+            index = _past_group(body, found.start(), found.end())
+            turbofish = turbofish_end(body, skip_whitespace(body, index))
+            if turbofish is not None:
+                index = turbofish
             if body.startswith("(", skip_whitespace(body, index)):
                 return True
         return False

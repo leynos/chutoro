@@ -137,10 +137,10 @@ def errexit_setting(words: cabc.Sequence[str]) -> bool | None:
     errexit``. Any other command, and a ``set`` naming other options, leaves
     the state alone, which ``None`` reports.
 
-    Option processing stops at ``--`` and at the first word that does not
-    begin with ``-`` or ``+``: everything from there on is a positional
-    parameter, so ``set -- -e`` and ``set value -e`` set ``$1`` rather than
-    errexit. The word after ``-o``, ``+o``, ``-O`` or ``+O`` is that option's
+    Option processing stops at ``--``, at a lone ``-`` and at the first word
+    that does not begin with ``-`` or ``+``: everything from there on is a
+    positional parameter, so ``set -- -e``, ``set - -e`` and
+    ``set value -e`` set ``$1`` rather than errexit. The word after ``-o``, ``+o``, ``-O`` or ``+O`` is that option's
     operand even though it need not begin with a sign, so ``set -o pipefail
     -e`` is still read to its ``-e``.
 
@@ -160,6 +160,8 @@ def errexit_setting(words: cabc.Sequence[str]) -> bool | None:
     True
     >>> errexit_setting(["set", "--", "-e"]) is None
     True
+    >>> errexit_setting(["set", "-", "-e"]) is None
+    True
     >>> errexit_setting(["set", "value", "-e"]) is None
     True
     >>> errexit_setting(["set", "-x"]) is None
@@ -173,7 +175,7 @@ def errexit_setting(words: cabc.Sequence[str]) -> bool | None:
     index = 1
     while index < len(words):
         flag = words[index]
-        if flag == "--" or flag[:1] not in {"-", "+"}:
+        if flag in {"--", "-"} or flag[:1] not in {"-", "+"}:
             break
         if _names_errexit(words, index) or _enables_errexit(flag):
             setting = flag.startswith("-")

@@ -34,6 +34,7 @@ against the shell rather than against the tests.
 
 from __future__ import annotations
 
+import re
 import shlex
 import typing as typ
 
@@ -356,3 +357,31 @@ def shell_tokens(command: str) -> list[str]:
     lexer.whitespace_split = True
     return list(lexer)
 
+
+#: Redirection operators, with the word after each being a file name rather
+#: than an argument. A leading file-descriptor number is part of the operator,
+#: as in ``2>``.
+_REDIRECTION = re.compile(r"\d*(?:&>>?|>>|>|<|<>|>\||<<<|<<)")
+
+
+def is_redirection(token: str) -> bool:
+    """Return whether `token` is a redirection operator.
+
+    ``2>&1`` arrives as three tokens: the operator ``2>``, the ``&`` that
+    copies a descriptor and the descriptor ``1``. Reading the operator is what
+    keeps that ``&`` from being taken for a background operator. An attached
+    target such as ``>scheduling#log`` is one word rather than an operator,
+    and a word that merely ends in ``>`` is not one either.
+
+    Examples
+    --------
+    >>> is_redirection(">")
+    True
+    >>> is_redirection("2>")
+    True
+    >>> is_redirection(">scheduling#log")
+    False
+    >>> is_redirection("scheduling>")
+    False
+    """
+    return _REDIRECTION.fullmatch(token) is not None

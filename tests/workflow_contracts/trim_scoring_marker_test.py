@@ -105,6 +105,12 @@ from trim_scoring_reading import SCORER, dispatch_marker
             id="in-place-scope",
         ),
         pytest.param(
+            ".install(", "pool.install:: <_, ()>(|| ())", id="spaced-turbofish"
+        ),
+        pytest.param(
+            "join(", "(join)(|| (), || ())", id="grouped-free-join"
+        ),
+        pytest.param(
             ".in_place_scope_fifo(",
             "pool.in_place_scope_fifo(|scope| run(scope))",
             id="method-in-place-scope-fifo",
