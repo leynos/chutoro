@@ -187,14 +187,52 @@ def parse_config(config_text: str) -> dict[str, typ.Any]:
     return tomllib.loads(config_text)
 
 
+def _declared_profile(
+    profiles: dict[str, typ.Any], name: str
+) -> dict[str, typ.Any]:
+    """Return a profile's table, refusing a name the configuration omits.
+
+    Returns
+    -------
+    dict[str, typing.Any]
+        The profile's own table.
+
+    Raises
+    ------
+    ProfileInheritanceError
+        If the name is not declared as a mapping.
+    """
+    section = profiles.get(name)
+    if not isinstance(section, dict):
+        message = f"nextest profile {name!r} is not declared"
+        raise ProfileInheritanceError(message)
+    return section
+
+
+def _parent_profile(section: dict[str, typ.Any], current: str) -> str | None:
+    """Return the next profile in the chain, or None at its root.
+
+    A declared ``inherits`` link wins. A custom profile that names no
+    parent still inherits ``default``, which is the root of every nextest
+    chain, and ``default`` itself has no parent.
+
+    Returns
+    -------
+    str or None
+        The parent's name, or None when the walk has reached its root.
+    """
+    inherited = section.get("inherits")
+    if isinstance(inherited, str) and inherited != current:
+        return inherited
+    if current == "default":
+        return None
+    return "default"
+
+
 def _inheritance_chain(
     profiles: dict[str, typ.Any], profile: str
 ) -> list[str]:
     """Return the profile names nextest consults, nearest first.
-
-    The chain follows each declared ``inherits`` link. A custom profile
-    that names no parent inherits ``default``, which is the root of every
-    nextest chain, so the walk appends it rather than stopping.
 
     Parameters
     ----------
@@ -215,27 +253,17 @@ def _inheritance_chain(
         If the chain names an undeclared profile or forms a cycle.
     """
     chain: list[str] = []
-    current = profile
-    while current not in chain:
-        section = profiles.get(current)
-        if not isinstance(section, dict):
-            message = f"nextest profile {current!r} is not declared"
+    current: str | None = profile
+    while current is not None:
+        if current in chain:
+            message = (
+                f"nextest profile inheritance forms a cycle: "
+                f"{' -> '.join([*chain, current])}"
+            )
             raise ProfileInheritanceError(message)
         chain.append(current)
-        inherited = section.get("inherits")
-        if isinstance(inherited, str) and inherited != current:
-            current = inherited
-        elif current == "default":
-            return chain
-        else:
-            # A custom profile with no declared parent still inherits
-            # `default`, the root of every nextest inheritance chain.
-            current = "default"
-    message = (
-        f"nextest profile inheritance forms a cycle: "
-        f"{' -> '.join([*chain, current])}"
-    )
-    raise ProfileInheritanceError(message)
+        current = _parent_profile(_declared_profile(profiles, current), current)
+    return chain
 
 
 def resolved_global_timeout(config_text: str, profile: str = "default") -> float:
