@@ -112,8 +112,11 @@ fn setup_reverse_edge_proof(level: usize) -> Option<(Graph, KaniUpdateContext)> 
 /// Verifies that no node has itself as a neighbour (no self-loops).
 ///
 /// This harness drives the production `EdgeReconciler::ensure_reverse_edge`
-/// path on a bounded 2-node graph, with a nondeterministic choice of whether
-/// the forward edge is seeded first, and asserts that no self-loop appears.
+/// path on a bounded 2-node graph, with nondeterministic choices of whether
+/// the forward edge is seeded first and whether the target is the origin or
+/// node 1. A self-target must be rejected without mutation; a valid target
+/// must gain its reverse edge. Both branches assert the no-self-loop
+/// invariant.
 ///
 /// The graph is bounded at two nodes and the level is a concrete argument:
 /// the full reconciled-update helper and symbolic level indices push the
@@ -126,6 +129,7 @@ fn setup_reverse_edge_proof(level: usize) -> Option<(Graph, KaniUpdateContext)> 
 /// - **Nodes**: 2 (IDs 0, 1), both exposing levels 0 and 1
 /// - **Levels**: One concrete level per proof entry point
 /// - **Edges**: Nondeterministic forward-edge seeding
+/// - **Targets**: Origin (rejected) or node 1 (reconciled)
 #[kani::proof]
 #[kani::solver(kissat)]
 #[kani::unwind(4)]
@@ -141,18 +145,64 @@ fn verify_no_self_loops_2_nodes_upper_layer() {
     check_no_self_loops_at_level(1);
 }
 
+/// Captures a node's selected-level neighbour list as its sole possible entry.
+///
+/// The bounded two-node fixture gives each selected-level list at most one
+/// entry, so the first entry describes the whole list exhaustively. A plain
+/// `Option` keeps the symbolic state free of array constants, whose
+/// allocation identity is expensive for the solver.
+fn selected_level_snapshot(graph: &Graph, node_id: usize, level: usize) -> Option<usize> {
+    graph
+        .node(node_id)
+        .and_then(|node| node.neighbours(level).first().copied())
+}
+
 /// Shared body for the per-level no-self-loop proofs.
 fn check_no_self_loops_at_level(level: usize) {
     let Some((mut graph, ctx)) = setup_reverse_edge_proof(level) else {
         return;
     };
-    let added = ensure_reverse_edge_for_kani(&mut graph, ctx, 1);
-    kani::assert(added, "reverse edge must be ensured");
 
+    // Branch before the call so each target reaches the reconciler as a
+    // literal index. A symbolic node id multiplies solver aliasing through
+    // every `node_mut` and `neighbours(level)` access (see the developers'
+    // guide, "Kani CI policy").
+    if kani::any::<bool>() {
+        check_self_target_rejected(&mut graph, ctx, level);
+    } else {
+        check_valid_target_reconciled(&mut graph, ctx, level);
+    }
+}
+
+/// Proves that a self-target is rejected without mutating either node.
+fn check_self_target_rejected(graph: &mut Graph, ctx: KaniUpdateContext, level: usize) {
+    let origin_before = selected_level_snapshot(graph, 0, level);
+    let target_before = selected_level_snapshot(graph, 1, level);
+
+    let added = ensure_reverse_edge_for_kani(graph, ctx, 0);
+
+    kani::assert(!added, "self-target reconciliation must be rejected");
     kani::assert(
-        has_no_self_loops(&graph),
-        "no self-loops invariant violated",
+        selected_level_snapshot(graph, 0, level) == origin_before,
+        "rejected self-target must not change the origin's neighbours",
     );
+    kani::assert(
+        selected_level_snapshot(graph, 1, level) == target_before,
+        "rejected self-target must not change the target's neighbours",
+    );
+    kani::assert(has_no_self_loops(graph), "no self-loops invariant violated");
+}
+
+/// Proves that a valid target gains its reverse edge without a self-loop.
+fn check_valid_target_reconciled(graph: &mut Graph, ctx: KaniUpdateContext, level: usize) {
+    let added = ensure_reverse_edge_for_kani(graph, ctx, 1);
+
+    kani::assert(added, "reverse edge must be ensured");
+    kani::assert(
+        selected_level_snapshot(graph, 1, level) == Some(0),
+        "valid reconciliation must link the target back to the origin",
+    );
+    kani::assert(has_no_self_loops(graph), "no self-loops invariant violated");
 }
 
 /// Verifies that neighbour lists contain no duplicates.

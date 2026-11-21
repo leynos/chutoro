@@ -2570,6 +2570,20 @@ assertion. Prefer
 `let Ok(value) = operation else { kani::assert(false, "..."); return; };` and
 lean `#[cfg(kani)]` constructors that return static reasons.
 
+Kani treats an active `debug_assert!` as `assert!`, so a debug assertion on a
+branch a proof must explore becomes an unsatisfiable obligation. The
+self-target guard in `EdgeReconciler::ensure_reverse_edge` is therefore
+compiled out under `cfg(kani)`. The two-node no-self-loop harnesses choose the
+target nondeterministically and prove that a self-target returns `false`
+without mutating either selected-level neighbour list, while the
+debug-profile unit test `ensure_reverse_edge_asserts_on_a_self_target` proves
+the assertion fires. Run the release-profile fallback test explicitly:
+
+```sh
+cargo test -p chutoro-core --lib --release \
+  ensure_reverse_edge_rejects_a_self_target_without_mutation
+```
+
 Where production code relies on concurrency that Kani models sequentially, a
 `#[cfg(kani)]` model must preserve the production ordering and selection
 semantics while omitting only unsupported runtime machinery. Every such model
