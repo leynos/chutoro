@@ -9,114 +9,34 @@ two, which can hide a skipped installer (``true ||`` on one line, the
 installer on the next) or invent a status-bearing last command that the shell
 never runs separately.
 
-This module performs both joins, and sets a line's quoted text aside so that
-an operator inside quotes is never read as one. It also drops here-document
-bodies, whose text is standard input for the command that opened them rather
-than a command line of its own. ``scheduling_script_reading`` reads the
-resulting lines as simple commands, so the two concerns stay apart and neither
-file outgrows the 400-line limit ``AGENTS.md`` sets.
+This module performs both joins. It also drops a here-document's body, which
+is standard input for the command that opened it rather than a command line of
+its own; where that body ends is ``scheduling_here_document_reading``'s
+reading. ``scheduling_segment_reading`` reads the resulting lines as simple
+commands, so the concerns stay apart and no file outgrows the 400-line limit
+``AGENTS.md`` sets.
 
-Re-use policy: import from ``scheduling_script_reading`` only; this module
-reuses the comment and quote scanning in ``scheduling_command_reading``. A new
+Re-use policy: import from ``scheduling_segment_reading`` only; this module
+reuses the comment and quote scanning in ``scheduling_command_reading`` and
+the here-document reading in ``scheduling_here_document_reading``. A new
 line-level rule belongs here with the shell behaviour it models stated beside
 it.
 """
 
 from __future__ import annotations
 
-import typing as typ
-
-from scheduling_command_reading import closing_quote, strip_shell_comment
+from scheduling_command_reading import mask_quotes, strip_shell_comment
+from scheduling_here_document_reading import (
+    HereDocument,
+    ends_document,
+    here_documents,
+)
 
 #: Operators that leave the command list open at the end of a line. Any of
 #: them makes the next line the right-hand side of the list, so the two
 #: physical lines are one command for the shell. A lone ``&`` backgrounds the
 #: command and opens nothing, and ``;`` ends the list.
 _LIST_OPERATORS = ("&&", "||", "|&", "|")
-
-#: The form a quoted word is set aside in while the line's shell syntax is
-#: read. Quoted text is data: ``echo '&&' installer`` prints both words, so
-#: the quoted operator must not be read as one. The marker holds no operator
-#: or comment character, so masking the text keeps it whole through both
-#: readings.
-_QUOTED = "\x01{}\x02"
-
-#: Characters that end a here-document's delimiter word. The shell lets a
-#: metacharacter follow it, as ``cat <<EOF; make test`` does, so the word ends
-#: where the operator begins.
-_DELIMITER_ENDS = frozenset(" \t;&|()<>")
-
-
-class MaskedLine(typ.NamedTuple):
-    """A line with its quoted and escaped text set aside for safe reading."""
-
-    text: str
-    quoted: list[str]
-
-
-def mask_quotes(line: str) -> MaskedLine:
-    """Return `line` with each quoted word and escaped character set aside.
-
-    Quotes decide what is an operator and what is text. ``echo '&&' installer``
-    prints both words; once ``shlex`` has removed the quotes, the ``&&`` is
-    indistinguishable from an operator, and a reader that splits on operators
-    sees a command where the shell ran a word. A backslash does the same to a
-    bare character: ``echo \\&\\& installer`` prints the two ampersands, and
-    ``shlex`` removes the escapes before a separator check can tell the
-    difference. Setting both kinds of text aside before the line is read keeps
-    words and operators apart, and restoring them afterwards keeps the words
-    the command is given.
-
-    A backslash escapes the character after it, so an escaped quote opens no
-    quoted text. An unterminated quote raises, as in ``strip_shell_comment``.
-
-    Examples
-    --------
-    >>> mask_quotes("echo 'a b'").quoted
-    ['a b']
-    >>> mask_quotes("echo 'a b'").text
-    'echo \\x010\\x02'
-    >>> escaped = mask_quotes("echo " + chr(92) + "&" + chr(92) + "& x")
-    >>> escaped.quoted
-    ['&', '&']
-    >>> "&" in escaped.text
-    False
-    """
-    masked: list[str] = []
-    quoted: list[str] = []
-    index = 0
-    while index < len(line):
-        char = line[index]
-        if char == "\\" and index + 1 < len(line):
-            quoted.append(line[index + 1])
-            masked.append("\\" + _QUOTED.format(len(quoted) - 1))
-            index += 2
-            continue
-        if char not in "'\"":
-            masked.append(char)
-            index += 1
-            continue
-        end = closing_quote(line, index)
-        if end is None:
-            message = f"unterminated quote in {line!r}"
-            raise ValueError(message)
-        quoted.append(line[index + 1 : end])
-        masked.append(_QUOTED.format(len(quoted) - 1))
-        index = end + 1
-    return MaskedLine("".join(masked), quoted)
-
-
-def restore_quotes(token: str, quoted: list[str]) -> str:
-    """Return `token` with each quoted marker replaced by its text.
-
-    Examples
-    --------
-    >>> restore_quotes("a\\x010\\x02", ["b c"])
-    'ab c'
-    """
-    for position, text in enumerate(quoted):
-        token = token.replace(_QUOTED.format(position), text)
-    return token
 
 
 def _ends_with_operator(line: str) -> bool:
@@ -144,175 +64,152 @@ def _ends_with_operator(line: str) -> bool:
     return any(text.endswith(operator) for operator in _LIST_OPERATORS)
 
 
-def _joined_lines(script: str) -> list[str]:
-    """Return `script`'s physical lines with backslash continuations joined.
+def _continuation(line: str) -> tuple[str, bool]:
+    """Return what `line` leaves before its newline, and whether it continues.
 
-    A workflow script wraps long commands with a trailing backslash. Passing
-    one of those lines to ``shlex`` on its own raises ``No escaped
-    character``, because the escape has nothing left to escape, so the
-    continuations are resolved first.
-
-    The shell deletes an unquoted backslash-newline pair and inserts nothing
-    in its place, so the two parts of a split word are joined exactly. A space
-    inserted here would turn the installer path ``scripts/install-\\`` +
-    ``nextest.sh`` into two words the step never runs. Trailing whitespace is
-    kept for the same reason: a here-document's closing line must repeat its
-    delimiter exactly, so ``EOF`` and ``EOF `` are different lines, and a
-    backslash only continues a line when it is the line's last character
-    rather than followed by a space it escapes.
+    The shell processes a run of backslashes from the left: each pair leaves
+    one literal backslash, and an odd one out escapes the newline, which the
+    shell then deletes with nothing inserted. Trailing whitespace is kept, so
+    a here-document's closing line still has to repeat its word exactly, and a
+    backslash followed by a space escapes the space rather than continuing.
+    A space inserted where the pair was would turn the installer path
+    ``scripts/install-\\`` + ``nextest.sh`` into two words the step never runs.
 
     Examples
     --------
-    The continuation is built with ``chr(92)`` and ``chr(10)``, because a
-    docstring holding those escapes would end the example's line:
+    The backslashes are built with ``chr(92)``, because a docstring holding
+    those escapes would end the example's line:
 
-    >>> _joined_lines(
-    ...     "cargo build " + chr(92) + chr(10) + "  --release"
-    ... )
-    ['cargo build   --release']
-    >>> _joined_lines(
-    ...     "scripts/install-" + chr(92) + chr(10) + "nextest.sh"
-    ... )
-    ['scripts/install-nextest.sh']
-    >>> _joined_lines("EOF ")
-    ['EOF ']
+    >>> _continuation("cargo build " + chr(92))
+    ('cargo build ', True)
+    >>> _continuation("scripts/install-" + chr(92) + chr(32))[1]
+    False
+    >>> text, continues = _continuation("a" + chr(92) * 2)
+    >>> continues
+    False
+    >>> text == "a" + chr(92) * 2
+    True
+    >>> text, continues = _continuation("a" + chr(92) * 3)
+    >>> continues
+    True
+    >>> text == "a" + chr(92)
+    True
     """
-    lines: list[str] = []
-    pending = ""
-    for line in script.splitlines():
-        if line.endswith("\\"):
-            pending = f"{pending}{line[:-1]}"
-            continue
-        lines.append(f"{pending}{line}")
-        pending = ""
+    run = len(line) - len(line.rstrip("\\"))
+    if run % 2 == 0:
+        return line, False
+    return f"{line[: len(line) - run]}{chr(92) * (run // 2)}", True
+
+
+def _body_step(
+    documents: list[HereDocument], line: str, pending: str
+) -> str:
+    """Consume one physical line of the body of ``documents[0]``.
+
+    Returns the text of an expanded body line that continues onto the next
+    one, and the empty string once the line is complete. A literal body is
+    compared as written: the shell expands nothing there, so a trailing
+    backslash is a character and never a continuation. An expanded body has
+    its backslash-newline pairs deleted before the closing word is compared,
+    so ``x\\`` followed by ``EOF`` is the body line ``xEOF`` rather than the
+    document's close. The closing line itself is consumed with the document,
+    and a body with several documents open closes them one at a time.
+
+    Examples
+    --------
+    >>> documents = [HereDocument("EOF", False, True)]
+    >>> _body_step(documents, "EO" + chr(92), "")
+    ''
+    >>> _body_step(documents, "EOF", "")
+    ''
+    >>> documents
+    []
+    >>> expanded = [HereDocument("EOF", False, False)]
+    >>> connected = _body_step(expanded, "x" + chr(92), "")
+    >>> connected
+    'x'
+    >>> _body_step(expanded, "EOF", connected)
+    ''
+    >>> expanded
+    [HereDocument(word='EOF', strips_tabs=False, literal=False)]
+    """
+    document = documents[0]
+    if document.literal:
+        if ends_document(document, line):
+            documents.pop(0)
+        return ""
+    text, continues = _continuation(line)
+    joined = f"{pending}{text}"
+    if continues:
+        return joined
+    if ends_document(document, joined):
+        documents.pop(0)
+    return ""
+
+
+def _absorb(
+    pending: str, line: str, lines: list[str]
+) -> tuple[str, list[HereDocument]]:
+    """Add one joined physical line to the command list being read.
+
+    A comment is removed first, so a trailing comment cannot absorb the next
+    line, and a blank or comment-only line between a continuation and what it
+    continues is skipped as the shell skips it. A line still ending in a list
+    operator waits for the next one. Otherwise the command line is complete:
+    it ends the list, so it is kept and any here-documents it opens start
+    their bodies on the next physical line.
+
+    Examples
+    --------
+    >>> lines = []
+    >>> _absorb("", "installer " + chr(35) + " note", lines)
+    ('', [])
+    >>> lines
+    ['installer']
+    >>> pending, documents = _absorb("", "installer &&", lines)
+    >>> pending
+    'installer &&'
+    >>> documents
+    []
+    >>> _absorb(pending, "true", lines)
+    ('', [])
+    >>> lines
+    ['installer', 'installer && true']
+    >>> _absorb("", "cat <<'EOF'", [])[1]
+    [HereDocument(word='EOF', strips_tabs=False, literal=True)]
+    """
+    stripped = strip_shell_comment(line).strip()
+    if pending and not stripped:
+        return pending, []
+    merged = f"{pending} {stripped}" if pending else stripped
+    if _ends_with_operator(merged):
+        return merged, []
+    lines.append(merged)
+    return "", here_documents(merged)
+
+
+def _tail_lines(lines: list[str], pending: str, joined: str) -> list[str]:
+    """Add the script's final partial line, if any, and return the result.
+
+    A script may end without a newline, or in the middle of a list operator's
+    continuation. Each is still a command line the shell would read, so the
+    last physical line is absorbed once more and a list still open at the end
+    is kept as the line it would have continued.
+
+    Examples
+    --------
+    >>> _tail_lines([], "", "installer")
+    ['installer']
+    >>> _tail_lines([], "installer &&", "")
+    ['installer &&']
+    >>> _tail_lines(["a"], "", "")
+    ['a']
+    """
+    if joined.strip():
+        pending, _ = _absorb(pending, joined, lines)
     if pending.strip():
         lines.append(pending)
     return lines
-
-
-def _delimiter_start(masked: str, start: int) -> int:
-    """Return the index where a ``<<`` operator's delimiter word begins.
-
-    ``<<-`` strips leading tabs from the body, and either form may put spaces
-    between the operator and the word.
-
-    Examples
-    --------
-    >>> _delimiter_start("<<EOF", 2)
-    2
-    >>> _delimiter_start("<<-EOF", 2)
-    3
-    >>> _delimiter_start("<< EOF", 2)
-    3
-    """
-    if masked.startswith("-", start):
-        start += 1
-    while start < len(masked) and masked[start] in " \t":
-        start += 1
-    return start
-
-
-def _delimiter_end(masked: str, start: int) -> int:
-    """Return the index where the delimiter word beginning at `start` ends.
-
-    Examples
-    --------
-    >>> _delimiter_end("EOF; make test", 0)
-    3
-    >>> _delimiter_end("EOF", 0)
-    3
-    """
-    end = start
-    while end < len(masked) and masked[end] not in _DELIMITER_ENDS:
-        end += 1
-    return end
-
-
-def here_document_terminators(line: str) -> list[tuple[str, bool]]:
-    """Return the words that end the here-documents `line` opens.
-
-    A here-document's body is standard input for the command that reads it,
-    not a command the shell runs. Read as commands, a body that named the
-    installer looked like an installation, so ``cat <<'EOF'`` alone satisfied
-    an ordering contract that ran nothing. Quoted text is data, so a ``<<``
-    inside quotes opens nothing; the delimiter itself may be quoted, and the
-    quoted form is restored because that is the word the closing line repeats.
-
-    Each word is paired with whether the operator was ``<<-``. The shell
-    strips leading tabs from a ``<<-`` document's body and its closing line,
-    and from neither for ``<<``, where the closing line must repeat the word
-    exactly.
-
-    A ``<<`` in an arithmetic expansion is read as an opening too, which can
-    only make later commands look like body text: the reading then finds no
-    evidence rather than false evidence, so the mistake fails the contract
-    instead of passing it.
-
-    Examples
-    --------
-    >>> here_document_terminators("cat <<'EOF'")
-    [('EOF', False)]
-    >>> here_document_terminators("cat <<-EOF")
-    [('EOF', True)]
-    >>> here_document_terminators("echo '<<EOF'")
-    []
-    >>> here_document_terminators("cat <<EOF; make test")
-    [('EOF', False)]
-    >>> here_document_terminators("cat <<A <<B")
-    [('A', False), ('B', False)]
-    """
-    masked = mask_quotes(line)
-    terminators: list[tuple[str, bool]] = []
-    index = masked.text.find("<<")
-    while index != -1:
-        strips_tabs = masked.text.startswith("-", index + 2)
-        start = _delimiter_start(masked.text, index + 2)
-        end = _delimiter_end(masked.text, start)
-        if end > start:
-            word = restore_quotes(masked.text[start:end], masked.quoted)
-            terminators.append((word, strips_tabs))
-        index = masked.text.find("<<", max(end, index + 2))
-    return terminators
-
-
-def _consumes_body_line(
-    line: str, terminators: list[tuple[str, bool]]
-) -> bool:
-    """Return whether `line` belongs to a here-document body, consuming it.
-
-    `terminators` holds the words that end the documents still open, outermost
-    first, each with whether its ``<<-`` form strips leading tabs. The line
-    that ends the current body closes the document and is consumed with it, so
-    the next line is read as a command again. Only a closing line repeats the
-    word exactly; for ``<<`` a leading space is body text, and ``EOF `` is a
-    body line rather than the delimiter.
-
-    Examples
-    --------
-    >>> open_documents = [("EOF", False)]
-    >>> _consumes_body_line(" EOF", open_documents)
-    True
-    >>> open_documents
-    [('EOF', False)]
-    >>> _consumes_body_line("EOF", open_documents)
-    True
-    >>> open_documents
-    []
-    >>> tabs = [("EOF", True)]
-    >>> _consumes_body_line(chr(9) + "EOF", tabs)
-    True
-    >>> tabs
-    []
-    >>> _consumes_body_line("installer", [])
-    False
-    """
-    if not terminators:
-        return False
-    word, strips_tabs = terminators[0]
-    candidate = line.lstrip("\t") if strips_tabs else line
-    if candidate == word:
-        terminators.pop(0)
-    return True
 
 
 def logical_lines(script: str) -> list[str]:
@@ -323,15 +220,12 @@ def logical_lines(script: str) -> list[str]:
     next line as that operator's right-hand side, so ``true ||`` followed by
     an installer line skips the installer, and an installer followed by
     ``&&`` carries its failure into the next line rather than ending as a
-    command of its own. Comments are removed before the decision, so a
-    trailing comment cannot absorb the next line, and a comment or blank line
-    between a continuation and the command it continues is skipped as the
-    shell skips it. A comment-only line with nothing to continue stays as an
-    empty line, which runs no command. A here-document's body is not a command
-    line either: the line that opened it names the word that ends the body,
-    and every line up to and including that word is dropped. The word has to
-    repeat exactly for ``<<``, so `` EOF`` is body text, while a ``<<-``
-    document ignores leading tabs on both its body and its closing line.
+    command of its own. A here-document's body is not a command line either:
+    the line that opened it names the word that ends the body, and every
+    physical line up to and including that word is dropped without joining,
+    as the shell reads it. The word has to repeat exactly for ``<<``, so
+    `` EOF`` is body text, while a ``<<-`` document ignores leading tabs on
+    both its body and its closing line.
 
     Examples
     --------
@@ -364,22 +258,25 @@ def logical_lines(script: str) -> list[str]:
     ...     + chr(9) + "EOF" + chr(10) + "installer"
     ... )
     ['cat <<-EOF', 'installer']
+    >>> logical_lines(
+    ...     "cat <<'EOF'" + chr(10) + "EO" + chr(92) + chr(10) + "F"
+    ...     + chr(10) + "installer" + chr(10) + "EOF"
+    ... )
+    ["cat <<'EOF'"]
     """
     lines: list[str] = []
+    documents: list[HereDocument] = []
     pending = ""
-    terminators: list[tuple[str, bool]] = []
-    for line in _joined_lines(script):
-        if _consumes_body_line(line, terminators):
+    body = ""
+    joined = ""
+    for physical in script.splitlines():
+        if documents:
+            body = _body_step(documents, physical, body)
             continue
-        stripped = strip_shell_comment(line).strip()
-        if pending and not stripped:
+        text, continues = _continuation(physical)
+        joined = f"{joined}{text}"
+        if continues:
             continue
-        pending = f"{pending} {stripped}" if pending else stripped
-        if _ends_with_operator(pending):
-            continue
-        lines.append(pending)
-        terminators = here_document_terminators(pending)
-        pending = ""
-    if pending.strip():
-        lines.append(pending)
-    return lines
+        pending, documents = _absorb(pending, joined, lines)
+        joined = ""
+    return _tail_lines(lines, pending, joined)

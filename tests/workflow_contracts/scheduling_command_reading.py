@@ -9,27 +9,32 @@ starts, quoted text is data even where it spells an operator, an operator ends
 one simple command and begins another, and the words are split the way the
 shell splits them rather than on whitespace.
 
-This module holds the shell-level reading: quotes, comments, and the words a
-command is made of. The recipe itself, its target, and the filter expressions
-it passes live in ``scheduling_reading``, the CI-step reading lives in
-``scheduling_script_reading``, its line joining and quote masking live in
-``scheduling_line_reading``, the nextest invocation selected from a command
-lives in ``scheduling_invocation_reading``, and the declarations the recipe
-names live in ``rust_declaration_reading``.
+This module holds the shell-level reading: quotes, comments, the words a
+command is made of, and the masking that sets quoted text aside so an operator
+inside it is never read as one. The recipe itself, its target, and the filter
+expressions it passes live in ``scheduling_reading``, the CI-step reading
+lives in ``scheduling_script_reading``, its line joining lives in
+``scheduling_line_reading``, its command segmentation lives in
+``scheduling_segment_reading``, the here-documents it drops live in
+``scheduling_here_document_reading``, the nextest invocation selected from a
+command lives in ``scheduling_invocation_reading``, and the declarations the
+recipe names live in ``rust_declaration_reading``.
 
 Re-use policy: import from ``scheduling_reading``,
 ``scheduling_script_reading``, ``scheduling_line_reading``,
+``scheduling_segment_reading``, ``scheduling_here_document_reading``,
 ``scheduling_invocation_reading`` and ``scheduling_contract_test`` only. Those
-files were pushed past the 400-line limit ``AGENTS.md`` sets when these
-readers lived beside the recipe, and this module keeps each one inside it. A
-new shell rule belongs here with the shell behaviour it models stated beside
-it, so a later reader can check the rule against the shell rather than against
-the tests.
+files were pushed past the 400-line
+limit ``AGENTS.md`` sets when these readers lived beside the recipe, and this
+module keeps each one inside it. A new shell rule belongs here with the shell
+behaviour it models stated beside it, so a later reader can check the rule
+against the shell rather than against the tests.
 """
 
 from __future__ import annotations
 
 import shlex
+import typing as typ
 
 #: Characters after which the shell can start a new word. An operator ends the
 #: word before it, so a ``#`` written straight after one is still at a word
@@ -100,6 +105,84 @@ def closing_quote(line: str, start: int) -> int | None:
             return index
         index += 1
     return None
+
+
+#: The form a quoted word is set aside in while a line's shell syntax is read.
+#: The marker holds no operator or comment character, so masking the text keeps
+#: it whole through every later reading.
+_QUOTED = "\x01{}\x02"
+
+
+class MaskedLine(typ.NamedTuple):
+    """A line with its quoted and escaped text set aside for safe reading."""
+
+    text: str
+    quoted: list[str]
+
+
+def mask_quotes(line: str) -> MaskedLine:
+    """Return `line` with each quoted word and escaped character set aside.
+
+    Quotes decide what is an operator and what is text. ``echo '&&' installer``
+    prints both words; once ``shlex`` has removed the quotes, the ``&&`` is
+    indistinguishable from an operator, and a reader that splits on operators
+    sees a command where the shell ran a word. A backslash does the same to a
+    bare character: ``echo \\&\\& installer`` prints the two ampersands, and
+    ``shlex`` removes the escapes before a separator check can tell the
+    difference. Setting both kinds of text aside before the line is read keeps
+    words and operators apart, and restoring them afterwards keeps the words
+    the command is given.
+
+    A backslash escapes the character after it, so an escaped quote opens no
+    quoted text. An unterminated quote raises, as in ``strip_shell_comment``.
+
+    Examples
+    --------
+    >>> mask_quotes("echo 'a b'").quoted
+    ['a b']
+    >>> mask_quotes("echo 'a b'").text
+    'echo \\x010\\x02'
+    >>> escaped = mask_quotes("echo " + chr(92) + "&" + chr(92) + "& x")
+    >>> escaped.quoted
+    ['&', '&']
+    >>> "&" in escaped.text
+    False
+    """
+    masked: list[str] = []
+    quoted: list[str] = []
+    index = 0
+    while index < len(line):
+        char = line[index]
+        if char == "\\" and index + 1 < len(line):
+            quoted.append(line[index + 1])
+            masked.append("\\" + _QUOTED.format(len(quoted) - 1))
+            index += 2
+            continue
+        if char not in "'\"":
+            masked.append(char)
+            index += 1
+            continue
+        end = closing_quote(line, index)
+        if end is None:
+            message = f"unterminated quote in {line!r}"
+            raise ValueError(message)
+        quoted.append(line[index + 1 : end])
+        masked.append(_QUOTED.format(len(quoted) - 1))
+        index = end + 1
+    return MaskedLine("".join(masked), quoted)
+
+
+def restore_quotes(token: str, quoted: list[str]) -> str:
+    """Return `token` with each quoted marker replaced by its text.
+
+    Examples
+    --------
+    >>> restore_quotes("a\\x010\\x02", ["b c"])
+    'ab c'
+    """
+    for position, text in enumerate(quoted):
+        token = token.replace(_QUOTED.format(position), text)
+    return token
 
 
 def _after_quoted(line: str, start: int) -> int:

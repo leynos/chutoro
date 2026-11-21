@@ -128,6 +128,87 @@ def pool_associated_call(body: str) -> bool:
             return True
     return False
 
+
+def _continues_a_name(character: str) -> bool:
+    """Return whether `character` can continue a name or a path before it.
+
+    A free call's name starts a word, so a letter, digit, ``_``, ``.`` or
+    ``:`` before it means the match is the tail of an identifier, a method
+    call, an associated function or a longer path.
+
+    Examples
+    --------
+    >>> _continues_a_name("e")
+    True
+    >>> _continues_a_name(".")
+    True
+    >>> _continues_a_name(" ")
+    False
+    >>> _continues_a_name("(")
+    False
+    """
+    return character.isalnum() or character in "_.:"
+
+
+def free_call(name: str) -> _Predicate:
+    """Return a reading of the free function `name`'s call.
+
+    A free function is called without a receiver, so ``join(a, b)`` is
+    Rayon's while ``cache_dir.join(a)`` and ``Path::join(a, b)`` are not. Rust
+    permits whitespace around the dot, so ``cache_dir . join(a)`` is the same
+    path join and has to be rejected too: the character before the name is
+    read back past any spaces, and a ``.`` or ``::`` there leaves the call a
+    method of something else. Rayon's free functions are generic, so a
+    turbofish may sit between the name and the argument list, as
+    ``join::<_, _, (), ()>(|| (), || ())`` shows.
+
+    Examples
+    --------
+    >>> calls_free_join = free_call("join")
+    >>> calls_free_join("join(|| (), || ())")
+    True
+    >>> calls_free_join("join::<_, _, (), ()>(|| (), || ())")
+    True
+    >>> calls_free_join("cache_dir.join(cache_file)")
+    False
+    >>> calls_free_join("cache_dir . join(cache_file)")
+    False
+    >>> calls_free_join("Path::join(a, b)")
+    False
+    >>> calls_free_join("rejoin(a)")
+    False
+    """
+    pattern = re.compile(rf"\b{name}\b")
+
+    def calls(body: str) -> bool:
+        """Return whether `body` calls `name` without a receiver.
+
+        A candidate preceded by an identifier character, `.` or `:` is a
+        method, associated function or longer name rather than the free
+        function, and one followed by a turbofish is read past it before the
+        argument list is required.
+
+        Examples
+        --------
+        >>> free_call("join")("join(a, b)")
+        True
+        >>> free_call("join")("cache_dir . join(a)")
+        False
+        """
+        for found in pattern.finditer(body):
+            before = body[: found.start()].rstrip()
+            if before and _continues_a_name(before[-1]):
+                continue
+            index = skip_whitespace(body, found.end())
+            if body.startswith("::<", index):
+                index = after_turbofish(body, index + 2)
+            if body.startswith("(", skip_whitespace(body, index)):
+                return True
+        return False
+
+    return calls
+
+
 #: `into_par_iter` precedes `par_iter` so the more specific name is reported
 #: for a parallel iterator, and `rayon::` precedes the bare calls so a
 #: qualified call names its namespace rather than only its function.
@@ -172,23 +253,23 @@ DISPATCH_MARKERS: typ.Final[tuple[tuple[str, _Predicate], ...]] = (
     ("rayon::", _matches(r"rayon\s*::")),
     ("ThreadPool::", pool_associated_call),
     (".install(", calls_the_method("install")),
-    # Each receiver form precedes its free-function form. With whitespace
-    # between the dot and the name the free pattern's anchor sees a space
-    # rather than the dot, so both patterns match; the more specific entry has
-    # to be the one that reports it.
+    # Each receiver form precedes its free-function form so the more specific
+    # entry reports the call. A free call is read by `free_call`, which rejects
+    # a receiver even when whitespace separates it from its dot and accepts a
+    # generic call's turbofish.
     (".scope(", _matches(r"\.\s*scope\s*\(")),
-    ("scope(", _matches(r"(?<![.\w:])scope\s*\(")),
+    ("scope(", free_call("scope")),
     (".scope_fifo(", _matches(r"\.\s*scope_fifo\s*\(")),
-    ("scope_fifo(", _matches(r"(?<![.\w:])scope_fifo\s*\(")),
+    ("scope_fifo(", free_call("scope_fifo")),
     (".spawn(", _matches(r"\.\s*spawn\s*\(")),
-    ("spawn(", _matches(r"(?<![.\w:])spawn\s*\(")),
+    ("spawn(", free_call("spawn")),
     (".spawn_fifo(", _matches(r"\.\s*spawn_fifo\s*\(")),
-    ("spawn_fifo(", _matches(r"(?<![.\w:])spawn_fifo\s*\(")),
+    ("spawn_fifo(", free_call("spawn_fifo")),
     (".spawn_broadcast(", _matches(r"\.\s*spawn_broadcast\s*\(")),
-    ("spawn_broadcast(", _matches(r"(?<![.\w:])spawn_broadcast\s*\(")),
+    ("spawn_broadcast(", free_call("spawn_broadcast")),
     (".join(", pool_join),
-    ("join(", _matches(r"(?<![.\w:])join\s*\(")),
-    ("join_context(", _matches(r"(?<![.\w:])join_context\s*\(")),
+    ("join(", free_call("join")),
+    ("join_context(", free_call("join_context")),
     (".broadcast(", _matches(r"\.\s*broadcast\s*\(")),
-    ("broadcast(", _matches(r"(?<![.\w:])broadcast\s*\(")),
+    ("broadcast(", free_call("broadcast")),
 )

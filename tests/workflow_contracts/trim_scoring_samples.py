@@ -96,6 +96,16 @@ fn score_trim_jobs(jobs: Vec<Job>) -> PathBuf {
 }
 """
 
+#: A path join written with whitespace around the dot. Rust permits it, so
+#: `cache_dir . join(x)` is the same method call as `cache_dir.join(x)`; a
+#: free-function reading that only required the name to start a word reported
+#: the body as a pool join, because the character before the name is a space.
+SPACED_RECEIVER_JOIN = """
+fn score_trim_jobs(jobs: Vec<Job>) -> PathBuf {
+    cache_dir . join(&cache_file)
+}
+"""
+
 #: A slice join whose separator is a variable. Here no comma follows the
 #: argument at all, which is what the receiver form requires, so a separator
 #: assembled at run time stays a slice join rather than a pool join.
@@ -149,6 +159,16 @@ fn score_trim_jobs(jobs: Vec<Job>) -> PathBuf {
 POOL_JOIN = """
 fn score_trim_jobs(jobs: Vec<Job>) -> Scored {
     pool.join(|| score(left), || score(right))
+}
+"""
+
+#: A free call to a generic entry point. Rayon's free functions are generic, so
+#: `join::<_, _, (), ()>(left, right)` dispatches exactly as `join(left, right)`
+#: does; a pattern that expected the parenthesis straight after the name read
+#: this body as serial.
+GENERIC_FREE_JOIN = """
+fn score_trim_jobs(jobs: Vec<Job>) -> Scored {
+    join::<_, _, (), ()>(|| score(left), || score(right))
 }
 """
 

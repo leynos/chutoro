@@ -46,6 +46,7 @@ from trim_scoring_samples import (
     DISPATCHING,
     FACTORY_JOIN,
     GENERIC_ASSOCIATED_INSTALL,
+    GENERIC_FREE_JOIN,
     GENERIC_PATH_JOIN,
     HISTORICAL_SCORE_TRIM_JOBS,
     LISTED_HELPER_DISPATCH,
@@ -68,6 +69,7 @@ from trim_scoring_samples import (
     SLICE_JOIN,
     SLICE_JOIN_TRAILING_COMMA,
     SLICE_JOIN_VARIABLE,
+    SPACED_RECEIVER_JOIN,
     TUPLE_JOIN,
     UNIT_INSTALL,
     UNIT_TYPE_LOCAL,
@@ -130,6 +132,10 @@ def test_the_historical_scorer_is_the_dispatch_the_contract_rejects() -> None:
             SLICE_JOIN_TRAILING_COMMA, None, id="a-slice-join-trailing-comma"
         ),
         pytest.param(PATH_JOIN, None, id="a-path-join"),
+        pytest.param(
+            SPACED_RECEIVER_JOIN, None, id="a-spaced-receiver-join"
+        ),
+        pytest.param(GENERIC_FREE_JOIN, "join(", id="a-generic-free-join"),
         pytest.param(
             PATH_JOIN_TRAILING_COMMA, None, id="a-path-join-trailing-comma"
         ),

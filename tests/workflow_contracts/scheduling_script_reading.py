@@ -9,30 +9,31 @@ operator that ends it — is what makes "does this step install nextest, and
 would that installation fail the step?" a question about execution rather than
 about a substring.
 
-This module is the reading. ``scheduling_ci_test`` holds the assertions over
-it, so neither file outgrows the 400-line limit ``AGENTS.md`` sets.
+This module is the reading of whether a command installs, and where in its
+line it stands. Splitting each line into simple commands is
+``scheduling_segment_reading``'s reading, and ``scheduling_ci_test`` holds the
+assertions over both, so no file outgrows the 400-line limit ``AGENTS.md``
+sets.
 
 Re-use policy: import from ``scheduling_ci_test`` only; this module reuses the
-comment and tokenizing readers in ``scheduling_command_reading``, the line
-joining and quote masking in ``scheduling_line_reading``, and the ``errexit``
-and AND/OR readings in ``scheduling_errexit_reading``. A command shape that
-needs a new rule belongs here with the shell behaviour it models stated beside
-it, so a later reader can check the rule against the shell rather than against
-the tests.
+segment reading in ``scheduling_segment_reading`` and the ``errexit`` and
+AND/OR readings in ``scheduling_errexit_reading``. A command shape that needs
+a new rule belongs here with the shell behaviour it models stated beside it,
+so a later reader can check the rule against the shell rather than against the
+tests.
 """
 
 from __future__ import annotations
 
 import typing as typ
 
-from scheduling_command_reading import shell_tokens
 from scheduling_errexit_reading import (
     CARRYING_OPERATOR,
     OWN_LIST_END,
     carries_to_the_step,
     errexit_states,
 )
-from scheduling_line_reading import logical_lines, mask_quotes, restore_quotes
+from scheduling_segment_reading import Segment, read_lines
 
 #: The script that installs ``cargo-nextest`` for the job.
 NEXTEST_INSTALLER = "scripts/install-nextest.sh"
@@ -41,10 +42,6 @@ NEXTEST_INSTALLER = "scripts/install-nextest.sh"
 #: installs; ``echo scripts/install-nextest.sh`` only prints the path.
 INTERPRETERS = frozenset({"bash", "sh", "dash"})
 
-#: Characters that end one simple command and begin another. ``shlex`` yields
-#: any run of them as one token, so ``|&`` arrives whole.
-_OPERATOR_CHARS = frozenset(";&|")
-
 #: Operators after which a command is certain to run. Only ``;`` starts a
 #: fresh command list unconditionally. A command after ``&&`` runs only when
 #: everything before it succeeded, so ``false && installer`` never installs;
@@ -52,103 +49,36 @@ _OPERATOR_CHARS = frozenset(";&|")
 #: as ``true || installer`` shows.
 _UNCONDITIONAL_BEFORE = frozenset({OWN_LIST_END})
 
-
-class _Segment(typ.NamedTuple):
-    """One simple command and the operator that ends it.
-
-    The operator is kept because it decides what the job sees when the
-    command fails: ``installer || true`` runs the installer and reports
-    success, so a segment read without its operator cannot say whether the
-    installation was allowed to fail.
-    """
-
-    words: list[str]
-    follows: str
-
-
-def _segments(tokens: list[str], quoted: list[str]) -> list[_Segment]:
-    """Return one line's simple commands, each with the operator that ends it.
-
-    ``shlex`` yields any run of operator characters as one token, so ``|&``
-    arrives whole and an unspaced ``||true`` still separates. A word's quoted
-    text was set aside before tokenizing and is restored here, so a command is
-    read with the words the shell would give it.
-
-    Examples
-    --------
-    >>> _segments(["a", "&&", "b"], [])
-    [_Segment(words=['a'], follows='&&'), _Segment(words=['b'], follows='')]
-    >>> _segments(["a", "|&", "b"], [])
-    [_Segment(words=['a'], follows='|&'), _Segment(words=['b'], follows='')]
-    """
-    segments: list[_Segment] = []
-    words: list[str] = []
-    for token in tokens:
-        if set(token) <= _OPERATOR_CHARS:
-            if words:
-                segments.append(_Segment(words, token))
-            words = []
-            continue
-        words.append(restore_quotes(token, quoted))
-    if words:
-        segments.append(_Segment(words, ""))
-    return segments
+#: Words that open or close a compound command whose body this reading cannot
+#: place. ``if false; then``, ``fi`` and the loop and case keywords are
+#: commands of their own to a simple reading, so an installer written inside
+#: the body reads exactly like a plain command that certainly ran, while the
+#: shell skips the whole body. The reading tracks no block structure, so a
+#: script holding one of these yields no evidence at all rather than a guess.
+COMPOUND_KEYWORDS = frozenset(
+    {
+        "if",
+        "then",
+        "elif",
+        "else",
+        "fi",
+        "for",
+        "while",
+        "until",
+        "do",
+        "done",
+        "case",
+        "esac",
+        "select",
+        "function",
+        "{",
+        "}",
+        "coproc",
+    }
+)
 
 
-def _lines(script: str) -> list[list[_Segment]]:
-    """Return each line of `script` as the simple commands it runs.
-
-    A step's script can hold several commands, separated by newlines or by
-    shell operators, and a comment line names a script without running it.
-    Splitting first is what makes "is the installer executed?" a question
-    about a command's first word rather than about a substring. The operator
-    that follows each command is retained, because an operator decides what
-    the line reports when the command fails. Segments are grouped by line
-    because a command's status travels only as far as the end of its own line.
-
-    Lines arrive with their continuations resolved and their comments removed
-    by ``scheduling_line_reading``, so a ``#`` inside a redirection stays part
-    of its word and a comment line runs nothing. A here-document's body never
-    arrives: it is stdin for the command that opened the document, so the
-    reader drops it rather than reading it as commands. Each line's quoted
-    text is masked, so a quoted operator stays an argument, and the lexer's
-    own comment handling is turned off so it cannot cut the line a second time.
-
-    Examples
-    --------
-    >>> _lines("echo scripts/install-nextest.sh")
-    [[_Segment(words=['echo', 'scripts/install-nextest.sh'], follows='')]]
-    >>> [segment.words for segment in _lines("a || true")[0]]
-    [['a'], ['true']]
-    >>> [segment.follows for segment in _lines("a || true")[0]]
-    ['||', '']
-    >>> _lines("# scripts/install-nextest.sh")
-    [[]]
-    >>> [segment.words for segment in _lines("echo '&&' installer")[0]]
-    [['echo', '&&', 'installer']]
-    >>> [segment.words for segment in _lines("installer >log#1 || true")[0]]
-    [['installer', '>log#1'], ['true']]
-    >>> [segment.words for segment in _lines("installer # don't")[0]]
-    [['installer']]
-    >>> [segment.words for segment in _lines("true ||" + chr(10) + "installer")[0]]
-    [['true'], ['installer']]
-    >>> [segment.follows for segment in _lines("true ||" + chr(10) + "installer")[0]]
-    ['||', '']
-    >>> escaped = "echo " + chr(92) + "&" + chr(92) + "& installer"
-    >>> [segment.words for segment in _lines(escaped)[0]]
-    [['echo', '&&', 'installer']]
-    >>> len(_lines(escaped)[0])
-    1
-    """
-    lines: list[list[_Segment]] = []
-    for source_line in logical_lines(script):
-        masked = mask_quotes(source_line)
-        tokens = shell_tokens(masked.text)
-        lines.append(_segments(tokens, masked.quoted))
-    return lines
-
-
-def _reaches_the_installer(line: list[_Segment], index: int) -> bool:
+def _reaches_the_installer(line: list[Segment], index: int) -> bool:
     """Return whether the line is certain to run `line[index]`.
 
     A command after ``||``, ``|``, ``&`` or ``|&`` may be skipped while the
@@ -160,19 +90,19 @@ def _reaches_the_installer(line: list[_Segment], index: int) -> bool:
 
     Examples
     --------
-    >>> _reaches_the_installer(_lines("a")[0], 0)
+    >>> _reaches_the_installer(read_lines("a")[0], 0)
     True
-    >>> _reaches_the_installer(_lines("a; b")[0], 1)
+    >>> _reaches_the_installer(read_lines("a; b")[0], 1)
     True
-    >>> _reaches_the_installer(_lines("false && a ; b")[0], 2)
+    >>> _reaches_the_installer(read_lines("false && a ; b")[0], 2)
     True
-    >>> _reaches_the_installer(_lines("a ; false && b")[0], 2)
+    >>> _reaches_the_installer(read_lines("a ; false && b")[0], 2)
     False
-    >>> _reaches_the_installer(_lines("a && b")[0], 1)
+    >>> _reaches_the_installer(read_lines("a && b")[0], 1)
     False
-    >>> _reaches_the_installer(_lines("a || b")[0], 1)
+    >>> _reaches_the_installer(read_lines("a || b")[0], 1)
     False
-    >>> _reaches_the_installer(_lines("a | b")[0], 1)
+    >>> _reaches_the_installer(read_lines("a | b")[0], 1)
     False
     """
     if index == 0:
@@ -180,7 +110,7 @@ def _reaches_the_installer(line: list[_Segment], index: int) -> bool:
     return line[index - 1].follows in _UNCONDITIONAL_BEFORE
 
 
-def _status_reaches_the_end(line: list[_Segment], index: int) -> bool:
+def _status_reaches_the_end(line: list[Segment], index: int) -> bool:
     """Return whether a failure of `line[index]` leaves the line failing.
 
     A line is an AND/OR list, and only ``&&`` passes a failure along it. The
@@ -199,21 +129,21 @@ def _status_reaches_the_end(line: list[_Segment], index: int) -> bool:
 
     Examples
     --------
-    >>> _status_reaches_the_end(_lines("a && b")[0], 0)
+    >>> _status_reaches_the_end(read_lines("a && b")[0], 0)
     True
-    >>> _status_reaches_the_end(_lines("a || b")[0], 0)
+    >>> _status_reaches_the_end(read_lines("a || b")[0], 0)
     False
-    >>> _status_reaches_the_end(_lines("a && b || c")[0], 0)
+    >>> _status_reaches_the_end(read_lines("a && b || c")[0], 0)
     False
-    >>> _status_reaches_the_end(_lines("a ; b")[0], 0)
+    >>> _status_reaches_the_end(read_lines("a ; b")[0], 0)
     True
-    >>> _status_reaches_the_end(_lines("a ;")[0], 0)
+    >>> _status_reaches_the_end(read_lines("a ;")[0], 0)
     True
-    >>> _status_reaches_the_end(_lines("a && b")[0], 1)
+    >>> _status_reaches_the_end(read_lines("a && b")[0], 1)
     True
-    >>> _status_reaches_the_end(_lines("a &")[0], 0)
+    >>> _status_reaches_the_end(read_lines("a &")[0], 0)
     False
-    >>> _status_reaches_the_end(_lines("a && b &")[0], 0)
+    >>> _status_reaches_the_end(read_lines("a && b &")[0], 0)
     False
     """
     if line[index].follows == OWN_LIST_END:
@@ -227,7 +157,7 @@ def _status_reaches_the_end(line: list[_Segment], index: int) -> bool:
     )
 
 
-def _stops_the_script(lines: list[list[_Segment]]) -> tuple[int, int] | None:
+def _stops_the_script(lines: list[list[Segment]]) -> tuple[int, int] | None:
     """Return the first command that ends the script, if one can.
 
     ``exit`` ends the shell wherever it runs, so no command after it runs at
@@ -240,11 +170,11 @@ def _stops_the_script(lines: list[list[_Segment]]) -> tuple[int, int] | None:
 
     Examples
     --------
-    >>> _stops_the_script(_lines("a" + chr(10) + "exit 0"))
+    >>> _stops_the_script(read_lines("a" + chr(10) + "exit 0"))
     (1, 0)
-    >>> _stops_the_script(_lines("a" + chr(10) + "b")) is None
+    >>> _stops_the_script(read_lines("a" + chr(10) + "b")) is None
     True
-    >>> _stops_the_script(_lines("a ; exit 0")) == (0, 1)
+    >>> _stops_the_script(read_lines("a ; exit 0")) == (0, 1)
     True
     """
     for number, line in enumerate(lines):
@@ -279,7 +209,7 @@ def _runs_installer(words: list[str]) -> bool:
 
 
 def _counts_as_installation(
-    lines: list[list[_Segment]],
+    lines: list[list[Segment]],
     states: list[list[bool | None]],
     number: int,
     index: int,
@@ -297,10 +227,10 @@ def _counts_as_installation(
 
     Examples
     --------
-    >>> lines = _lines("installer")
+    >>> lines = read_lines("installer")
     >>> _counts_as_installation(lines, [[True]], 0, 0)
     False
-    >>> lines = _lines("scripts/install-nextest.sh")
+    >>> lines = read_lines("scripts/install-nextest.sh")
     >>> _counts_as_installation(lines, [[True]], 0, 0)
     True
     >>> _counts_as_installation(lines, [[False]], 0, 0)
@@ -318,6 +248,50 @@ def _counts_as_installation(
     )
 
 
+def _opens_a_compound_command(segment: Segment) -> bool:
+    """Return whether `segment` is a keyword this reading cannot place.
+
+    A keyword opens or closes a compound command only in command position, so
+    ``echo if`` prints the word rather than opening a branch.
+
+    Examples
+    --------
+    >>> _opens_a_compound_command(Segment(["if", "false"], ";"))
+    True
+    >>> _opens_a_compound_command(Segment(["echo", "if"], ""))
+    False
+    """
+    return bool(segment.words) and segment.words[0] in COMPOUND_KEYWORDS
+
+
+def _has_a_compound_command(lines: list[list[Segment]]) -> bool:
+    """Return whether `lines` holds a keyword this reading cannot place.
+
+    A compound command's keywords stand as commands of their own to a simple
+    reading, so without this the installer inside an untaken body would count
+    as one that certainly ran. The reading has no block structure to say
+    which branch was taken, so the whole script is refused instead.
+
+    Examples
+    --------
+    >>> _has_a_compound_command(read_lines("if false; then" + chr(10) + "fi"))
+    True
+    >>> _has_a_compound_command(
+    ...     read_lines("for job in a b; do" + chr(10) + "done")
+    ... )
+    True
+    >>> _has_a_compound_command(read_lines("true" + chr(10) + "installer"))
+    False
+    >>> _has_a_compound_command(read_lines("echo if"))
+    False
+    """
+    return any(
+        _opens_a_compound_command(segment)
+        for line in lines
+        for segment in line
+    )
+
+
 def installs_nextest(script: str) -> bool:
     """Return whether `script` executes the nextest installer, blocking.
 
@@ -328,7 +302,8 @@ def installs_nextest(script: str) -> bool:
     ``echo scripts/install-nextest.sh`` and a commented-out line, so the
     ordering contract could pass without anything being installed; requiring a
     command that runs and that the step hears fail is what makes the answer
-    evidence.
+    evidence. A script holding a compound command is refused whole, because a
+    body the reading cannot place is not evidence either way.
 
     Examples
     --------
@@ -362,8 +337,14 @@ def installs_nextest(script: str) -> bool:
     False
     >>> installs_nextest(NEXTEST_INSTALLER + chr(10) + "exit 0")
     True
+    >>> installs_nextest(
+    ...     "if false; then" + chr(10) + NEXTEST_INSTALLER + chr(10) + "fi"
+    ... )
+    False
     """
-    lines = _lines(script)
+    lines = read_lines(script)
+    if _has_a_compound_command(lines):
+        return False
     states = errexit_states(lines)
     stop = _stops_the_script(lines)
     return any(

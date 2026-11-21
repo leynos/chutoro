@@ -228,9 +228,10 @@ The checked-in evidence now has three parts.
   agreement with the fixed code.
 - **Direct runtime regression.**
   `direct_trim_scoring_stays_on_the_calling_worker` scores a synthetic batch in
-  a dedicated four-worker pool and records the thread, the Rayon worker, and an
-  `insert_mutex` probe for every distance callback. Every callback must come
-  from the caller.
+  a dedicated four-worker pool and records the Rayon worker that serves each
+  distance callback; every callback must be served by the caller's worker. The
+  test holds no lock and probes no mutex, which is what isolates the scorer's
+  own scheduling from the rest of the insertion transaction.
 - **Insertion-path runtime regression.**
   `insertion_trim_scoring_runs_on_the_insert_mutex_holder` seeds an index with
   twelve nodes at `M = 4`, `ef_construction = 8`, and a one-entry distance
@@ -250,7 +251,8 @@ features, and the `build-test` CI job runs that target unconditionally beside
 and `scheduling_shell_test.py`, reading through `scheduling_reading.py`,
 `makefile_reading.py`, `scheduling_command_reading.py`,
 `scheduling_invocation_reading.py`, `scheduling_script_reading.py`,
-`scheduling_errexit_reading.py`, `scheduling_line_reading.py`,
+`scheduling_segment_reading.py`, `scheduling_errexit_reading.py`,
+`scheduling_line_reading.py`, `scheduling_here_document_reading.py`,
 `scheduling_shell_reading.py`, `rust_declaration_reading.py`, and
 `workflow_support.py`, pin the target recipe, one invocation per fully
 qualified test name, each invocation's whole filter expression as exactly one
@@ -287,10 +289,14 @@ never runs the installer while an installer followed by `&&` carries its
 failure into the next line; comments and blank lines between the two are
 skipped as the shell skips them. A backslash-newline pair is deleted with
 nothing inserted in its place, so a path split as `scripts/install-\` and
-`nextest.sh` is the one word the shell runs. A `.PHONY` declaration is read
-with its comments removed as well, so a target named only after a `#` is not
-declared phony, and a comment continued with a trailing backslash keeps the
-next line out of the declaration too. Comments are removed with shell word
+`nextest.sh` is the one word the shell runs; only an odd trailing backslash run
+continues the line, so a doubled backslash is a literal one and ends it, and a
+backslash followed by a space escapes the space rather than the newline. A
+`.PHONY` declaration is read with its comments removed as well, so a target
+named only after a `#` is not declared phony, and a comment continued with a
+trailing backslash keeps the next line out of the declaration too; only an
+unescaped trailing backslash continues a comment, so a doubled backslash ends
+it and the next line declares as usual. Comments are removed with shell word
 boundaries, so a `#` inside a word, as in a redirect to `scheduling#log`, is
 part of that word and the mask after it stays visible; an escaped operator ends
 no word either, so `>scheduling\;#log` keeps its mask too. Quoted text is data,
@@ -314,12 +320,18 @@ so `set +e` and `set +o errexit` before the installer stop its failure from
 failing the step and `set -e` restores it; the reading skips an option operand
 (`set -o pipefail -e`), stops at `--` and at the first positional parameter
 (`set -- -e` sets `$1`), treats an option change after `&&` or `||` as
-uncertain rather than applied, and takes an `exit` before the installer as
-ending the script. A here-document's body is stdin for the command that opened
-it, so a path written there installs nothing, and its closing word repeats the
-delimiter exactly for `<<`, so a closing line indented with a space or a tab is
-body text, while a `<<-` document ignores leading tabs on both body and closing
-line.
+uncertain rather than applied, ignores one written in a pipeline element or a
+backgrounded command because that command runs in a subshell of its own, and
+takes an `exit` before the installer as ending the script. A here-document's
+body is stdin for the command that opened it, so a path written there installs
+nothing, and its closing word repeats the delimiter exactly for `<<`, so a
+closing line indented with a space or a tab is body text, while a `<<-`
+document ignores leading tabs on both body and closing line; a quoted delimiter
+makes the body literal, so a trailing backslash there is a character, while an
+unquoted body deletes backslash-newline pairs before its closing word is
+compared. A script holding a compound command — a branch, loop, case or brace
+group — is refused whole, because the reading tracks no block structure and
+cannot say which body ran.
 
 Positive evidence, on commit `f75ea25` on 2026-11-20: `make check-fmt`,
 `make markdownlint` including spelling, `make interrogate` (at 100% documented

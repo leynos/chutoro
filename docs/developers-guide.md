@@ -2877,12 +2877,17 @@ reported as a Rayon join. Rust permits whitespace and comments between the `.`
 and the method name, so `pool. install(...)` is read as the call it is, and it
 lets an inherent method be called through its type, so
 `ThreadPool::scope(pool, |_| ())` and `ThreadPool::install::<_, ()>(pool, job)`
-are dispatches while `ThreadPool::new()` is not. The synthetic sources these
-readings are checked against live in `trim_scoring_samples.py`, beside the
-reader rather than inside it. The contract also checks a checked-in copy of the
-former `score_trim_jobs` and requires it to read as a dispatch, so the fixture
-cannot drift into agreement with the fixed code. A missing function fails the
-contract rather than reading as clean. `make test-workflow-contracts` runs it.
+are dispatches while `ThreadPool::new()` is not. A free function is recognized
+only without a receiver: the character before the name is read back past any
+spaces, so `cache_dir . join(cache_file)` is the path join it is and not Rayon's
+`join`, while a generic free call
+`join::<_, _, (), ()>(|| left(), || right())` is still recognized by skipping
+the turbofish before the argument list. The synthetic sources these readings
+are checked against live in `trim_scoring_samples.py`, beside the reader rather
+than inside it. The contract also checks a checked-in copy of the former
+`score_trim_jobs` and requires it to read as a dispatch, so the fixture cannot
+drift into agreement with the fixed code. A missing function fails the contract
+rather than reading as clean. `make test-workflow-contracts` runs it.
 
 The scan's limits are part of the contract. It can see a listed helper that
 dispatches, but not an unlisted helper called by one of the five, not an
@@ -2904,7 +2909,8 @@ selector and count while producing no runtime evidence. The workflow contract â€
 `scheduling_shell_test.py`, with their companions `scheduling_reading.py`,
 `makefile_reading.py`, `scheduling_command_reading.py`,
 `scheduling_invocation_reading.py`, `scheduling_script_reading.py`,
-`scheduling_errexit_reading.py`, `scheduling_line_reading.py`,
+`scheduling_segment_reading.py`, `scheduling_errexit_reading.py`,
+`scheduling_line_reading.py`, `scheduling_here_document_reading.py`,
 `scheduling_shell_reading.py`, and `rust_declaration_reading.py` â€” also
 requires each invocation's whole filter expression to be exactly one selector,
 so a widened expression such as `test(=name) | all()` cannot keep an invocation
@@ -2964,10 +2970,12 @@ example rather than a test. The target must be declared phony, and a `.PHONY`
 declaration is read with its comments removed, so a name mentioned only after a
 `#` declares nothing, and a comment continued with a trailing backslash keeps
 the next line out of the declaration as well. The direct test scores a
-synthetic batch; the insertion-path test drives a real insertion in a dedicated
-four-worker pool and records the thread, the Rayon worker, and a non-blocking
-`insert_mutex` `try_lock` for every post-planning distance callback. Both
-assert that the callbacks stay on the mutex holder.
+synthetic batch in a dedicated four-worker pool and records the Rayon worker
+that serves each distance callback; it holds no lock and asserts that every
+callback is served by the calling worker. The insertion-path test drives a real
+insertion in a dedicated four-worker pool and records the thread, the Rayon
+worker, and a non-blocking `insert_mutex` `try_lock` for every post-planning
+distance callback; it asserts that the callbacks stay on the mutex holder.
 
 What the two checks establish differs:
 

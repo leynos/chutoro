@@ -18,6 +18,7 @@ from __future__ import annotations
 import pytest
 from scheduling_reading import TARGET
 from scheduling_script_reading import NEXTEST_INSTALLER, installs_nextest
+from scheduling_selector_cases import SELECTOR_CASES
 from scheduling_shell_reading import effective_shell, runs_the_script
 from workflow_support import job, load_workflow, run_script, steps
 
@@ -145,201 +146,8 @@ def test_ci_installs_nextest_before_the_scheduling_target() -> None:
 @pytest.mark.parametrize(
     ("script", "expected"),
     [
-        pytest.param(NEXTEST_INSTALLER, True, id="the-installer"),
-        pytest.param(f"bash {NEXTEST_INSTALLER}", True, id="through-a-shell"),
-        pytest.param(
-            f"make test && {NEXTEST_INSTALLER}",
-            False,
-            id="after-an-unproven-command",
-        ),
-        pytest.param(
-            f"false && {NEXTEST_INSTALLER}",
-            False,
-            id="skipped-by-a-preceding-failure",
-        ),
-        pytest.param(
-            f"echo done ; {NEXTEST_INSTALLER}",
-            True,
-            id="after-a-semicolon",
-        ),
-        pytest.param(
-            f"false && make test ; {NEXTEST_INSTALLER}",
-            True,
-            id="after-a-semicolon-that-resets-the-chain",
-        ),
-        pytest.param(
-            f"{NEXTEST_INSTALLER} && make test-workflow-contracts",
-            True,
-            id="before-another-command",
-        ),
-        pytest.param(f"echo {NEXTEST_INSTALLER}", False, id="printed"),
-        pytest.param(f"# {NEXTEST_INSTALLER}", False, id="commented"),
-        pytest.param(
-            f"echo hi  # {NEXTEST_INSTALLER}", False, id="trailing-comment"
-        ),
-        pytest.param(
-            f"{NEXTEST_INSTALLER} || true", False, id="failure-masked"
-        ),
-        pytest.param(
-            f"{NEXTEST_INSTALLER}; true", True, id="a-semicolon-does-not-mask"
-        ),
-        pytest.param(
-            f"{NEXTEST_INSTALLER} ; make test",
-            True,
-            id="a-semicolon-ends-the-installers-own-list",
-        ),
-        pytest.param(f"{NEXTEST_INSTALLER} ;", True, id="a-trailing-semicolon"),
-        pytest.param(
-            f"bash -n {NEXTEST_INSTALLER}", False, id="syntax-check-only"
-        ),
-        pytest.param(
-            f"bash {NEXTEST_INSTALLER} || true",
-            False,
-            id="a-shell-that-masks",
-        ),
-        pytest.param(
-            f"{NEXTEST_INSTALLER} && echo installed || true",
-            False,
-            id="masked-later-on-the-line",
-        ),
-        pytest.param(
-            f"{NEXTEST_INSTALLER} && make test && echo done",
-            True,
-            id="a-chain-that-carries-the-status",
-        ),
-        pytest.param(
-            f"true || {NEXTEST_INSTALLER}",
-            False,
-            id="skipped-by-a-preceding-success",
-        ),
-        pytest.param(
-            f"{NEXTEST_INSTALLER} &", False, id="sent-to-the-background"
-        ),
-        pytest.param(
-            f"{NEXTEST_INSTALLER} && echo done &",
-            False,
-            id="backgrounded-at-the-end",
-        ),
-        pytest.param(
-            f"echo '&&' {NEXTEST_INSTALLER}",
-            False,
-            id="a-quoted-operator",
-        ),
-        pytest.param(
-            "echo " + chr(92) + "&" + chr(92) + "& " + NEXTEST_INSTALLER,
-            False,
-            id="an-escaped-operator",
-        ),
-        pytest.param(
-            "scripts/install-" + chr(92) + "\nnextest.sh",
-            True,
-            id="a-path-split-by-a-continuation",
-        ),
-        pytest.param(
-            f"{NEXTEST_INSTALLER} >install#log || true",
-            False,
-            id="a-mask-after-a-word-internal-hash",
-        ),
-        pytest.param(
-            f"{NEXTEST_INSTALLER} && echo installed\ntrue",
-            False,
-            id="a-chain-swallowed-by-a-later-line",
-        ),
-        pytest.param(
-            f"{NEXTEST_INSTALLER} && echo installed\n# installed",
-            True,
-            id="a-chain-that-ends-the-script",
-        ),
-        pytest.param(
-            f"{NEXTEST_INSTALLER} # don't skip this",
-            True,
-            id="a-comment-with-an-apostrophe",
-        ),
-        pytest.param(
-            f"{NEXTEST_INSTALLER} &&\ntrue",
-            True,
-            id="a-chain-continued-on-the-next-line",
-        ),
-        pytest.param(
-            f"true ||\n{NEXTEST_INSTALLER}",
-            False,
-            id="skipped-across-a-continued-line",
-        ),
-        pytest.param(
-            f"{NEXTEST_INSTALLER} &&\n# installed\ntrue",
-            True,
-            id="a-continuation-past-a-comment-line",
-        ),
-        pytest.param(
-            f"set +e\n{NEXTEST_INSTALLER}\ntrue",
-            False,
-            id="errexit-disabled-before-the-installer",
-        ),
-        pytest.param(
-            f"set -e\n{NEXTEST_INSTALLER}",
-            True,
-            id="errexit-enabled-before-the-installer",
-        ),
-        pytest.param(
-            f"set +e\nset -e\n{NEXTEST_INSTALLER}",
-            True,
-            id="errexit-restored-before-the-installer",
-        ),
-        pytest.param(
-            f"set +e\nset -- -e\n{NEXTEST_INSTALLER}",
-            False,
-            id="a-positional-parameter-named-e",
-        ),
-        pytest.param(
-            f"set +e\nset value -e\n{NEXTEST_INSTALLER}",
-            False,
-            id="a-positional-parameter-before-errexit",
-        ),
-        pytest.param(
-            f"set +e\nset -o pipefail -e\n{NEXTEST_INSTALLER}",
-            True,
-            id="an-option-operand-before-errexit",
-        ),
-        pytest.param(
-            f"set +e\nfalse && set -e\n{NEXTEST_INSTALLER}\ntrue",
-            False,
-            id="an-errexit-change-on-a-skipped-branch",
-        ),
-        pytest.param(
-            f"exit 0\n{NEXTEST_INSTALLER}",
-            False,
-            id="an-installer-after-an-exit",
-        ),
-        pytest.param(
-            f"{NEXTEST_INSTALLER}\nexit 0",
-            True,
-            id="an-installer-before-an-exit",
-        ),
-        pytest.param(
-            f"cat <<'EOF'\n{NEXTEST_INSTALLER}\nEOF",
-            False,
-            id="a-here-document-body",
-        ),
-        pytest.param(
-            f"cat <<'EOF'\n{NEXTEST_INSTALLER}\nEOF\n{NEXTEST_INSTALLER}",
-            True,
-            id="after-a-here-document-body",
-        ),
-        pytest.param(
-            f"cat <<'EOF'\n\tEOF\n{NEXTEST_INSTALLER}\nEOF",
-            False,
-            id="a-tab-indented-terminator-of-an-exact-document",
-        ),
-        pytest.param(
-            f"cat <<-EOF\n\t{NEXTEST_INSTALLER}\n\tEOF\n{NEXTEST_INSTALLER}",
-            True,
-            id="a-tab-indented-terminator-of-a-stripping-document",
-        ),
-        pytest.param(
-            f"cat <<-EOF\n  EOF\n{NEXTEST_INSTALLER}\nEOF",
-            False,
-            id="a-space-indented-terminator-of-a-stripping-document",
-        ),
+        pytest.param(script, expected, id=name)
+        for script, expected, name in SELECTOR_CASES
     ],
 )
 def test_the_installer_selector_reads_executable_use(
@@ -379,6 +187,16 @@ def test_the_installer_selector_reads_executable_use(
     its command rather than a command line, so a path written there installs
     nothing; and ``errexit`` itself can be turned off, so ``set +e`` before
     the installer makes its failure ignorable until ``set -e`` restores it.
+    A container decides where a command runs, and this reading tracks none:
+    an installer inside an ``if`` body is refused whether the branch is taken
+    or not, because a branch is not an unconditional installation. A ``set``
+    inside a pipeline element or a backgrounded command runs in a subshell of
+    its own, so it changes nothing the enclosing script sees and leaves
+    ``errexit`` as it was. A here-document's terminator is compared as the
+    shell compares it: a quoted delimiter makes the body literal, so a
+    backslash there is a character, while an unquoted body deletes
+    backslash-newline pairs and can close on a line the literal body would
+    keep.
     """
     assert installs_nextest(script) is expected, (
         f"installs_nextest must return {expected} for {script!r}"
