@@ -24,15 +24,9 @@ fn estimate_returns_positive_for_non_empty(
     );
 }
 
-/// Checks that a larger configuration produces a strictly larger estimate.
-///
-/// Returns an error rather than panicking so each test keeps its assertions at
-/// the `#[rstest]` boundary.
-fn check_estimate_grows(lower: u64, higher: u64, context: &str) -> Result<(), String> {
-    if higher > lower {
-        return Ok(());
-    }
-    Err(format!("expected {context}: {higher} > {lower}"))
+/// Asserts that a larger configuration produces a strictly larger estimate.
+fn assert_estimate_grows(lower: u64, higher: u64, context: &str) {
+    assert!(higher > lower, "expected {context}: {higher} > {lower}");
 }
 
 #[rstest]
@@ -43,12 +37,11 @@ fn estimate_grows_with_max_connections(
     #[case] m_small: usize,
     #[case] m_large: usize,
 ) {
-    check_estimate_grows(
+    assert_estimate_grows(
         estimate_peak_bytes(point_count, m_small),
         estimate_peak_bytes(point_count, m_large),
         &format!("M={m_large} versus M={m_small} at n={point_count}"),
-    )
-    .expect("the estimate must grow with max connections");
+    );
 }
 
 #[cfg(feature = "cpu")]
@@ -95,12 +88,11 @@ fn estimate_grows_with_point_count(
     #[case] n_large: usize,
     #[case] max_connections: usize,
 ) {
-    check_estimate_grows(
+    assert_estimate_grows(
         estimate_peak_bytes(n_small, max_connections),
         estimate_peak_bytes(n_large, max_connections),
         &format!("n={n_large} versus n={n_small} at M={max_connections}"),
-    )
-    .expect("the estimate must grow with the point count");
+    );
 }
 
 // -- estimate_peak_bytes: edge cases ------------------------------------
