@@ -18,6 +18,7 @@ from __future__ import annotations
 
 import itertools as it
 import re
+import shlex
 import typing as typ
 
 from workflow_support import jobs, load_workflow, run_script, steps
@@ -61,6 +62,31 @@ class ComponentGroup(typ.NamedTuple):
     values: list[str]
 
 
+def _scan_line(line: str, quote: str | None) -> tuple[int | None, str | None]:
+    """Return a line's comment start and the quote state it leaves open.
+
+    The scanner carries the quote state in and out, because a shell quote can
+    span physical lines. It resets the escape state per line: a backslash at
+    the end of a line escapes the newline, not the next line's first
+    character.
+    """
+    escaped = False
+    previous = " "
+    for index, character in enumerate(line):
+        if escaped:
+            escaped = False
+        elif character == "\\" and quote != "'":
+            escaped = True
+        elif quote is None and character in {"'", '"'}:
+            quote = character
+        elif quote == character:
+            quote = None
+        elif quote is None and character == "#" and previous in {" ", "\t"}:
+            return index, quote
+        previous = character
+    return None, quote
+
+
 def strip_shell_comments(script: str) -> str:
     """Return *script* with unquoted shell comments removed.
 
@@ -71,32 +97,13 @@ def strip_shell_comments(script: str) -> str:
     text before a comment is kept unchanged, including the whitespace that
     preceded the `#`; that space stops a backslash left at the end of a
     stripped trailing comment from being read as a line continuation.
-
-    Quote state survives a line break, because a shell quote can span lines.
-    A backslash at the end of a line escapes the newline rather than the next
-    line's first character, so the escape state does not.
     """
-    lines = []
+    stripped = []
     quote: str | None = None
     for line in script.splitlines():
-        escaped = False
-        comment_at: int | None = None
-        previous = " "
-        for index, character in enumerate(line):
-            if escaped:
-                escaped = False
-            elif character == "\\" and quote != "'":
-                escaped = True
-            elif quote is None and character in {"'", '"'}:
-                quote = character
-            elif quote == character:
-                quote = None
-            elif quote is None and character == "#" and previous in {" ", "\t"}:
-                comment_at = index
-                break
-            previous = character
-        lines.append(line if comment_at is None else line[:comment_at])
-    return "\n".join(lines)
+        comment_at, quote = _scan_line(line, quote)
+        stripped.append(line if comment_at is None else line[:comment_at])
+    return "\n".join(stripped)
 
 
 def shell_words(command: str) -> list[str]:
@@ -113,39 +120,12 @@ def shell_words(command: str) -> list[str]:
     >>> shell_words("rustup toolchain install nightly --profile 'minimal'")
     ['rustup', 'toolchain', 'install', 'nightly', '--profile', 'minimal']
     """
-    words: list[str] = []
-    word: list[str] = []
-    quote: str | None = None
-    escaped = False
-    for character in command:
-        if escaped:
-            word.append(character)
-            escaped = False
-        elif quote == "'":
-            if character == "'":
-                quote = None
-            else:
-                word.append(character)
-        elif quote == '"':
-            if character == '"':
-                quote = None
-            elif character == "\\":
-                escaped = True
-            else:
-                word.append(character)
-        elif character == "\\":
-            escaped = True
-        elif character in {"'", '"'}:
-            quote = character
-        elif character.isspace():
-            if word:
-                words.append("".join(word))
-                word = []
-        else:
-            word.append(character)
-    if word:
-        words.append("".join(word))
-    return words
+    try:
+        return shlex.split(command, comments=False, posix=True)
+    except ValueError:
+        # An invocation cut mid-quote by the line-based match carries no
+        # decodable words; the raw split still lets the contract name it.
+        return command.split()
 
 
 def rustup_installs(script: str) -> list[str]:
