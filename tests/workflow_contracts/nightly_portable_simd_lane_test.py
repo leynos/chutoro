@@ -27,28 +27,25 @@ JOB = "nightly-portable-simd"
 GATE = "${{ steps.gate.outputs.should_run == 'true' }}"
 
 
-def _step_index(
-    job_steps: list[dict[str, typ.Any]],
-    predicate: cabc.Callable[[dict[str, typ.Any]], bool],
-) -> int | None:
-    """Return the index of the first step satisfying the predicate."""
-    return next(
-        (index for index, step in enumerate(job_steps) if predicate(step)), None
-    )
-
-
 def _required_index(
     job_steps: list[dict[str, typ.Any]],
     predicate: cabc.Callable[[dict[str, typ.Any]], bool],
     name: str,
 ) -> int:
-    """Return the index of a required step, or fail naming what is missing."""
-    index = _step_index(job_steps, predicate)
-    assert index is not None, (
-        f"{WORKFLOW}:{JOB} has no {name} step, got "
-        f"{[run_script(step) for step in job_steps]!r}"
+    """Return the index of the only step satisfying the predicate.
+
+    A second matching step is as much a defect as none: the contract would
+    read the first and leave the duplicate's condition unchecked, so an
+    ungated copy could run on a day the gate decided to skip.
+    """
+    matches = [
+        index for index, step in enumerate(job_steps) if predicate(step)
+    ]
+    assert len(matches) == 1, (
+        f"{WORKFLOW}:{JOB} must have exactly one {name} step, got "
+        f"{matches!r} for {[run_script(step) for step in job_steps]!r}"
     )
-    return index
+    return matches[0]
 
 
 def _condition(step: dict[str, typ.Any]) -> str | None:
@@ -202,4 +199,16 @@ def test_an_installer_after_a_cargo_step_is_rejected() -> None:
     job_steps.append(job_steps.pop(mold_at))
 
     with pytest.raises(AssertionError, match="must install both toolchains"):
+        assert_lane_is_gated_and_ordered({"steps": job_steps})
+
+
+def test_a_duplicate_step_is_rejected() -> None:
+    """A second matching step must fail even when the first is gated."""
+    job_steps = _copied_steps()
+    dense_at = _required_index(job_steps, _is_dense_test, "dense test")
+    duplicate = dict(job_steps[dense_at])
+    duplicate.pop("if")
+    job_steps.append(duplicate)
+
+    with pytest.raises(AssertionError, match="exactly one dense test"):
         assert_lane_is_gated_and_ordered({"steps": job_steps})

@@ -152,10 +152,26 @@ def _nightly_workflow(installer: str | None) -> dict[str, typ.Any]:
         ),
         pytest.param(
             _nightly_workflow(
+                'rustup toolchain install "nightly" --profile "minimal" '
+                '--component "clippy,rustfmt"'
+            ),
+            True,
+            id="quoted-values",
+        ),
+        pytest.param(
+            _nightly_workflow(
                 f"{_INSTALLER} \\\n  --component clippy --component rustfmt"
             ),
             True,
             id="continued-repeated-flags",
+        ),
+        pytest.param(
+            _nightly_workflow(
+                "echo 'rustup toolchain install nightly --profile minimal "
+                "--component clippy --component rustfmt'"
+            ),
+            False,
+            id="quoted-echo-is-not-an-installer",
         ),
         pytest.param(_nightly_workflow(None), False, id="no-installer"),
         pytest.param(
@@ -277,6 +293,16 @@ def test_portable_simd_feature_forwards_to_the_dense_provider() -> None:
             "rustup toolchain install nightly \\\t\n  --component clippy",
             ["rustup toolchain install nightly \\\t"],
             id="backslash-tab-newline-is-not-a-continuation",
+        ),
+        pytest.param(
+            "printf '%s\\n' \"setup\n# setup complete\"; "
+            "rustup toolchain install nightly --profile minimal "
+            "--component clippy",
+            [
+                "rustup toolchain install nightly --profile minimal "
+                "--component clippy"
+            ],
+            id="quote-state-survives-a-line-break",
         ),
     ],
 )

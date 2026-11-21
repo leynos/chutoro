@@ -22,10 +22,14 @@ import typing as typ
 
 from workflow_support import jobs, load_workflow, run_script, steps
 
-#: A `rustup` invocation, however its line continuations are written. The
-#: script is joined first, so a command split across lines is one match
-#: rather than none.
-RUSTUP_INVOCATION = re.compile(r"\brustup\s+toolchain\s+install\b[^\n;&|]*")
+#: A `rustup` invocation at the start of an executable command. The script
+#: is joined first, so a command split across lines is one match rather than
+#: none. Requiring a command boundary keeps the phrase inside `echo` or a
+#: quoted string from reading as an install: `echo 'rustup ...'` prints a
+#: sentence, it does not resolve a toolchain.
+RUSTUP_INVOCATION = re.compile(
+    r"(?m)(?:^|[;&|])\s*(?P<command>rustup\s+toolchain\s+install\b[^\n;&|]*)"
+)
 
 #: The flag whose repeated form is the whole point of this module.
 COMPONENT_FLAG = "--component"
@@ -67,10 +71,14 @@ def strip_shell_comments(script: str) -> str:
     text before a comment is kept unchanged, including the whitespace that
     preceded the `#`; that space stops a backslash left at the end of a
     stripped trailing comment from being read as a line continuation.
+
+    Quote state survives a line break, because a shell quote can span lines.
+    A backslash at the end of a line escapes the newline rather than the next
+    line's first character, so the escape state does not.
     """
     lines = []
+    quote: str | None = None
     for line in script.splitlines():
-        quote: str | None = None
         escaped = False
         comment_at: int | None = None
         previous = " "
@@ -89,6 +97,55 @@ def strip_shell_comments(script: str) -> str:
             previous = character
         lines.append(line if comment_at is None else line[:comment_at])
     return "\n".join(lines)
+
+
+def shell_words(command: str) -> list[str]:
+    """Split one shell command into decoded words.
+
+    Quotes are removed and escapes are resolved, so `"nightly"` and
+    `nightly` are the same word. This is a word splitter, not an evaluator:
+    variables, globs, and substitutions are left alone.
+
+    Examples
+    --------
+    >>> shell_words('rustup toolchain install "nightly" --profile minimal')
+    ['rustup', 'toolchain', 'install', 'nightly', '--profile', 'minimal']
+    >>> shell_words("rustup toolchain install nightly --profile 'minimal'")
+    ['rustup', 'toolchain', 'install', 'nightly', '--profile', 'minimal']
+    """
+    words: list[str] = []
+    word: list[str] = []
+    quote: str | None = None
+    escaped = False
+    for character in command:
+        if escaped:
+            word.append(character)
+            escaped = False
+        elif quote == "'":
+            if character == "'":
+                quote = None
+            else:
+                word.append(character)
+        elif quote == '"':
+            if character == '"':
+                quote = None
+            elif character == "\\":
+                escaped = True
+            else:
+                word.append(character)
+        elif character == "\\":
+            escaped = True
+        elif character in {"'", '"'}:
+            quote = character
+        elif character.isspace():
+            if word:
+                words.append("".join(word))
+                word = []
+        else:
+            word.append(character)
+    if word:
+        words.append("".join(word))
+    return words
 
 
 def rustup_installs(script: str) -> list[str]:
@@ -111,16 +168,17 @@ def rustup_installs(script: str) -> list[str]:
     ['rustup toolchain install nightly']
     """
     joined = CONTINUATION.sub(" ", strip_shell_comments(script))
-    return [match.group(0) for match in RUSTUP_INVOCATION.finditer(joined)]
+    return [match.group("command") for match in RUSTUP_INVOCATION.finditer(joined)]
 
 
 def component_values(invocation: str) -> list[list[str]]:
     """Return the tokens following each `--component` flag.
 
     A value run ends at the next flag, so a `--component` immediately
-    followed by one yields an empty list rather than swallowing it.
+    followed by one yields an empty list rather than swallowing it. Quoted
+    values are decoded before they are grouped.
     """
-    tokens = invocation.split()
+    tokens = shell_words(invocation)
     return [
         list(it.takewhile(lambda token: not token.startswith("-"), tokens[index + 1 :]))
         for index, token in enumerate(tokens)
@@ -180,13 +238,13 @@ def installer_invocations(job_definition: dict[str, typ.Any]) -> list[str]:
 
 def _toolchain_of(invocation: str) -> str | None:
     """Return the toolchain named after `rustup toolchain install`."""
-    tokens = invocation.split()
+    tokens = shell_words(invocation)
     return tokens[3] if len(tokens) > 3 else None
 
 
 def _profile_of(invocation: str) -> str | None:
     """Return the value given to `--profile`, if any."""
-    tokens = invocation.split()
+    tokens = shell_words(invocation)
     return next(
         (
             tokens[index + 1]
