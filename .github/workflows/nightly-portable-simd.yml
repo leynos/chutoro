@@ -35,7 +35,7 @@ jobs:
         run: |
           if [ "${FORCE_RUN}" = "true" ]; then
             echo "should_run=true" >> "${GITHUB_OUTPUT}"
-            echo "nightly-portable-simd: running because workflow_dispatch set force_run=true." >> "${GITHUB_STEP_SUMMARY}"
+            echo "nightly-portable-simd: running because workflow_dispatch set force_run=true." | tee -a "${GITHUB_STEP_SUMMARY}"
             exit 0
           fi
 
@@ -46,10 +46,10 @@ jobs:
           commit_time="$(git log -1 --format=%cI origin/main)"
           if [ $((now_epoch - commit_epoch)) -le 86400 ]; then
             echo "should_run=true" >> "${GITHUB_OUTPUT}"
-            echo "nightly-portable-simd: running because origin/main has a commit at ${commit_time} within the last 24 hours." >> "${GITHUB_STEP_SUMMARY}"
+            echo "nightly-portable-simd: running because origin/main has a commit at ${commit_time} within the last 24 hours." | tee -a "${GITHUB_STEP_SUMMARY}"
           else
             echo "should_run=false" >> "${GITHUB_OUTPUT}"
-            echo "nightly-portable-simd: skipping because origin/main has no commit within the last 24 hours (latest ${commit_time})." >> "${GITHUB_STEP_SUMMARY}"
+            echo "nightly-portable-simd: skipping because origin/main has no commit within the last 24 hours (latest ${commit_time})." | tee -a "${GITHUB_STEP_SUMMARY}"
           fi
       # Each `--component` takes one value and must be repeated per component.
       - name: Install nightly Rust
