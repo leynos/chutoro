@@ -81,6 +81,12 @@ def test_a_profile_resolves_the_global_timeout_of_its_chain(
             id="a-cycle",
         ),
         pytest.param(
+            '[profile.default]\nglobal-timeout = "80m"\n'
+            '[profile.ci]\ninherits = "ci"\n',
+            "ci",
+            id="a-self-reference",
+        ),
+        pytest.param(
             '[profile.default]\nglobal-timeout = "80m"\n',
             "missing",
             id="an-undeclared-profile",

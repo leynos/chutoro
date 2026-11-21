@@ -84,6 +84,49 @@ def _nextest_run_scripts(job_name: str) -> list[str]:
     ]
 
 
+#: The text every nextest invocation must begin with. Checking the whole
+#: script instead would pass whenever any one of its four commands named the
+#: variable, leaving a branch that hard-codes a profile invisible.
+REQUIRED_PROFILE_ARGUMENT: typ.Final[str] = f'--profile "${PROFILE_VARIABLE}"'
+
+
+def _nextest_invocations(job_name: str) -> list[str]:
+    """Return the text each nextest invocation begins with.
+
+    Returns
+    -------
+    list[str]
+        One entry per invocation, with line continuations joined so a flag
+        split across lines is still read.
+    """
+    return [
+        fragment.strip()
+        for script in _nextest_run_scripts(job_name)
+        for fragment in script.replace("\\\n", " ").split("cargo nextest run")[1:]
+    ]
+
+
+def _hard_coded_invocations(scripts: list[str]) -> list[str]:
+    """Return the nextest invocations that do not read the variable.
+
+    Parameters
+    ----------
+    scripts : list[str]
+        Run scripts to inspect.
+
+    Returns
+    -------
+    list[str]
+        One entry per offending invocation.
+    """
+    return [
+        fragment.strip()
+        for script in scripts
+        for fragment in script.replace("\\\n", " ").split("cargo nextest run")[1:]
+        if not fragment.strip().startswith(REQUIRED_PROFILE_ARGUMENT)
+    ]
+
+
 def _dense_parity_allowance(config_text: str, profile: str) -> float:
     """Return a profile's dense parity per-test allowance, in seconds.
 
@@ -161,16 +204,39 @@ def _assert_shared_step_reads_the_variable(job_name: str) -> None:
     """Require every nextest invocation in a job to name the variable.
 
     Checking only that the variable exists would accept a job that sets it
-    and a step that hard-codes a profile, so the step's own text is checked
-    too.
+    and a step that hard-codes a profile. Checking each script as a whole
+    would accept a step whose four commands carry the variable on three and
+    a literal on the fourth, so each invocation is checked separately.
     """
     scripts = _nextest_run_scripts(job_name)
     assert scripts, f"{job_name} must invoke cargo nextest"
-    for script in scripts:
-        assert f'--profile "${PROFILE_VARIABLE}"' in script, (
-            f"{job_name}'s nextest invocation must read {PROFILE_VARIABLE}: "
-            f"{script}"
-        )
+    invocations = _nextest_invocations(job_name)
+    assert len(invocations) == 4, (
+        f"{job_name}'s shared step must declare the four suite branches; "
+        f"found {len(invocations)} nextest invocations"
+    )
+    offenders = _hard_coded_invocations(scripts)
+    assert not offenders, (
+        f"{job_name}'s nextest invocations must read {PROFILE_VARIABLE}: "
+        f"{offenders}"
+    )
+
+
+def test_a_single_hard_coded_profile_is_reported() -> None:
+    """One variable-based command must not hide one hard-coded command.
+
+    The whole-script check this replaces passed whenever any command named
+    the variable, so a branch that hard-coded a profile was invisible.
+    """
+    script = (
+        'cargo nextest run --profile "$NEXTEST_PROFILE" -p a \\\n'
+        "  a_test\n"
+        "cargo nextest run --profile ci -p a \\\n"
+        "  another_test\n"
+    )
+    offenders = _hard_coded_invocations([script])
+    assert len(offenders) == 1, offenders
+    assert offenders[0].startswith("--profile ci"), offenders
 
 
 def test_the_pull_request_lane_selects_the_ci_profile() -> None:

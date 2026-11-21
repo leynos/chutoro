@@ -53,9 +53,12 @@ def _declared_profile(
 def _parent_profile(section: dict[str, typ.Any], current: str) -> str | None:
     """Return the next profile in the chain, or None at its root.
 
-    A declared ``inherits`` link wins. A custom profile that names no
-    parent still inherits ``default``, which is the root of every nextest
-    chain, and ``default`` itself has no parent.
+    A declared ``inherits`` link is returned as written, including a
+    self-reference: the pinned nextest rejects ``ci.inherits = "ci"``, so
+    the walk's visited-name guard must see it and refuse the cycle rather
+    than substituting ``default``. A custom profile that names no parent
+    still inherits ``default``, which is the root of every nextest chain,
+    and ``default`` itself has no parent.
 
     Returns
     -------
@@ -63,7 +66,7 @@ def _parent_profile(section: dict[str, typ.Any], current: str) -> str | None:
         The parent's name, or None when the walk has reached its root.
     """
     inherited = section.get("inherits")
-    if isinstance(inherited, str) and inherited != current:
+    if isinstance(inherited, str):
         return inherited
     if current == "default":
         return None
