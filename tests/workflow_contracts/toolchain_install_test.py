@@ -159,6 +159,13 @@ def _nightly_workflow(installer: str | None) -> dict[str, typ.Any]:
         ),
         pytest.param(_nightly_workflow(None), False, id="no-installer"),
         pytest.param(
+            _nightly_workflow(
+                f"# {_INSTALLER} --component clippy --component rustfmt"
+            ),
+            False,
+            id="commented-out-installer",
+        ),
+        pytest.param(
             _nightly_workflow(f"{_INSTALLER} --component clippy"),
             False,
             id="missing-rustfmt",

@@ -1707,11 +1707,12 @@ issue #262.
 `tests/workflow_contracts/rustup_install_reading.py` owns the reading of every
 `rustup toolchain install` in every workflow and requires each `--component`
 flag to carry exactly one value. `toolchain_install_test.py` holds the
-contracts over that reading. The reading joins line continuations first, so a
-command split across lines is one invocation rather than none, and it reads the
-invocation rather than the step's name, so deleting the fix while keeping the
-step fails it. Both correct spellings pass: a repeated flag, and one flag with
-a comma-separated list.
+contracts over that reading. The reading removes unquoted shell comments and
+then joins line continuations, so a command split across lines is one
+invocation rather than none, a commented-out installer is no invocation, and it
+reads the invocation rather than the step's name, so deleting the fix while
+keeping the step fails it. Both correct spellings pass: a repeated flag, and
+one flag with a comma-separated list.
 
 The same module selects the nightly lane's one installer by its `run` content
 and requires it to name `nightly`, the `minimal` profile, and both `clippy` and

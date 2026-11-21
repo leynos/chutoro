@@ -57,15 +57,60 @@ class ComponentGroup(typ.NamedTuple):
     values: list[str]
 
 
+def strip_shell_comments(script: str) -> str:
+    """Return *script* with unquoted shell comments removed.
+
+    A `#` starts a comment only outside quotes and at the start of a word, so
+    a `#` inside a quoted string stays part of the command. Comments are
+    dropped before invocations are matched, so a commented-out installer
+    cannot satisfy a presence contract while the step installs nothing. The
+    text before a comment is kept unchanged, including the whitespace that
+    preceded the `#`; that space stops a backslash left at the end of a
+    stripped trailing comment from being read as a line continuation.
+    """
+    lines = []
+    for line in script.splitlines():
+        quote: str | None = None
+        escaped = False
+        comment_at: int | None = None
+        previous = " "
+        for index, character in enumerate(line):
+            if escaped:
+                escaped = False
+            elif character == "\\" and quote != "'":
+                escaped = True
+            elif quote is None and character in {"'", '"'}:
+                quote = character
+            elif quote == character:
+                quote = None
+            elif quote is None and character == "#" and previous in {" ", "\t"}:
+                comment_at = index
+                break
+            previous = character
+        lines.append(line if comment_at is None else line[:comment_at])
+    return "\n".join(lines)
+
+
 def rustup_installs(script: str) -> list[str]:
     """Return each rustup toolchain install in a step's script.
 
-    Genuine continuations are joined first, so a command split across lines
-    is one invocation rather than none. A backslash the shell would not treat
-    as a continuation is left alone, and the invocation then ends on it, which
-    is what `test_no_rustup_install_ends_on_a_dangling_backslash` looks for.
+    Comments are removed first, then genuine continuations are joined, so a
+    command split across lines is one invocation rather than none and a
+    commented-out installer is no invocation at all. A backslash the shell
+    would not treat as a continuation is left alone, and the invocation then
+    ends on it, which is what
+    `test_no_rustup_install_ends_on_a_dangling_backslash` looks for.
+
+    Examples
+    --------
+    A quoted `#` stays in the command, while a comment does not:
+
+    >>> rustup_installs("# rustup toolchain install nightly")
+    []
+    >>> rustup_installs('echo "# kept"; rustup toolchain install nightly')
+    ['rustup toolchain install nightly']
     """
-    joined = CONTINUATION.sub(" ", script)
+    joined = CONTINUATION.sub(" ", strip_shell_comments(script))
     return [match.group(0) for match in RUSTUP_INVOCATION.finditer(joined)]
 
 
