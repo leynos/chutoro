@@ -225,6 +225,36 @@ def _tail_lines(lines: list[str], pending: str, joined: str) -> list[str]:
     return lines
 
 
+def _absorb_or_wait(
+    joined: str, physical: str, pending: str, lines: list[str]
+) -> tuple[str, str, list[HereDocument]]:
+    """Join a line whose quote is open and absorb it once the quote closes.
+
+    A trailing backslash is resolved; otherwise the newline lies inside the
+    quoted text and is kept, so the three physical lines of a multi-line
+    string are one command line when the quote finally closes.
+
+    Examples
+    --------
+    >>> lines = []
+    >>> joined, pending, documents = _absorb_or_wait("", "echo 'a", "", lines)
+    >>> lines
+    []
+    >>> joined.endswith(chr(10))
+    True
+    >>> joined, pending, documents = _absorb_or_wait(joined, "c'", pending, lines)
+    >>> len(lines)
+    1
+    """
+    text, continues = _continuation(physical)
+    candidate = f"{joined}{text}" + ("" if continues else chr(10))
+    try:
+        pending, documents = _absorb(pending, candidate, lines)
+    except ValueError:
+        return candidate, pending, []
+    return "", pending, documents
+
+
 def _command_step(
     physical: str, joined: str, pending: str, lines: list[str]
 ) -> tuple[str, str, list[HereDocument]]:
@@ -254,21 +284,23 @@ def _command_step(
     'echo "pre'
     >>> _command_step('pare"', "", "", [])[0].endswith(chr(10))
     True
+    >>> lines = []
+    >>> opened, _, _ = _command_step("echo 'a", "", "", lines)
+    >>> _command_step("b", opened, "", lines)[0].endswith(chr(10))
+    True
     """
     try:
         commented = strip_shell_comment(physical)
     except ValueError:
-        # An unterminated quote means the shell is still reading the command.
-        # A trailing backslash is resolved; otherwise the newline is part of
-        # the quoted text and is kept.
-        text, continues = _continuation(physical)
-        separator = "" if continues else chr(10)
-        return f"{joined}{text}{separator}", pending, []
+        return _absorb_or_wait(joined, physical, pending, lines)
     text, continues = _continuation(commented)
     joined = f"{joined}{text}"
     if continues:
         return joined, pending, []
-    pending, documents = _absorb(pending, joined, lines)
+    try:
+        pending, documents = _absorb(pending, joined, lines)
+    except ValueError:
+        return f"{joined}{chr(10)}", pending, []
     return "", pending, documents
 
 

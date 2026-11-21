@@ -207,12 +207,15 @@ def _past_group(body: str, start: int, index: int) -> int:
     6
     >>> _past_group("join)(a)", 0, 4)
     4
+    >>> _past_group("((join))(a)", 2, 6)
+    8
     """
-    if not body[:start].rstrip().endswith("("):
-        return index
-    if body[index : index + 1] != ")":
-        return index
-    return index + 1
+    before = body[:start].rstrip()
+    opened = len(before) - len(before.rstrip("("))
+    while opened and body[index : index + 1] == ")":
+        opened -= 1
+        index += 1
+    return index
 
 
 def free_call(name: str) -> _Predicate:
@@ -253,6 +256,8 @@ def free_call(name: str) -> _Predicate:
     >>> calls_free_join("(join)(|| (), || ())")
     True
     >>> calls_free_join("(join::<_, _, (), ()>)(|| (), || ())")
+    True
+    >>> calls_free_join("((join))(|| (), || ())")
     True
     """
     pattern = re.compile(rf"\b{name}\b")

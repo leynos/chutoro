@@ -37,11 +37,110 @@ class MaskedLine(typ.NamedTuple):
     quoted: list[str]
 
 
-def _take_quoted(line: str, index: int) -> tuple[str, int]:
+#: The single-character ANSI-C escapes, as the shell resolves them.
+_ANSI_C_SIMPLE = {
+    "a": chr(7),
+    "b": chr(8),
+    "e": chr(27),
+    "f": chr(12),
+    "n": chr(10),
+    "r": chr(13),
+    "t": chr(9),
+    "v": chr(11),
+    "\\": "\\",
+    "'": "'",
+    '"': '"',
+    "?": "?",
+}
+
+
+def _digits(text: str, allowed: str) -> str:
+    """Return the leading run of `text` made of characters in `allowed`.
+
+    Examples
+    --------
+    >>> _digits("2dn", "0123456789abcdef")
+    '2d'
+    >>> _digits("xyz", "0123456789")
+    ''
+    """
+    end = 0
+    while end < len(text) and text[end] in allowed:
+        end += 1
+    return text[:end]
+
+
+def _numeric_escape(text: str, index: int) -> tuple[str | None, int]:
+    """Return the character a numeric ANSI-C escape at `index` denotes.
+
+    Bash reads ``\\xHH`` as one hexadecimal byte and ``\\NNN`` as up to
+    three octal digits. ``None`` reports that the text at `index` is not a
+    numeric escape; the index is then unchanged.
+
+    Examples
+    --------
+    >>> _numeric_escape(chr(92) + "x41", 0)
+    ('A', 4)
+    >>> _numeric_escape(chr(92) + "101", 0)
+    ('A', 4)
+    >>> _numeric_escape(chr(92) + "q", 0)[0] is None
+    True
+    """
+    if text.startswith("\\x", index):
+        digits = _digits(text[index + 2 : index + 4], "0123456789abcdefABCDEF")
+        if digits:
+            return chr(int(digits, 16)), index + 2 + len(digits)
+        return None, index
+    if text[index : index + 1] != "\\":
+        return None, index
+    following = text[index + 1 : index + 2]
+    if following and following in "01234567":
+        digits = _digits(text[index + 1 : index + 4], "01234567")
+        return chr(int(digits, 8) & 0xFF), index + 1 + len(digits)
+    return None, index
+
+
+def _decode_ansi_c(text: str) -> str:
+    """Return `text` with its ANSI-C escapes resolved as Bash resolves them.
+
+    A numeric escape can spell an option letter, so ``$'\\x2dn'`` is the
+    option word ``-n`` and has to be read as one.
+
+    Examples
+    --------
+    >>> _decode_ansi_c(chr(92) + "x2dn")
+    '-n'
+    >>> _decode_ansi_c("a" + chr(92) + "nb")
+    'a\\nb'
+    >>> _decode_ansi_c(chr(92) + "q")
+    '\\\\q'
+    """
+    decoded: list[str] = []
+    index = 0
+    while index < len(text):
+        if text[index] != "\\":
+            decoded.append(text[index])
+            index += 1
+            continue
+        char, after = _numeric_escape(text, index)
+        if char is not None:
+            decoded.append(char)
+            index = after
+            continue
+        following = text[index + 1 : index + 2]
+        decoded.append(_ANSI_C_SIMPLE.get(following, "\\" + following))
+        index += 2
+    return "".join(decoded)
+
+
+def _take_quoted(
+    line: str, index: int, *, ansi: bool = False
+) -> tuple[str, int]:
     """Return a quoted word's text and the index just past its closing quote.
 
-    The text is the word's content as written; an unterminated quote is not a
-    command the shell runs, so it raises rather than reading past the end.
+    The text is the word's content as written, decoded when `ansi` marks a
+    ``$'...'`` string; an unterminated quote is not a command the shell runs,
+    so it raises rather than reading past the end.
 
     Examples
     --------
@@ -53,12 +152,16 @@ def _take_quoted(line: str, index: int) -> tuple[str, int]:
     Traceback (most recent call last):
         ...
     ValueError: unterminated quote in "'unclosed"
+    >>> quoted = "'" + chr(92) + "x2dn'"
+    >>> _take_quoted(quoted, 0, ansi=True)
+    ('-n', 7)
     """
     end = closing_quote(line, index)
     if end is None:
         message = f"unterminated quote in {line!r}"
         raise ValueError(message)
-    return line[index + 1 : end], end + 1
+    text = line[index + 1 : end]
+    return (_decode_ansi_c(text) if ansi else text), end + 1
 
 
 def mask_quotes(line: str) -> MaskedLine:
@@ -93,6 +196,8 @@ def mask_quotes(line: str) -> MaskedLine:
     ['-n']
     >>> "$" in ansi.text
     False
+    >>> mask_quotes("set $" + chr(39) + chr(92) + "x2dn" + chr(39)).quoted
+    ['-n']
     """
     masked: list[str] = []
     quoted: list[str] = []
@@ -112,7 +217,9 @@ def mask_quotes(line: str) -> MaskedLine:
             masked.append(char)
             index += 1
             continue
-        text, index = _take_quoted(line, index)
+        text, index = _take_quoted(
+            line, index, ansi=char == "$"
+        )
         quoted.append(text)
         masked.append(_QUOTED.format(len(quoted) - 1))
     return MaskedLine("".join(masked), quoted)

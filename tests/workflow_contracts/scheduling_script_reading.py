@@ -28,6 +28,7 @@ from __future__ import annotations
 import typing as typ
 
 from scheduling_errexit_reading import (
+    set_arguments,
     CARRYING_OPERATOR,
     OWN_LIST_END,
     carries_to_the_step,
@@ -170,6 +171,8 @@ def _enables_noexec(words: list[str]) -> bool:
     True
     >>> _enables_noexec(["set", "-", "-n"])
     False
+    >>> _enables_noexec(["builtin", "set", "-n"])
+    True
     >>> _enables_noexec(["set", "+o", "noexec"])
     False
     >>> _enables_noexec(["set", "--", "-n"])
@@ -177,6 +180,7 @@ def _enables_noexec(words: list[str]) -> bool:
     >>> _enables_noexec(["true"])
     False
     """
+    words = set_arguments(words)
     if words[:1] != ["set"]:
         return False
     noexec = False

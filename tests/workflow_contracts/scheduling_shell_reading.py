@@ -164,6 +164,26 @@ def _takes_an_operand(word: str) -> bool:
     return _is_short_cluster(word) and word.endswith(("o", "O"))
 
 
+def _names_an_option(previous: str, word: str) -> bool:
+    """Return whether `word` is the option name a short cluster precedes.
+
+    ``-o noexec`` names an option; ``--rcfile noexec`` names a file, so the
+    operand of a long option sets nothing.
+
+    Examples
+    --------
+    >>> _names_an_option("-o", "noexec")
+    True
+    >>> _names_an_option("-eo", "pipefail")
+    True
+    >>> _names_an_option("--rcfile", "noexec")
+    False
+    >>> _names_an_option("-e", "noexec")
+    False
+    """
+    return _is_short_cluster(previous) and previous.endswith(("o", "O"))
+
+
 def _executes_nothing(options: list[str]) -> bool:
     """Return whether these options leave the script unexecuted.
 
@@ -199,7 +219,10 @@ def _executes_nothing(options: list[str]) -> bool:
     previous = ""
     for word in options:
         if _takes_an_operand(previous):
-            if word in {_NOEXEC_OPTION, _ONESHOT_OPTION}:
+            if _names_an_option(previous, word) and word in {
+                _NOEXEC_OPTION,
+                _ONESHOT_OPTION,
+            }:
                 return True
             previous = ""
             continue
@@ -233,7 +256,7 @@ def _enables_errexit(options: list[str]) -> bool:
     previous = ""
     for word in options:
         if _takes_an_operand(previous):
-            if word == _ERREXIT_OPTION:
+            if _names_an_option(previous, word) and word == _ERREXIT_OPTION:
                 return True
             previous = ""
             continue
@@ -381,6 +404,8 @@ def runs_the_script(shell: str | None) -> bool:
     >>> runs_the_script("bash -et {0}")
     False
     >>> runs_the_script("bash --rcfile -e {0}")
+    False
+    >>> runs_the_script("bash --rcfile errexit {0}")
     False
     >>> runs_the_script("bash -o onecmd -e {0}")
     False

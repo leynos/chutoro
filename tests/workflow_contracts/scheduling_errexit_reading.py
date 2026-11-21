@@ -62,7 +62,7 @@ class Command(typ.NamedTuple):
     follows: str
 
 
-def _set_arguments(words: cabc.Sequence[str]) -> cabc.Sequence[str]:
+def set_arguments(words: cabc.Sequence[str]) -> cabc.Sequence[str]:
     """Return `words` with a leading ``builtin`` or ``command`` removed.
 
     Bash runs ``set`` in the current shell through either word, so
@@ -70,11 +70,11 @@ def _set_arguments(words: cabc.Sequence[str]) -> cabc.Sequence[str]:
 
     Examples
     --------
-    >>> list(_set_arguments(["builtin", "set", "+e"]))
+    >>> list(set_arguments(["builtin", "set", "+e"]))
     ['set', '+e']
-    >>> list(_set_arguments(["command", "set", "-e"]))
+    >>> list(set_arguments(["command", "set", "-e"]))
     ['set', '-e']
-    >>> list(_set_arguments(["set", "+e"]))
+    >>> list(set_arguments(["set", "+e"]))
     ['set', '+e']
     """
     if words[:1] in (["builtin"], ["command"]):
@@ -191,7 +191,7 @@ def errexit_setting(words: cabc.Sequence[str]) -> bool | None:
     >>> errexit_setting(["true"]) is None
     True
     """
-    words = _set_arguments(words)
+    words = set_arguments(words)
     if words[:1] != ["set"]:
         return None
     setting: bool | None = None

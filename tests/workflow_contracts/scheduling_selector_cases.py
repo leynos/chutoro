@@ -313,4 +313,19 @@ SELECTOR_CASES: typ.Final[tuple[tuple[str, bool, str], ...]] = (
         True,
         "a-quoted-continuation-before-the-installer",
     ),
+    (
+        f"builtin set -n\n{NEXTEST_INSTALLER}",
+        False,
+        "noexec-enabled-through-builtin-set",
+    ),
+    (
+        "set $" + chr(39) + chr(92) + "x2dn" + chr(39) + "\n" + NEXTEST_INSTALLER,
+        False,
+        "noexec-spelled-by-an-ansi-c-escape",
+    ),
+    (
+        "echo 'a\nb\nc'\n" + NEXTEST_INSTALLER,
+        True,
+        "an-installer-after-a-multi-line-quoted-string",
+    ),
 )

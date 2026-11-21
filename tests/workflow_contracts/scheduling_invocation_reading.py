@@ -22,6 +22,7 @@ from __future__ import annotations
 import re
 
 from scheduling_command_reading import is_redirection, shell_tokens
+from scheduling_quote_reading import mask_quotes
 
 #: The spellings of the Cargo executable a scheduling invocation may start
 #: with. `$(CARGO)` is what the Makefile uses; a literal `cargo` is accepted
@@ -168,11 +169,18 @@ def is_nextest_invocation(command: str) -> bool:
     ...     "$(CARGO) nextest run -p chutoro-core > 'scheduling>' & true"
     ... )
     False
+    >>> is_nextest_invocation(
+    ...     "$(CARGO) nextest run -p chutoro-core '>' & true"
+    ... )
+    False
     """
     tokens = shell_tokens(command)
+    masked = shell_tokens(mask_quotes(command).text)
+    if len(masked) != len(tokens):
+        return False
     rejected = SHELL_SEPARATORS.union(COMPILE_ONLY_FLAGS)
     if any(
-        token in rejected and not _joins_descriptors(tokens, index)
+        token in rejected and not _joins_descriptors(masked, index)
         for index, token in enumerate(tokens)
     ):
         return False

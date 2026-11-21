@@ -52,8 +52,10 @@ def _declared_names(line: str) -> list[str]:
 def _declared_targets(declaration: str) -> list[str]:
     """Return the names one ``.PHONY`` declaration adds, if it declares any.
 
-    ``.PHONY:= gate`` is a variable assignment rather than a declaration, so
-    the ``=`` form names no targets.
+    A declaration carrying an ``=`` is an assignment rather than a phony
+    prerequisite: ``.PHONY:= gate`` assigns the variable and
+    ``.PHONY: gate = value`` assigns ``gate`` for that target, so neither
+    names a target.
 
     Examples
     --------
@@ -61,13 +63,15 @@ def _declared_targets(declaration: str) -> list[str]:
     ['clean', 'gate']
     >>> _declared_targets(".PHONY:= gate")
     []
+    >>> _declared_targets(".PHONY: gate = value")
+    []
     >>> _declared_targets("clean: gate")
     []
     """
     if not declaration.startswith(_PHONY):
         return []
     rest = declaration[len(_PHONY) :]
-    if rest.lstrip().startswith("="):
+    if "=" in rest:
         return []
     return _declared_names(rest)
 
@@ -142,6 +146,10 @@ def declares_target(line: str, target: str) -> bool:
     False
     >>> declares_target("build := 1", "build")
     False
+    >>> declares_target("build ::= 1", "build")
+    False
+    >>> declares_target("build::", "build")
+    True
     >>> declares_target(chr(9) + "build:", "build")
     False
     >>> declares_target("builder:", "build")
@@ -156,6 +164,6 @@ def declares_target(line: str, target: str) -> bool:
     colon = header.find(":")
     if colon == -1:
         return False
-    if header[colon + 1 : colon + 2] == "=":
+    if header[colon:].lstrip(":").startswith("="):
         return False
     return target in header[:colon].split()

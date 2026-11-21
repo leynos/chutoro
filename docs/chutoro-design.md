@@ -830,16 +830,18 @@ kinds. A lexical workflow contract scans the five functions on the scoring path
 and fails deterministically on any Rayon entry point, including a restored
 `into_par_iter()`, and a checked-in copy of the former scorer proves the scan
 still distinguishes it from the fixed code. Two runtime regressions then drive
-a direct scoring batch and a real insertion in a dedicated four-worker pool,
-recording thread identity, Rayon worker index, and a non-blocking
-`insert_mutex` probe for every post-planning distance callback; both assert
-that scoring stays on the guard holder. The runtime evidence is an observation,
-not a proof, because it depends on an idle worker accepting a bounded steal
-offer. Neither check proves deadlock freedom for arbitrary `DataSource`
-implementations, and the broader concurrency limitations in
-[ADR-0002](adrs/adr-0002-adoption-of-kani-formal-verification.md) still apply.
-The `make test-scheduling-contract` target runs the regressions in CI beside
-`make test-workflow-contracts`.
+a direct scoring batch and a real insertion in a dedicated four-worker pool.
+The direct regression records the Rayon worker that serves each distance
+callback and asserts that scoring stays on the calling worker; it holds no
+lock. The insertion-path regression records thread identity, Rayon worker
+index, and a non-blocking `insert_mutex` probe for every post-planning distance
+callback, and it asserts that scoring stays on the guard holder. The runtime
+evidence is an observation, not a proof, because it depends on an idle worker
+accepting a bounded steal offer. Neither check proves deadlock freedom for
+arbitrary `DataSource` implementations, and the broader concurrency limitations
+in [ADR-0002](adrs/adr-0002-adoption-of-kani-formal-verification.md) still
+apply. The `make test-scheduling-contract` target runs the regressions in CI
+beside `make test-workflow-contracts`.
 
 _Implementation update (2026-11-16)._ The insertion mutex stays a single-writer
 lock; it is retained rather than narrowed. `CpuHnsw::insert_mutex: Mutex<()>`

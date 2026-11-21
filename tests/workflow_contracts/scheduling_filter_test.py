@@ -61,3 +61,17 @@ def test_a_second_filter_argument_is_rejected() -> None:
     )
     with pytest.raises(ValueError, match="exactly one filter expression"):
         selected_regression(widened)
+
+def test_a_redirection_target_is_not_a_filter() -> None:
+    """A file named like a filter expression selects nothing.
+
+    ``> '-Etest(=...)'`` writes a file whose name looks like the selector.
+    Reading it as a filter would accept a command that passes none, so the
+    target has to be dropped before the filters are counted.
+    """
+    command = (
+        "cargo nextest run > "
+        f"'-Etest(={QUALIFIED_REGRESSIONS[REGRESSIONS[0]]})'"
+    )
+    with pytest.raises(ValueError, match="exactly one filter expression"):
+        selected_regression(command)

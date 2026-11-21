@@ -21,13 +21,9 @@ that stopped working for one that found nothing.
 from __future__ import annotations
 
 import re
-import shlex
 
 from scheduling_command_reading import strip_shell_comment
-from scheduling_invocation_reading import (
-    command_arguments,
-    is_nextest_invocation,
-)
+from scheduling_invocation_reading import command_arguments, is_nextest_invocation
 from workflow_support import ROOT
 
 #: The target that runs both scheduling regressions.
@@ -229,10 +225,9 @@ def filter_expressions(command: str) -> list[str]:
     """Return every filter expression `command` passes to nextest.
 
     The recipe quotes each filter, so the command is split the way a shell
-    would split it and the expression arrives without its quotes. ``shlex``
-    treats ``#`` as a comment character by default and would stop at one in a
-    word, such as a redirection to ``log#1``, losing every flag after it; the
-    command's comments are removed before it is read, so the split keeps them.
+    would split it and the expression arrives without its quotes. The words
+    are read through ``command_arguments``, which drops a redirection and its
+    target: a file named ``-Etest(=a)`` is written to, not passed as a filter.
 
     Examples
     --------
@@ -247,7 +242,7 @@ def filter_expressions(command: str) -> list[str]:
     >>> filter_expressions("nextest run --filterset=slow -E 'test(=a)'")
     ['slow', 'test(=a)']
     """
-    tokens = shlex.split(command, comments=False)
+    tokens = command_arguments(command)
     expressions: list[str] = []
     for index, token in enumerate(tokens):
         if not _carries_a_filter(token):

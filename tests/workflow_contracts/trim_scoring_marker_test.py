@@ -116,6 +116,9 @@ from trim_scoring_reading import SCORER, dispatch_marker
             id="grouped-generic-free-join",
         ),
         pytest.param(
+            "join(", "((join))(|| (), || ())", id="nested-grouped-free-join"
+        ),
+        pytest.param(
             ".in_place_scope_fifo(",
             "pool.in_place_scope_fifo(|scope| run(scope))",
             id="method-in-place-scope-fifo",

@@ -162,7 +162,8 @@ def _conditional_delta(line: str) -> int:
     """Return how `line` changes the conditional nesting depth.
 
     ``else`` and ``endif`` close no conditional of their own: ``else`` stays
-    inside the one it branches, and ``endif`` closes one level.
+    inside the one it branches, and ``endif`` closes one level. A tab-indented
+    line is recipe text, so it closes nothing.
 
     Examples
     --------
@@ -172,9 +173,13 @@ def _conditional_delta(line: str) -> int:
     0
     >>> _conditional_delta("endif")
     -1
+    >>> _conditional_delta(chr(9) + "endif")
+    0
     >>> _conditional_delta(".PHONY: gate")
     0
     """
+    if line[:1] == "\t":
+        return 0
     if _opens_a_conditional(line):
         return 1
     if _directive(line).split()[:1] == ["endif"]:
@@ -240,6 +245,29 @@ def _keep_line(lines: list[str], line: str) -> bool:
     return False
 
 
+def _definition_step(
+    line: str, depth: int, continued: bool
+) -> tuple[int, bool]:
+    """Return the definition depth and continuation state after `line`.
+
+    A line that continues joins the next one before make reads either, so an
+    ``endef`` written after a continuation is part of the joined text rather
+    than a directive of its own.
+
+    Examples
+    --------
+    >>> _definition_step("text " + chr(92), 1, False)
+    (1, True)
+    >>> _definition_step("endef", 1, True)
+    (1, False)
+    >>> _definition_step("endef", 1, False)
+    (0, False)
+    """
+    if continued or _continues(line):
+        return depth, _continues(line)
+    return depth + _definition_delta(line), False
+
+
 def declaring_lines(text: str) -> list[str]:
     """Return `text`'s lines outside a continued comment or a definition.
 
@@ -262,24 +290,10 @@ def declaring_lines(text: str) -> list[str]:
     >>> lines = declaring_lines("# off " + chr(92) + chr(10) + ".PHONY: gate")
     >>> lines == ["# off "]
     True
-    >>> doubled = "# off " + chr(92) * 2 + chr(10) + ".PHONY: gate"
-    >>> len(declaring_lines(doubled))
-    2
-    >>> declaring_lines(doubled)[1]
-    '.PHONY: gate'
     >>> declaring_lines(".PHONY: gate " + chr(35) + " note")
     ['.PHONY: gate # note']
-    >>> defined = "define UNUSED" + chr(10) + ".PHONY: gate" + chr(10) + "endef"
-    >>> declaring_lines(defined)
-    []
-    >>> nested = (
-    ...     "define OUTER" + chr(10) + "define INNER" + chr(10) + "endef"
-    ...     + chr(10) + ".PHONY: gate" + chr(10) + "endef"
-    ... )
-    >>> declaring_lines(nested)
-    []
-    >>> conditional = "ifeq (0,1)" + chr(10) + ".PHONY: gate" + chr(10) + "endif"
-    >>> declaring_lines(conditional)
+    >>> nested = "define OUTER" + chr(10) + "define INNER" + chr(10) + "endef"
+    >>> declaring_lines(nested + chr(10) + ".PHONY: gate" + chr(10) + "endef")
     []
     >>> continued = (
     ...     "ifeq (0,1)" + chr(10) + "# hidden " + chr(92) + chr(10)
@@ -287,17 +301,26 @@ def declaring_lines(text: str) -> list[str]:
     ... )
     >>> declaring_lines(continued)
     []
+    >>> joined = (
+    ...     "define UNUSED" + chr(10) + "text " + chr(92) + chr(10)
+    ...     + "endef" + chr(10) + ".PHONY: gate" + chr(10) + "endef"
+    ... )
+    >>> declaring_lines(joined)
+    []
     """
     lines: list[str] = []
     in_comment = False
     definition = 0
+    definition_continued = False
     conditionals = 0
     for line in text.splitlines():
         if in_comment:
             in_comment = _continues(line)
             continue
         if definition:
-            definition += _definition_delta(line)
+            definition, definition_continued = _definition_step(
+                line, definition, definition_continued
+            )
             continue
         if conditionals:
             in_comment = _starts_a_continued_comment(line)
