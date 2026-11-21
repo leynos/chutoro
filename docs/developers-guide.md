@@ -3042,10 +3042,10 @@ active `main` ruleset requires `build-test` and `verus-proofs` and does not list
 Verus proofs under `verus/` are standalone transcriptions of production logic
 into specification types. `verus/edge_harvest_proofs.rs` opens with
 `pub type NodeId = nat;`, and `verus/session_core_distance.rs` mirrors
-`session::core_distance::core_distance_from_neighbours` as a spec function.
-Nothing at build level links a proof to `src/`, and no equivalence check
-compares the two. If the implementation drifts, the proof stays green and
-nothing reports the divergence.
+`chutoro_core::core_distance_from_neighbours` as a spec function. Nothing at
+build level links a proof to `src/`, and no equivalence check compares the two.
+If the implementation drifts, the proof stays green and nothing reports the
+divergence.
 
 That hazard is acceptable for stable arithmetic or algebraic properties, where
 the transcription is the whole content of the claim. It is costly for logic
