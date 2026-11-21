@@ -265,11 +265,13 @@ Recorded during planning; extend during implementation.
   the ones an initial reading suggests, and making `Checksum` merely inhabited
   breaks none of the four sites recorded here. One integration test and three
   doctests are affected; `chutoro-bench-datasets/tests/error.rs` is not.
-  Evidence: `tests/error.rs` contains exactly one test,
+  Evidence: at `e4b1c6f`, `tests/error.rs` contained exactly one test,
   `recipe_error_other_wraps_arbitrary_source`, which never mentions checksums.
-  The assertions below were re-derived from source and pinned to commit
-  `e4b1c6f`, whose `chutoro-bench-datasets` tree is identical to `main` at
-  `2222257`; the only difference on that branch is this ExecPlan and
+  Issue #209 subsequently added `recipe_error_size_budget_is_respected`, so the
+  file now has two tests, but the conclusion is unchanged: neither mentions
+  checksums. The assertions below were re-derived from source and pinned to
+  commit `e4b1c6f`, whose `chutoro-bench-datasets` tree is identical to `main`
+  at `2222257`; the only difference on that branch is this ExecPlan and
   `docs/contents.md`. The ticket's line numbers are stale and are superseded by
   this table.
 
@@ -280,12 +282,16 @@ Recorded during planning; extend during implementation.
   | `SourceSpec::with_role` doctest                                      | `chutoro-bench-datasets/src/newtypes/mod.rs:231` | `assert!(source.checksum.is_none());`                                                               | M4 replaces `SourceSpec.checksum` with `integrity`            | Compile: no field `checksum`; doctest, so invisible to Nextest alone                                                                                              |
   | `Checksum::parse` doctest                                            | `chutoro-bench-datasets/src/newtypes/keys.rs:93` | `assert!(matches!(error, RecipeError::ChecksumUnsupported));` (paired with `expect_err` at line 91) | M3 deletes `ChecksumUnsupported`; M2 changes parser behaviour | Compile: no variant `ChecksumUnsupported`. Behaviour: `expect_err` panics if `"sha256:abc123"` is accepted; `matches!` fails if parsing returns a different error |
 
-  Making `Checksum` inhabited alone (M2) breaks none of these sites: the field
-  remains `Option<Checksum>`, both constructors still set `None`, and
-  `Checksum::parse` still returns `ChecksumUnsupported`. The breakage belongs
-  to M3 (error-variant deletion and parser behaviour) and M4 (field
-  replacement), not to inhabitation. Treat the parser doctest as one unit: keep
-  its `expect_err` and `matches!` calls together.
+  Making `Checksum` inhabited alone — a hypothetical change, not a standalone
+  milestone — breaks none of these sites: the field remains `Option<Checksum>`,
+  both constructors still set `None`, and the placeholder `Checksum::parse`
+  still returns `ChecksumUnsupported`. The breakage belongs to the M2 change as
+  planned, which inhabits `Checksum` **and** replaces the placeholder parser,
+  and to M3 (error-variant deletion) and M4 (field replacement). Keep that
+  distinction when estimating the work: the parser doctest's behaviour failure
+  comes from M2's parser change, not from inhabitation by itself. Treat the
+  parser doctest as one unit: keep its `expect_err` and `matches!` calls
+  together.
 
   The three production `ChecksumUnsupported` deletion targets are
   `chutoro-bench-datasets/src/error.rs:19-21` (variant definition and display
@@ -322,10 +328,10 @@ Recorded during planning; extend during implementation.
   `cargo test --doc -p chutoro-bench-datasets --all-features`.
 
   Impact: Stage A must budget for three doctest edits and scope its red/green
-  loop to `make test`, not Nextest alone. Stage A's red-test list already names
-  `recipe_error_size_budget_is_respected`; issue #209 adds that test ahead of
-  Stage A, so this plan must not add it twice. The Stage A checklist below
-  names every assertion site.
+  loop to `make test`, not Nextest alone. Stage A's red-test list reuses
+  `recipe_error_size_budget_is_respected`, which issue #209 adds ahead of Stage
+  A, so this plan must not add it twice. The Stage A checklist below names
+  every assertion site.
 - Observation (superseded 2026-11-11): the first draft found that
   `sha2 0.10` cannot serialize hasher midstate, and adopted chunked digests in
   response. Two things have since changed. First, `main` resolves `sha2 0.11.0`,
@@ -782,11 +788,12 @@ dependency, `sha2`. This stage should pass every gate first time.
   over arbitrary 32-byte arrays, and a rejection property over arbitrary
   strings that are not valid digests.
 - Extend `chutoro-bench-datasets/tests/error.rs` with
-  `integrity_failure_boxed_payload_preserves_source` and a
-  `recipe_error_size_budget_is_respected` test asserting
-  `size_of::<RecipeError>() <= 32`. The budget currently lives only in a
-  `const _` at the bottom of `src/error.rs`; make it visible to a reviewer
-  reading the test suite.
+  `integrity_failure_boxed_payload_preserves_source`. Reuse the
+  `recipe_error_size_budget_is_respected` test that issue #209 added ahead of
+  this stage: it already asserts `size_of::<RecipeError>() <= 32` and names the
+  `clippy::result_large_err` rationale and the `const _` guard in
+  `src/error.rs`. Do not add a duplicate; keep the guard in place as the
+  compile-time enforcement.
 
 Run them; confirm they fail to compile or fail for the intended reason; capture
 the log.
@@ -1556,6 +1563,13 @@ restart window only while the counter is zero; and the verification window runs
 from the first verification read to the publishing rename, so a pass that
 completes its read and then stops before the rename costs that pass and its
 replacement.
+
+2026-11-21 (issue #209 catalogue corrections): Stage A now reuses the
+`recipe_error_size_budget_is_respected` test added by issue #209 instead of
+adding it again, and the claim that `tests/error.rs` contains only one test is
+marked as historical. The catalogue also distinguishes a hypothetical
+inhabitation-only change from the M2 change as planned, which inhabits
+`Checksum` and replaces the placeholder parser together.
 
 2026-11-21 (fifth revision, review of #199): retired the checkpointed hasher
 midstate. Review raised two points. The serialized state of the buffered
