@@ -62,6 +62,27 @@ class ComponentGroup(typ.NamedTuple):
     values: list[str]
 
 
+def _is_escape(character: str, quote: str | None) -> bool:
+    """Report whether *character* escapes the next one."""
+    if quote == "'":
+        return False
+    return character == "\\"
+
+
+def _is_comment_start(character: str, quote: str | None, previous: str) -> bool:
+    """Report whether *character* begins a shell comment."""
+    if quote is not None or character != "#":
+        return False
+    return previous in {" ", "\t"}
+
+
+def _quote_after(character: str, quote: str | None) -> str | None:
+    """Return the open quote after an unescaped character."""
+    if quote is not None:
+        return None if character == quote else quote
+    return character if character in {"'", '"'} else None
+
+
 def _scan_line(line: str, quote: str | None) -> tuple[int | None, str | None]:
     """Return a line's comment start and the quote state it leaves open.
 
@@ -75,14 +96,12 @@ def _scan_line(line: str, quote: str | None) -> tuple[int | None, str | None]:
     for index, character in enumerate(line):
         if escaped:
             escaped = False
-        elif character == "\\" and quote != "'":
+        elif _is_escape(character, quote):
             escaped = True
-        elif quote is None and character in {"'", '"'}:
-            quote = character
-        elif quote == character:
-            quote = None
-        elif quote is None and character == "#" and previous in {" ", "\t"}:
+        elif _is_comment_start(character, quote, previous):
             return index, quote
+        else:
+            quote = _quote_after(character, quote)
         previous = character
     return None, quote
 
