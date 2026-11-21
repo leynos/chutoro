@@ -870,23 +870,29 @@ outer error and the original phase error is its source. Use
 `RecipeError::cleanup_failure()` to borrow the pair instead of parsing the
 display text.
 
+<!-- tested-example: recipe-cleanup-failure -->
+
 ```rust
+use std::error::Error;
+
 use chutoro_bench_datasets::{Phase, PortName, RecipeError};
 
-let error = RecipeError::cleanup_with_phase_error(
-    Phase::Prepare,
-    RecipeError::prepare("archive corrupt"),
-    RecipeError::port(PortName::Storage, "cache locked"),
-);
-let failure = error
-    .cleanup_failure()
-    .ok_or_else(|| std::io::Error::other("cleanup failure should be retained"))?;
-assert!(matches!(failure.phase_error(), RecipeError::Prepare(_)));
-assert_eq!(
-    failure.cleanup_error().to_string(),
-    "port Storage failed: cache locked",
-);
-# Ok::<(), Box<dyn std::error::Error>>(())
+fn main() -> Result<(), Box<dyn Error>> {
+    let error = RecipeError::cleanup_with_phase_error(
+        Phase::Prepare,
+        RecipeError::prepare("archive corrupt"),
+        RecipeError::port(PortName::Storage, "cache locked"),
+    );
+    let failure = error
+        .cleanup_failure()
+        .ok_or_else(|| std::io::Error::other("cleanup failure should be retained"))?;
+    assert!(matches!(failure.phase_error(), RecipeError::Prepare(_)));
+    assert_eq!(
+        failure.cleanup_error().to_string(),
+        "port Storage failed: cache locked",
+    );
+    Ok(())
+}
 ```
 
 ### Identifying cache and object keys
