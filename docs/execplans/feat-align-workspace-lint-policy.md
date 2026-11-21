@@ -198,11 +198,20 @@ keeps local editor feedback aligned with commit gates.
       with the user-path command boundary and its two `cli::tests` fixture
       modules. `make lint` passes with Whitaker enforcing every other CLI
       module.
-- [x] 2026-08-24: Removed the `chutoro-test-support` whole-crate Whitaker
-      exemption. Its binary-discovery fallback now reads the `deps` directory
-      through a `cap_std::fs::Dir`; retain only the separately compiled gate
-      binaries and their integration-test crates, whose ambient fixture staging
-      is intentional. Focused crate tests and Whitaker pass.
+- [x] 2026-08-24 (superseded 2026-11-21): Removed the `chutoro-test-support`
+      whole-crate Whitaker exemption. Its binary-discovery fallback then read
+      the `deps` directory through a `cap_std::fs::Dir`; retain only the
+      separately compiled gate binaries and their integration-test crates,
+      whose ambient fixture staging is intentional. Focused crate tests and
+      Whitaker passed.
+- [x] 2026-11-21: Superseded the `cap_std` binary-discovery fallback above.
+      Commit `a29031a` replaced
+      `chutoro_test_support::process::find_test_binary` with compile-time
+      `env!("CARGO_BIN_EXE_<name>")` paths and deleted the module. The fallback
+      could select the gate binary's own `<name>-<hash>` unit-test harness from
+      `deps` under a split `CARGO_BUILD_BUILD_DIR`, and that harness exits
+      successfully after printing `running 0 tests`. The compile-time value
+      names the finished executable directly.
 - [x] 2026-08-24: Audited all seven workspace-member manifests. Core, CLI,
       both providers, test support, benchmarks, and benchmark datasets inherit
       `[workspace.lints]`; no workspace member remains to be enrolled.
@@ -354,15 +363,24 @@ keeps local editor feedback aligned with commit gates.
   lint table. Rationale: the Rust compiler has no lint with that name, while
   the installed Clippy version supports it and diagnoses the intended private
   implementation surface.
-- 2026-08-24: Replace `chutoro-test-support`'s direct `std::fs::read_dir`
-  fallback with `cap_std::fs::Dir`, and remove its Whitaker exclusion.
-  Rationale: the existing public fallback must still resolve bins when Cargo's
-  environment variable is absent, but a capability-scoped directory handle
-  narrows filesystem authority without altering that behaviour.
-- 2026-08-24: Reuse `chutoro-test-support::process::find_test_binary` for
-  binary discovery while injecting environment access with `mockable::Env`. The
-  public boundary supplies `DefaultEnv`. Rationale: shared discovery logic
-  remains reusable without an exception to the ban on ambient reads.
+- 2026-08-24 (superseded 2026-11-21): Replace `chutoro-test-support`'s direct
+  `std::fs::read_dir` fallback with `cap_std::fs::Dir`, and remove its Whitaker
+  exclusion. Rationale: the existing public fallback must still resolve bins
+  when Cargo's environment variable is absent, but a capability-scoped
+  directory handle narrows filesystem authority without altering that behaviour.
+- 2026-08-24 (superseded 2026-11-21): Reuse
+  `chutoro-test-support::process::find_test_binary` for binary discovery while
+  injecting environment access with `mockable::Env`. The public boundary
+  supplies `DefaultEnv`. Rationale: shared discovery logic remains reusable
+  without an exception to the ban on ambient reads.
+- 2026-11-21: Supersede both `find_test_binary` decisions above. Commit
+  `a29031a` deleted `chutoro-test-support::process`; integration tests now pass
+  the compile-time `env!("CARGO_BIN_EXE_<name>")` value straight to
+  `Command::new`. Rationale: a filename probe in `deps` cannot distinguish a
+  finished binary from its hashed unit-test harness, so a split
+  `CARGO_BUILD_BUILD_DIR` could substitute `running 0 tests` for the gate's
+  output. `tests/workflow_contracts/gate_binary_split_build_dir_test.py` guards
+  the split layout.
 
 ## Stage 2a: Core mechanical lint onboarding
 

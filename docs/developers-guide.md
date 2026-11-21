@@ -1138,6 +1138,31 @@ configure a child explicitly with `Command::env`, `Command::env_remove` or
 `Command::current_dir`; code that needs a directory takes it as an argument
 rather than changing the process's own.
 
+## Locating sibling binaries from integration tests
+
+An integration test that runs another binary from the same package must pass
+Cargo's compile-time `env!("CARGO_BIN_EXE_<name>")` value directly to
+`Command::new`. Cargo defines the variable for every binary target in the
+package, and the value names the finished executable for the selected profile
+whatever the target and build directories are.
+
+Do not reconstruct a sibling's path from `current_exe()`, and do not scan a
+`deps` directory for a matching file name. A compiled artefact's name carries a
+metadata hash, and that hash cannot distinguish a finished binary from its
+unit-test harness: both are `<name>-<hash>`. Running the harness in place of
+the gate exits successfully after printing `running 0 tests`, so the caller
+reads an empty result rather than a failure.
+
+Cargo 1.91 stabilized `build.build-dir` and its `CARGO_BUILD_BUILD_DIR`
+environment variable. That setting moves intermediate artefacts, test harnesses
+included, under the build directory while finished binaries stay in
+`<target-dir>/<profile>`. The gate suites therefore take their executable from
+`CARGO_BIN_EXE_<name>` rather than from path arithmetic, and
+`tests/workflow_contracts/gate_binary_split_build_dir_test.py` runs both suites
+with distinct temporary target and build directories. The contract asserts that
+each suite really executed and that the finished gates and hashed harnesses
+landed in their separate directories.
+
 ## Whitaker lint suite
 
 `make lint` first runs `make interrogate`, which requires a docstring on every
@@ -1481,8 +1506,8 @@ The CI workflow files, the nextest configuration and this guide state the same
 facts in three places, and nothing but a contract notices when they drift.
 `make test-workflow-contracts` runs the Python suites under
 `tests/workflow_contracts/`, which is the standing guard for the runner
-placement, the tool installs, the cache ownership, the CodeScene rule set and
-the timeout tiers below.
+placement, the tool installs, the cache ownership, the CodeScene rule set, the
+gate-binary layout under a split build directory and the timeout tiers below.
 
 The target needs `uv` on the path for its Python harness: it obtains `pytest`,
 `PyYAML`, `pathspec` and `hypothesis` for the run through `uv run --with`, so
