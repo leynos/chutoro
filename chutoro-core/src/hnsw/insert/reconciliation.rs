@@ -114,9 +114,32 @@ impl<'graph> EdgeReconciler<'graph> {
 
     /// Ensures `target` links back to the origin, evicting if at capacity.
     ///
-    /// Returns `false` when the target is missing or lacks the level. An
+    /// Returns `false` when the target is missing, lacks the level, or is the
+    /// origin itself. A self-target is a caller bug: debug builds assert on it,
+    /// and other builds reject the request before mutating the graph. An
     /// eviction defers a scrub for the orphaned forward edge.
+    ///
+    /// # Panics
+    ///
+    /// Debug builds panic when `target` equals `ctx.origin`, because a
+    /// self-loop is never a valid reverse edge.
     pub(super) fn ensure_reverse_edge(&mut self, ctx: &UpdateContext, target: usize) -> bool {
+        // Kani rewrites an active `debug_assert!` into `assert!`, so the
+        // assertion is compiled out there: the two-node harnesses must explore
+        // the self-target branch to prove the mutation-free fallback. Those
+        // harnesses prove the fallback, while the debug-profile unit test
+        // proves the assertion fires.
+        #[cfg(not(kani))]
+        debug_assert!(
+            target != ctx.origin,
+            "ensure_reverse_edge requires target != origin; target {target}, origin {}, level {}",
+            ctx.origin,
+            ctx.level,
+        );
+        if target == ctx.origin {
+            return false;
+        }
+
         let Some(target_node) = self.graph.node_mut(target) else {
             return false;
         };
