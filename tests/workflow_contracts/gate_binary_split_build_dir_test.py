@@ -65,8 +65,18 @@ def _executable(stem: str) -> str:
     return f"{stem}.exe" if os.name == "nt" else stem
 
 
-def _cargo_version() -> tuple[int, int] | None:
-    """Return Cargo's major and minor version, or ``None`` when unreadable."""
+class CargoVersionProbeError(RuntimeError):
+    """``cargo --version`` ran but could not report a usable version."""
+
+
+def _cargo_version() -> tuple[int, int]:
+    """Return Cargo's major and minor version.
+
+    Raises:
+        CargoVersionProbeError: when the command fails or its output carries
+            no version. A present but broken Cargo is a probe failure, not an
+            unprovisioned host, so it must not be reported as a skip.
+    """
     completed = subprocess.run(
         ["cargo", "--version"],
         check=False,
@@ -74,10 +84,16 @@ def _cargo_version() -> tuple[int, int] | None:
         text=True,
     )
     if completed.returncode != 0:
-        return None
+        raise CargoVersionProbeError(
+            "cargo --version failed: "
+            f"exit {completed.returncode}: {completed.stderr.strip()}"
+        )
     match = re.search(r"\bcargo (\d+)\.(\d+)", completed.stdout)
     if match is None:
-        return None
+        raise CargoVersionProbeError(
+            "cargo --version printed no usable version: "
+            f"{completed.stdout.strip()!r}"
+        )
     return int(match.group(1)), int(match.group(2))
 
 
@@ -93,8 +109,6 @@ def skip_reason() -> str | None:
     if shutil.which("cargo") is None:
         return "the split-layout contract needs cargo on the path"
     version = _cargo_version()
-    if version is None:
-        return "cargo --version did not report a usable version"
     if version < MINIMUM_CARGO:
         return (
             "the split-layout contract needs Cargo 1.91 or later, which "
