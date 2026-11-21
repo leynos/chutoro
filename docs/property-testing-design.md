@@ -577,6 +577,16 @@ The following edge-harvest behaviours are deterministic and bounded enough to
 be verifiable with Verus at reasonable effort. These proposals complement the
 proptest coverage and focus on pure helpers with well-scoped inputs.
 
+Verus and Kani complement `proptest`. For an invariant over a range of inputs,
+either `proptest` or Kani satisfies the requirement, while introduced lemmas
+and contractual business logic independently require a substantive Verus proof,
+even when `proptest` can exercise the rule. Verus is also the tool for
+unbounded properties that resist both. Each tool checks a different artefact
+and carries a different cost at review time; see
+[Choosing a verification tool](developers-guide.md#choosing-a-verification-tool)
+and
+[ADR 002 § Complementary Testing Strategy](adrs/adr-0002-adoption-of-kani-formal-verification.md#complementary-testing-strategy).
+
 ### A1: `extract_candidate_edges` invariants
 
 Location: `chutoro-core/src/hnsw/insert/mod.rs`
