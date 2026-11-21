@@ -335,3 +335,39 @@ fn concurrent_threads_serialize_on_the_registry(root_res: io::Result<StagingRoot
         .expect("the registry must be clean once every worker has dropped its guard");
     drop(reacquired);
 }
+
+/// Create a FIFO at `path` through `mkfifo(1)`, which avoids a libc binding.
+fn make_fifo(path: &Utf8Path) -> io::Result<()> {
+    let status = std::process::Command::new("mkfifo")
+        .arg(path.as_str())
+        .status()?;
+    if status.success() {
+        Ok(())
+    } else {
+        Err(io::Error::other(format!("mkfifo failed with {status}")))
+    }
+}
+
+#[rstest]
+fn fifo_lockfile_is_rejected_without_blocking(root_res: io::Result<StagingRoot>) {
+    let root = root_res.expect("temporary staging root should be created");
+    make_fifo(&root.join("fifo.lock")).expect("the FIFO fixture should be created");
+
+    // Run the acquisition on a worker so a blocking open fails this test at the
+    // watchdog instead of leaving the suite to its 60-second slow timeout.
+    let lock = root.lock();
+    let policy = policy(Duration::from_millis(20)).expect("policy");
+    let (sender, receiver) = std::sync::mpsc::channel();
+    let worker = std::thread::spawn(move || {
+        let outcome = lock.acquire("fifo.lock", policy).map(|_guard| ());
+        drop(sender.send(outcome));
+    });
+
+    match receiver.recv_timeout(Duration::from_secs(2)) {
+        Ok(Err(RecipeError::StagingLockIo { .. })) => {}
+        Ok(Err(other)) => panic!("unexpected error: {other}"),
+        Ok(Ok(())) => panic!("a FIFO lockfile must not be acquired"),
+        Err(error) => panic!("the FIFO open blocked past the watchdog: {error}"),
+    }
+    worker.join().expect("watchdog worker should finish");
+}

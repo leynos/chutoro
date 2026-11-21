@@ -45,6 +45,7 @@
 //!   [`LockPolicy`] rejects a zero timeout and warns once on contention.
 
 mod lock;
+mod platform;
 mod policy;
 
 pub use lock::{StagingLock, StagingLockGuard};

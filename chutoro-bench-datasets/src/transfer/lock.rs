@@ -17,26 +17,13 @@ use cap_std::{
     ambient_authority,
     fs_utf8::{Dir, File, OpenOptions},
 };
-use tracing::{debug, warn};
+use tracing::warn;
 
-use crate::{RecipeError, transfer::LockAttempt, transfer::LockPolicy, transfer::LockStep};
+use super::platform::{self, FLOCK_SUPPORTED};
+use crate::{RecipeError, transfer::LockPolicy, transfer::LockStep};
 
 /// Suffix every staging lockfile name must carry.
 const LOCK_SUFFIX: &str = ".lock";
-
-/// Whether this target exposes `cap-std`'s `AsFd` and `rustix::fs::flock`.
-///
-/// `cap_std::fs_utf8::File` implements `AsFd` only on non-Windows targets, and
-/// rustix omits `flock` on the listed systems. This is the same predicate that
-/// gates the two `try_flock` and `unlock` definitions below.
-const FLOCK_SUPPORTED: bool = cfg!(not(any(
-    windows,
-    target_os = "espidf",
-    target_os = "horizon",
-    target_os = "solaris",
-    target_os = "vita",
-    target_os = "wasi",
-)));
 
 /// Capability-rooted factory for advisory staging locks.
 ///
@@ -157,7 +144,7 @@ impl fmt::Debug for StagingLockGuard {
 
 impl Drop for StagingLockGuard {
     fn drop(&mut self) {
-        unlock(&self.file);
+        platform::unlock(&self.file);
         release_path(&self.path);
         // The descriptor closes after this method returns, which also releases
         // any lock the kernel still associates with it.
@@ -243,10 +230,29 @@ fn is_single_normal_component(path: &Utf8Path) -> bool {
 }
 
 /// Open or create the lockfile without truncating it.
+///
+/// The open is non-blocking so an existing FIFO without a reader cannot hang
+/// before the acquisition clock starts, and the opened descriptor must be a
+/// regular file.
 fn open_lockfile(dir: &Dir, name: &Utf8Path) -> io::Result<File> {
     let mut options = OpenOptions::new();
     options.write(true).create(true);
-    dir.open_with(name, &options)
+    platform::set_nonblocking_open(&mut options);
+    let file = dir.open_with(name, &options)?;
+    ensure_regular_file(&file)?;
+    Ok(file)
+}
+
+/// Reject a lockfile path that is not a regular file.
+fn ensure_regular_file(file: &File) -> io::Result<()> {
+    if file.metadata()?.is_file() {
+        Ok(())
+    } else {
+        Err(io::Error::new(
+            io::ErrorKind::InvalidData,
+            "staging lock path is not a regular file",
+        ))
+    }
 }
 
 /// Attempt the lock until the policy reports success or a timeout.
@@ -259,8 +265,8 @@ fn acquire_file(
     let started = Instant::now();
     let mut warned = false;
     loop {
-        let attempt =
-            try_flock(&file).map_err(|error| RecipeError::staging_lock_io(path.as_str(), error))?;
+        let attempt = platform::try_flock(&file)
+            .map_err(|error| RecipeError::staging_lock_io(path.as_str(), error))?;
         let elapsed = started.elapsed();
         match policy.next_step(attempt, elapsed, warned) {
             LockStep::Acquired => {
@@ -270,7 +276,7 @@ fn acquire_file(
             LockStep::TimedOut => {
                 // Release a success that arrived after the deadline before the
                 // registration removes its entry, then close the descriptor.
-                unlock(&file);
+                platform::unlock(&file);
                 return Err(RecipeError::staging_lock_contended(
                     path.as_str(),
                     duration_millis(elapsed),
@@ -295,74 +301,3 @@ fn acquire_file(
 fn duration_millis(duration: Duration) -> u64 {
     u64::try_from(duration.as_millis()).unwrap_or(u64::MAX)
 }
-
-/// Perform one non-blocking exclusive `flock` attempt.
-#[cfg(not(any(
-    windows,
-    target_os = "espidf",
-    target_os = "horizon",
-    target_os = "solaris",
-    target_os = "vita",
-    target_os = "wasi"
-)))]
-fn try_flock(file: &File) -> io::Result<LockAttempt> {
-    use std::os::fd::AsFd;
-
-    use rustix::{
-        fs::{FlockOperation, flock},
-        io::Errno,
-    };
-
-    match flock(file.as_fd(), FlockOperation::NonBlockingLockExclusive) {
-        Ok(()) => Ok(LockAttempt::Acquired),
-        Err(error) if error == Errno::WOULDBLOCK => Ok(LockAttempt::Contended),
-        Err(error) if error == Errno::INTR => Ok(LockAttempt::Interrupted),
-        Err(error) => Err(error.into()),
-    }
-}
-
-/// Report an unsupported target without touching the filesystem.
-#[cfg(any(
-    windows,
-    target_os = "espidf",
-    target_os = "horizon",
-    target_os = "solaris",
-    target_os = "vita",
-    target_os = "wasi"
-))]
-fn try_flock(_file: &File) -> io::Result<LockAttempt> {
-    Err(io::Error::from(io::ErrorKind::Unsupported))
-}
-
-/// Release the advisory lock held by `file`.
-#[cfg(not(any(
-    windows,
-    target_os = "espidf",
-    target_os = "horizon",
-    target_os = "solaris",
-    target_os = "vita",
-    target_os = "wasi"
-)))]
-fn unlock(file: &File) {
-    use std::os::fd::AsFd;
-
-    use rustix::fs::{FlockOperation, flock};
-
-    if let Err(error) = flock(file.as_fd(), FlockOperation::Unlock) {
-        debug!(
-            error = %error,
-            "unable to unlock staging file; closing the descriptor releases the lock"
-        );
-    }
-}
-
-/// Release nothing on a target without an `flock` binding.
-#[cfg(any(
-    windows,
-    target_os = "espidf",
-    target_os = "horizon",
-    target_os = "solaris",
-    target_os = "vita",
-    target_os = "wasi"
-))]
-fn unlock(_file: &File) {}

@@ -99,7 +99,9 @@ feature. `StagingLock::new(root)` holds the capability root path.
 `StagingLock::acquire(name, policy)` validates a single relative UTF-8
 component ending in `.lock`, opens or creates that file through
 `cap_std::fs_utf8::Dir` with write access and no truncation, and attempts a
-non-blocking exclusive `flock` on `file.as_fd()`.
+non-blocking exclusive `flock` on `file.as_fd()`. The open itself sets
+`O_NONBLOCK`, so a pre-existing FIFO without a reader cannot block before the
+timeout clock starts, and the opened descriptor must be a regular file.
 
 Acquisition follows a pure, clock-free `LockPolicy::next_step` that receives
 the attempt outcome, elapsed time, and whether a contention warning has already
@@ -222,6 +224,11 @@ must reach it are recorded here so the plan and the code cannot drift:
 - **Inherited descriptors.** A fork that keeps the descriptor alive can keep
   the lock held after the parent exits. Close-on-exec does not cover an
   explicit descriptor handoff.
+- **A pre-existing non-regular path is rejected.** A FIFO, socket, or device
+  at the lockfile path is not a valid lock target. `O_NONBLOCK` stops a
+  reader-less FIFO from blocking the open before the acquisition clock starts,
+  and descriptor metadata rejects anything that is not a regular file with
+  `StagingLockIo`.
 - **Timeout is a policy choice.** Too short a timeout turns ordinary
   contention into failures; too long a timeout delays diagnosis. The default
   poll interval is 25 ms and callers choose the timeout explicitly.
@@ -266,10 +273,12 @@ crate doctests under all features. `make lint` passes with no
   total sleep never exceeds the timeout, at most one warning is emitted, and
   the loop terminates with a success only before the deadline.
 - `tests/staging_lock_filesystem.rs` covers release and reacquisition, immediate
-  in-process rejection, invalid names, lockfile persistence, and thread
-  contention. It holds an independent `flock` to prove a bounded timeout below
-  the registry, then releases it and reacquires, and asserts one `warn` line
-  with `tracing-test`.
+  in-process rejection, invalid names, lockfile persistence, thread contention,
+  and a reader-less FIFO at the lockfile path. The FIFO case runs under a
+  watchdog and proves the non-blocking open fails promptly with
+  `StagingLockIo`. The suite holds an independent `flock` to prove a bounded
+  timeout below the registry, then releases it and reacquires, and asserts one
+  `warn` line with `tracing-test`.
 - `tests/staging_lock_cross_process.rs` (Linux only) re-runs the test binary in
   a holder role, proves the bounded timeout against a live foreign process, and
   reacquires once the child exits. The child is killed and reaped on every
