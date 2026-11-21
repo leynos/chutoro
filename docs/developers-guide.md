@@ -2997,40 +2997,45 @@ repository different amounts at review time. The distinction that matters is
 not which tool is stronger but what each one actually checks and what runs
 before a merge.
 
-| Tool       | CI execution                                                                  | Proof selection                                                | Standing pull-request cost                        | What it checks                                          |
-| ---------- | ----------------------------------------------------------------------------- | -------------------------------------------------------------- | ------------------------------------------------- | ------------------------------------------------------- |
-| Verus      | Every pull request (`ci.yml`, no path filter)                                 | Default `VERUS_PROOF_FILES` roots in the `Makefile`            | Every pull request, for the lifetime of the proof | A specification model transcribed from production logic |
-| Kani       | Path-filtered pull requests to `main` (`kani-pr.yml`); nightly full suite     | Six harnesses in `make kani`; package list in `make kani-full` | Only when a path filter matches                   | Executable Rust under `cfg(kani)`                       |
-| `proptest` | Path-filtered pull requests to `main` (`property-tests.yml`); weekly deep run | Test targets in the property suites                            | Only when a path filter matches                   | Shipped code at realistic sizes                         |
+| Tool       | CI execution                                                                                                                  | Proof selection                                                | Standing pull-request cost                                                                             | What it checks                                          |
+| ---------- | ----------------------------------------------------------------------------------------------------------------------------- | -------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------ | ------------------------------------------------------- |
+| Verus      | Every pull request (`ci.yml`, no path filter)                                                                                 | Default `VERUS_PROOF_FILES` roots in the `Makefile`            | `verus-proofs` job runtime on every pull request; elapsed impact only while it is on the critical path | A specification model transcribed from production logic |
+| Kani       | Path-filtered pull requests to `main` (`kani-pr.yml`); nightly full suite                                                     | Six harnesses in `make kani`; package list in `make kani-full` | Only when a path filter matches                                                                        | Executable Rust under `cfg(kani)`                       |
+| `proptest` | Every pull request through the `build-test` coverage run; extra path-filtered suites in `property-tests.yml`; weekly deep run | Test targets in the property suites                            | Always, within the existing test run; extra cases only when a path filter matches                      | Shipped code at realistic sizes                         |
 
 *Table 1: Verification tools, what each checks, and what it costs at review
 time.*
 
 Verus runs on every pull request. The `verus-proofs` job in `ci.yml` has no
-path filter, so an opened, synchronized or reopened pull request pays for it
-whether or not the change touches a proof. Each selected root adds latency to
-every pull request for the lifetime of the proof. The `.verus` cache in that
-job reduces the installation cost but does not remove it: a cache miss
-downloads and verifies the pinned release again.
+path filter, so an opened, synchronized or reopened pull request pays its
+runtime whether or not the change touches a proof. Each selected root adds to
+that job's runtime for the lifetime of the proof. Whether that extends the
+elapsed pull-request time depends on the critical path: the job is short
+compared with `build-test`, so added runtime first matters when the job grows
+past the longest parallel job. The `.verus` cache reduces the installation cost
+but does not remove it: a cache miss downloads and verifies the pinned release
+again.
 
 Kani is narrower. `make kani` runs six curated harnesses, and the path-filtered
 `kani-pr.yml` workflow runs it only for pull requests to `main` that touch a
 harness, its production module, the `Makefile` or the Cargo dependency graph. A
-new harness reaches that gate only if it matches a path filter and is named in
-the `make kani` list. Otherwise it runs only in the nightly `make kani-full`
-sweep, and only if its package is in that target's package list; the dataset
-crate is not. The nightly job can also skip with a green result when its
-commit-recency gate finds no recent `main` commits. See
+new harness reaches that configured check only if it matches a path filter and
+is named in the `make kani` list. Otherwise it runs only in the nightly
+`make kani-full` sweep, and only if its package is in that target's package
+list; the dataset crate is not. The nightly job can also skip with a green
+result when its commit-recency gate finds no recent `main` commits. See
 [Kani CI policy](#kani-ci-policy) for the tier details.
 
-`proptest` runs in the path-filtered `property-tests.yml` workflow described
-under [Continuous integration](#continuous-integration). It samples shipped
-code at realistic sizes and shrinks a failing case, but it does not cover every
-input.
+`proptest` runs on every pull request as well, because `build-test` runs the
+whole nextest suite under coverage. The path-filtered `property-tests.yml`
+workflow adds the curated property suites on pull requests to `main`, and a
+weekly run deepens them. Both sample shipped code at realistic sizes and shrink
+a failing case, but neither covers every input.
 
-These are configured pull-request checks intended as gates. Which of them a
-merge actually requires is decided by GitHub branch protection or rulesets, not
-by the workflow files.
+These are configured pull-request checks, not necessarily merge requirements.
+GitHub branch protection or rulesets decide which checks a merge requires; the
+active `main` ruleset requires `build-test` and `verus-proofs` and does not list
+`kani` (see [#396](https://github.com/leynos/chutoro/issues/396)).
 
 #### The drift hazard in transcribed proofs
 
@@ -3071,15 +3076,16 @@ evidence over enumerated cases, not a general equivalence proof.
   realistic sizes. It samples rather than covers all inputs, so it cannot
   establish a universal claim.
 
-Roadmap item 10.1.2 (PR #199) applied this rule to three candidate proofs:
+The roadmap item 10.1.2 plan (PR #199, still open) applied this rule to three
+candidate proofs:
 
 - A `Path::join` containment lemma was rejected. It would have proved a theorem
   about a handwritten model of `Path::join`, which Verus does not model, so the
   proof would not have constrained the shipped path handling.
 - A resume-sequence lemma was rejected. It would have rigorously proved the
   easy induction step while assuming the `Content-Range` parser, where the
-  actual risk lives. A `proptest` state machine exercising the real functions
-  replaced it.
+  actual risk lives. The plan selected a `proptest` state machine exercising
+  the real functions instead.
 - A jitter bound, `(sample × span) >> 64 ≤ span`, was retained. It is stable and
   nonlinear, and both operands range over the full 64-bit domain rather than a
   bounded harness domain: `proptest` can sample individual values but cannot
