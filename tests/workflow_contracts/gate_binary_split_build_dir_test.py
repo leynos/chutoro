@@ -6,9 +6,9 @@ harnesses and other hashed artefacts live in ``<build-dir>/debug/deps``, while
 ``<target-dir>/debug`` holds the binaries a caller runs. An integration test
 must therefore take a sibling binary from Cargo's compile-time
 ``CARGO_BIN_EXE_<name>`` value. Reconstructing the path from ``current_exe()``
-and scanning ``deps`` instead can select the gate's own ``<name>_cli-<hash>``
-test harness, whose stem begins with ``<name>-`` and which exits successfully
-after printing ``running 0 tests``.
+and scanning ``deps`` instead can select the gate binary's own
+``<name>-<hash>`` unit-test harness, which exits successfully after printing
+``running 0 tests``.
 
 This contract runs both gate suites under that layout. It asserts that the
 suites actually executed, that no harness ran in place of a gate, and that the
