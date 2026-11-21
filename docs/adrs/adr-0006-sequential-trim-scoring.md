@@ -372,10 +372,10 @@ exits, so a script of several commands would stop after the first; a quoted
 operand such as `bash -e "{0}"` is accepted, because the runner substitutes the
 path inside the quotes before the shell parses the template.
 
-Positive evidence, on commit `bd7ccd3` on 2026-11-21: `make check-fmt`,
+Positive evidence, on commit `8de53c6` on 2026-11-21: `make check-fmt`,
 `make markdownlint` including spelling, `make interrogate` (at 100% documented
-over 903 definitions), `make nixie`, `cs delta origin/main`, and
-`make test-workflow-contracts` (1188 passed, 1 skipped, including its CV005
+over 910 definitions), `make nixie`, `cs delta origin/main`, and
+`make test-workflow-contracts` (1199 passed, 1 skipped, including its CV005
 contracts check) all pass on this head. Both runtime regressions pass, one
 nextest invocation each with `--no-tests=fail`, 1 passed with 674 skipped
 apiece, observed directly on `435a0a0` and re-run by the `build-test` job on
