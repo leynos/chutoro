@@ -34,6 +34,29 @@ pub enum RecipeError {
     /// Fetching would exceed the mandatory byte cap.
     #[error("{0}")]
     FetchSizeExceeded(FetchSizeExceeded),
+    /// Staging locks are unavailable on this target.
+    #[error("staging locks are not supported on this target")]
+    StagingLockUnsupportedPlatform,
+    /// The requested staging lockfile name is invalid.
+    #[error("invalid staging lock name: {0}")]
+    StagingLockInvalidName(Arc<str>),
+    /// A staging lock is held by this process or by another holder.
+    #[error("staging lock {path} is held; waited {waited_millis} ms")]
+    StagingLockContended {
+        /// Lockfile path reported to the caller.
+        path: Arc<str>,
+        /// Milliseconds spent before giving up; zero for in-process rejection.
+        waited_millis: u64,
+    },
+    /// Opening, creating, or locking a staging file failed.
+    #[error("staging lock {path} failed: {source}")]
+    StagingLockIo {
+        /// Lockfile path reported to the caller.
+        path: Arc<str>,
+        /// Operating-system failure.
+        #[source]
+        source: std::io::Error,
+    },
     /// Cleanup failed after a phase error.
     #[error("cleanup failed in phase {phase:?}: {source}")]
     Cleanup {
@@ -186,6 +209,81 @@ impl RecipeError {
     #[must_use]
     pub const fn fetch_size_exceeded(url: SourceUrl, limit_bytes: usize) -> Self {
         Self::FetchSizeExceeded(FetchSizeExceeded { url, limit_bytes })
+    }
+
+    /// Create an unsupported-platform staging-lock failure.
+    ///
+    /// # Examples
+    ///
+    /// ```
+    /// use chutoro_bench_datasets::RecipeError;
+    ///
+    /// assert!(matches!(
+    ///     RecipeError::staging_lock_unsupported_platform(),
+    ///     RecipeError::StagingLockUnsupportedPlatform
+    /// ));
+    /// ```
+    #[must_use]
+    pub const fn staging_lock_unsupported_platform() -> Self {
+        Self::StagingLockUnsupportedPlatform
+    }
+
+    /// Create an invalid staging-lock name failure from the rejected value.
+    ///
+    /// # Examples
+    ///
+    /// ```
+    /// use chutoro_bench_datasets::RecipeError;
+    ///
+    /// let error = RecipeError::staging_lock_invalid_name("../escape.lock");
+    /// assert!(matches!(error, RecipeError::StagingLockInvalidName(_)));
+    /// ```
+    #[must_use]
+    pub fn staging_lock_invalid_name(value: impl Into<Arc<str>>) -> Self {
+        Self::StagingLockInvalidName(value.into())
+    }
+
+    /// Create a contended staging-lock failure.
+    ///
+    /// `waited_millis` is zero when the process-wide registry rejected a
+    /// duplicate acquisition before any system call.
+    ///
+    /// # Examples
+    ///
+    /// ```
+    /// use chutoro_bench_datasets::RecipeError;
+    ///
+    /// let error = RecipeError::staging_lock_contended("cache/data.lock", 0);
+    /// assert!(matches!(
+    ///     error,
+    ///     RecipeError::StagingLockContended { waited_millis: 0, .. }
+    /// ));
+    /// ```
+    #[must_use]
+    pub fn staging_lock_contended(path: impl Into<Arc<str>>, waited_millis: u64) -> Self {
+        Self::StagingLockContended {
+            path: path.into(),
+            waited_millis,
+        }
+    }
+
+    /// Create a staging-lock I/O failure while preserving its source.
+    ///
+    /// # Examples
+    ///
+    /// ```
+    /// use chutoro_bench_datasets::RecipeError;
+    ///
+    /// let source = std::io::Error::other("open failed");
+    /// let error = RecipeError::staging_lock_io("cache/data.lock", source);
+    /// assert!(matches!(error, RecipeError::StagingLockIo { .. }));
+    /// ```
+    #[must_use]
+    pub fn staging_lock_io(path: impl Into<Arc<str>>, source: std::io::Error) -> Self {
+        Self::StagingLockIo {
+            path: path.into(),
+            source,
+        }
     }
 
     /// Create a cleanup failure.

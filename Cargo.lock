@@ -464,6 +464,7 @@ dependencies = [
  "cap-std",
  "chutoro-bench-datasets",
  "chutoro-test-support",
+ "mockable",
  "mockall 0.15.0",
  "proptest",
  "rstest",
