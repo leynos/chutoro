@@ -46,6 +46,22 @@ fn hierarchy_code_strings() -> Vec<&'static str> {
         .collect()
 }
 
+/// Collects the stable strings of every `ChutoroErrorCode` variant.
+fn chutoro_code_strings() -> Vec<&'static str> {
+    ChutoroErrorCode::ALL
+        .iter()
+        .map(|code| code.as_str())
+        .collect()
+}
+
+/// Collects the stable strings of every `DataSourceErrorCode` variant.
+fn data_source_code_strings() -> Vec<&'static str> {
+    DataSourceErrorCode::ALL
+        .iter()
+        .map(|code| code.as_str())
+        .collect()
+}
+
 /// Returns the Markdown heading level when a line is an ATX heading.
 fn heading_level(line: &str) -> Option<usize> {
     let level = line.bytes().take_while(|byte| *byte == b'#').count();
@@ -131,12 +147,56 @@ fn known_code_strings() -> Vec<&'static str> {
         .collect()
 }
 
-/// Returns the first code that has no row in the table.
-fn missing_code<'a>(rows: &[&str], codes: &'a [&str]) -> Option<&'a str> {
+/// Splits a Markdown table row into trimmed cells, dropping the outer pipes.
+fn row_cells(row: &'static str) -> Vec<&'static str> {
+    row.trim()
+        .trim_matches('|')
+        .split('|')
+        .map(str::trim)
+        .collect()
+}
+
+/// Returns the code inside a single-code cell such as `` `EMPTY_GRAPH` ``.
+fn cell_code(cell: &'static str) -> Option<&'static str> {
+    let inner = cell.strip_prefix('`')?.strip_suffix('`')?;
+    is_upper_snake_case(inner).then_some(inner)
+}
+
+/// Returns the codes listed in the table's `as_str()` column.
+///
+/// A code counts only when it fills the whole cell, so mentioning another
+/// code in a description cannot stand in for that code's own row.
+fn tabulated_codes(rows: &[&'static str]) -> Vec<&'static str> {
+    let column = rows
+        .first()
+        .map(|header| row_cells(header))
+        .and_then(|cells| cells.iter().position(|cell| *cell == "`as_str()` value"));
+    let Some(column_index) = column else {
+        return Vec::new();
+    };
+    rows.iter()
+        .filter_map(|row| row_cells(row).get(column_index).copied())
+        .filter_map(cell_code)
+        .collect()
+}
+
+/// Returns the first code that is not the sole content of an `as_str()` cell.
+fn missing_code<'a>(rows: &[&'static str], codes: &'a [&str]) -> Option<&'a str> {
+    let tabulated = tabulated_codes(rows);
+    codes.iter().copied().find(|code| !tabulated.contains(code))
+}
+
+/// Returns the first stable string that two variants of one enum share.
+fn duplicate_code_string<'a>(codes: &[&'a str]) -> Option<&'a str> {
     codes
         .iter()
-        .copied()
-        .find(|code| !rows.iter().any(|row| row.contains(&format!("`{code}`"))))
+        .enumerate()
+        .find(|(index, code)| {
+            codes
+                .get(..*index)
+                .is_some_and(|earlier| earlier.contains(code))
+        })
+        .map(|(_, code)| *code)
 }
 
 /// Returns the first table token that belongs to another subsystem.
@@ -151,8 +211,8 @@ fn foreign_code(rows: &[&'static str], codes: &[&str]) -> Option<&'static str> {
 
 /// Asserts that a table names exactly the codes of one subsystem.
 ///
-/// Every code must appear in a row, and every upper-snake-case token in a row
-/// must be one of that subsystem's codes.
+/// Every code must be the sole content of an `as_str()` cell, and every
+/// upper-snake-case token in a row must be one of that subsystem's codes.
 fn assert_codes_tabulated(heading: &'static str, codes: &[&str]) -> Result<(), String> {
     let rows = table_rows(heading).ok_or_else(|| format!("guide must contain {heading}"))?;
     missing_code(&rows, codes)
@@ -176,6 +236,24 @@ fn documents_every_subsystem_error_code(
 ) {
     assert_codes_tabulated(heading, &codes)
         .expect("every subsystem code must appear in its subsystem's table");
+}
+
+/// Verifies that each enum maps its variants to distinct stable strings.
+///
+/// Distinct strings let one table row satisfy exactly one variant, which the
+/// per-code row check relies on.
+#[rstest]
+#[case::mst(mst_code_strings())]
+#[case::hnsw(hnsw_code_strings())]
+#[case::hierarchy(hierarchy_code_strings())]
+#[case::chutoro(chutoro_code_strings())]
+#[case::data_source(data_source_code_strings())]
+fn code_strings_are_unique_per_enum(#[case] codes: Vec<&'static str>) {
+    assert_eq!(
+        duplicate_code_string(&codes),
+        None,
+        "each enum must map its variants to a distinct string"
+    );
 }
 
 /// Verifies the section does not name a code that no enum can produce.

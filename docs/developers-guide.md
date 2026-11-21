@@ -1335,10 +1335,12 @@ and tuple variants take a parenthesized group such as `(_)`, for example
 `chutoro-core/tests/users_guide_error_codes.rs` loads the shipped
 `docs/users-guide.md` with `include_str!` and checks the "Subsystem error
 codes" section against the public code enums in both directions. Each
-subsystem's table must name every string its enum produces and no code from
-another subsystem, and no backticked upper-snake-case token outside
-`MstErrorCode`, `HnswErrorCode`, `HierarchyErrorCode`, `ChutoroErrorCode`, and
-`DataSourceErrorCode` may appear in the section.
+subsystem's table must list every string its enum produces as the sole content
+of an `as_str()` cell, and may not name a code from another subsystem; no
+backticked upper-snake-case token outside `MstErrorCode`, `HnswErrorCode`,
+`HierarchyErrorCode`, `ChutoroErrorCode`, and `DataSourceErrorCode` may appear
+in the section. A separate check requires each enum's strings to be distinct,
+so one cell can satisfy exactly one variant.
 
 The test reads each enum's variants from the `ALL` slice that
 `define_error_codes!` generates, so a new variant fails the test until its
