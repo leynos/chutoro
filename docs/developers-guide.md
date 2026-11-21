@@ -1710,7 +1710,7 @@ flag to carry exactly one value. `toolchain_install_test.py` holds the
 contracts over that reading. The reading removes unquoted shell comments and
 then joins line continuations, so a command split across lines is one
 invocation rather than none and a commented-out installer is no invocation. It
-decodes quoted arguments and recognises an install only at the start of an
+decodes quoted arguments and recognizes an install only at the start of an
 executable command, so `echo 'rustup ...'` installs nothing. It reads the
 invocation rather than the step's name, so deleting the fix while keeping the
 step fails it, and both correct spellings pass: a repeated flag, and one flag
