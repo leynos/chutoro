@@ -26,7 +26,7 @@ is forbidden in `chutoro-bench-datasets` by the Whitaker `no_std_fs_operations`
 lint. The crate appears in neither `excluded_crates` nor `excluded_paths` in
 the root `dylint.toml`, and this decision adds no exception.
 
-`std::fs::File::lock` stabilised in Rust 1.89, which the workspace
+`std::fs::File::lock` stabilized in Rust 1.89, which the workspace
 `rust-version` of 1.89.0 admits, but the lint boundary makes it unreachable in
 this crate.
 
@@ -45,6 +45,10 @@ new version. It is not, however, a declared dependency of
 `chutoro-bench-datasets`: `cap-std` is optional and currently reachable only
 through the `testing` feature and its dev-dependency graph. Using `rustix` in
 production code requires a direct, target-scoped optional dependency.
+
+ADR 0005 records the Cranelift development route and ADR 0006 records
+sequential trim scoring, so this decision takes the next free serial, 0007;
+published ADR numbers are not reused.
 
 ## Decision drivers
 
@@ -249,6 +253,30 @@ capability already owns, so the capability boundary survives. The alternative,
   `testing` feature and the default feature set are unchanged.
 - `Cargo.lock` gains no package version.
 - Windows and the excluded `rustix` targets return a typed unsupported error.
+
+## Validation evidence
+
+The `http` feature compiles with `cap-std 4.0.3` and `rustix 1.1.4`, and the
+crate builds and doctests under default, `testing`-only, and `http`-only
+feature sets. `make lint` passes with no `no_std_fs_operations` exception.
+
+- `tests/staging_lock_policy.rs` covers every terminal `next_step` outcome and
+  the retry table, and a `proptest` over random attempt traces asserts that
+  total sleep never exceeds the timeout, at most one warning is emitted, and
+  the loop terminates with a success only before the deadline.
+- `tests/staging_lock_filesystem.rs` covers release and reacquisition, immediate
+  in-process rejection, invalid names, lockfile persistence, and thread
+  contention. It holds an independent `flock` to prove a bounded timeout below
+  the registry, then releases it and reacquires, and asserts one `warn` line
+  with `tracing-test`.
+- `tests/staging_lock_cross_process.rs` (Linux only) re-runs the test binary in
+  a holder role, proves the bounded timeout against a live foreign process, and
+  reacquires once the child exits. The child is killed and reaped on every
+  failure path.
+- `chutoro-compile-contracts/tests/staging_lock_feature.rs` checks a
+  feature-enabled fixture compiles and a featureless fixture fails with the
+  `StagingLock` unresolved-import diagnostic, using
+  `cargo check --offline --locked` into an isolated target directory.
 
 ## References
 

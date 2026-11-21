@@ -1116,6 +1116,13 @@ staging, and the separately compiled CI gate binaries. Keep the rest of each
 workspace crate under `no_std_fs_operations` enforcement and add an explanatory
 comment whenever a new boundary is unavoidable.
 
+A capability root is not a filesystem exception. When `cap-std` lacks an
+operation, borrow the descriptor it already owns (`AsFd`) rather than
+recovering an ambient `std::fs::File` with `into_std()`. The staging lock's
+`rustix::fs::flock` call is the worked example: it needs a lock, gains no new
+dependency, and keeps `chutoro-bench-datasets` out of the exclusion list. Reach
+for `dylint.toml` only when no capability-preserving route exists.
+
 ## Injected environment access
 
 Read environment values through `mockable::Env`, not ambient `std::env`

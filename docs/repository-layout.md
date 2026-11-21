@@ -48,6 +48,7 @@ _Table 1: Top-level file responsibilities._
 
 | Path                         | Responsibility                                                        |
 | ---------------------------- | --------------------------------------------------------------------- |
+| `chutoro-bench-datasets/`    | Benchmark dataset recipe contracts, ports, and staging adapters.      |
 | `chutoro-core/`              | Core library implementation and its crate-local tests.                |
 | `chutoro-compile-contracts/` | Compile-contract tests and trybuild/Cargo fixtures.                   |
 | `chutoro-cli/`               | Command-line application crate and user-facing command orchestration. |
