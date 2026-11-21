@@ -2506,9 +2506,12 @@ step that uses the merge base argues for it.
 
 ## Kani CI policy
 
-`make kani` is the pull-request gate. The path-filtered
+`make kani` is the pull-request check. The path-filtered
 `.github/workflows/kani-pr.yml` workflow runs it when Kani harnesses, their
-production modules, the Makefile, or the Cargo dependency graph changes.
+production modules, the Makefile, or the Cargo dependency graph changes. It is
+a configured check, not one the active `main` ruleset requires; see
+[Choosing a verification tool](#choosing-a-verification-tool) for the current
+required checks.
 
 `make kani-full` is the post-merge nightly tier. The
 `.github/workflows/nightly-kani.yml` workflow checks out `main` and runs the
@@ -2997,11 +3000,11 @@ repository different amounts at review time. The distinction that matters is
 not which tool is stronger but what each one actually checks and what runs
 before a merge.
 
-| Tool       | CI execution                                                                                                                  | Proof selection                                                | Standing pull-request cost                                                                             | What it checks                                          |
-| ---------- | ----------------------------------------------------------------------------------------------------------------------------- | -------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------ | ------------------------------------------------------- |
-| Verus      | Every pull request (`ci.yml`, no path filter)                                                                                 | Default `VERUS_PROOF_FILES` roots in the `Makefile`            | `verus-proofs` job runtime on every pull request; elapsed impact only while it is on the critical path | A specification model transcribed from production logic |
-| Kani       | Path-filtered pull requests to `main` (`kani-pr.yml`); nightly full suite                                                     | Six harnesses in `make kani`; package list in `make kani-full` | Only when a path filter matches                                                                        | Executable Rust under `cfg(kani)`                       |
-| `proptest` | Every pull request through the `build-test` coverage run; extra path-filtered suites in `property-tests.yml`; weekly deep run | Test targets in the property suites                            | Always, within the existing test run; extra cases only when a path filter matches                      | Shipped code at realistic sizes                         |
+| Tool       | CI execution                                                                                                                  | Proof selection                                                | Standing pull-request cost                                                                             | What it checks                                           |
+| ---------- | ----------------------------------------------------------------------------------------------------------------------------- | -------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------ | -------------------------------------------------------- |
+| Verus      | Every pull request (`ci.yml`, no path filter)                                                                                 | Default `VERUS_PROOF_FILES` roots in the `Makefile`            | `verus-proofs` job runtime on every pull request; elapsed impact only while it is on the critical path | A specification model transcribed from production logic  |
+| Kani       | Path-filtered pull requests to `main` (`kani-pr.yml`); nightly full suite                                                     | Six harnesses in `make kani`; package list in `make kani-full` | Only when a path filter matches                                                                        | Executable Rust under `cfg(kani)`, within harness bounds |
+| `proptest` | Every pull request through the `build-test` coverage run; extra path-filtered suites in `property-tests.yml`; weekly deep run | Test targets in the property suites                            | Always, within the existing test run; extra cases only when a path filter matches                      | Shipped code at realistic sizes                          |
 
 *Table 1: Verification tools, what each checks, and what it costs at review
 time.*
@@ -3023,7 +3026,10 @@ new harness reaches that configured check only if it matches a path filter and
 is named in the `make kani` list. Otherwise it runs only in the nightly
 `make kani-full` sweep, and only if its package is in that target's package
 list; the dataset crate is not. The nightly job can also skip with a green
-result when its commit-recency gate finds no recent `main` commits. See
+result when its commit-recency gate finds no recent `main` commits. A
+successful harness explores every reachable path within its unwind bound and
+stated assumptions, so its result is bounded and conditional rather than a
+general proof; incomplete unwinding leaves the property unproved. See
 [Kani CI policy](#kani-ci-policy) for the tier details.
 
 `proptest` runs on every pull request as well, because `build-test` runs the
