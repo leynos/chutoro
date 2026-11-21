@@ -38,7 +38,6 @@ from workflow_support import (
     ROOT,
     job,
     jobs,
-    load_workflow,
     workflow_names,
 )
 
@@ -185,19 +184,16 @@ def _nightly_workflow(installer: str | None) -> dict[str, typ.Any]:
 def test_the_nightly_installer_contract_rejects_only_broken_installers(
     workflow: dict[str, typ.Any],
     is_accepted: bool,
-    monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     """The presence, toolchain, profile, and component checks must all bite.
 
-    Each case injects a parsed workflow, so the assertion is exercised
-    without editing the real lane. The malformed single-flag command is
-    absent here on purpose: `test_each_rustup_component_carries_its_own_flag`
-    already rejects it for every workflow, and repeating it would test one
-    defect twice.
+    Each case injects a parsed workflow directly, so the assertion is
+    exercised without editing the real lane or mutating the module's loader.
+    The malformed single-flag command is absent here on purpose:
+    `test_each_rustup_component_carries_its_own_flag` already rejects it for
+    every workflow, and repeating it would test one defect twice.
     """
-    monkeypatch.setattr(f"{__name__}.load_workflow", lambda name: workflow)
-
-    job_definition = jobs(load_workflow(NIGHTLY_WORKFLOW))[NIGHTLY_JOB]
+    job_definition = jobs(workflow)[NIGHTLY_JOB]
     if is_accepted:
         assert_nightly_installer(job_definition)
     else:
