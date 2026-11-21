@@ -256,9 +256,10 @@ capability already owns, so the capability boundary survives. The alternative,
 
 ## Validation evidence
 
-The `http` feature compiles with `cap-std 4.0.3` and `rustix 1.1.4`, and the
-crate builds and doctests under default, `testing`-only, and `http`-only
-feature sets. `make lint` passes with no `no_std_fs_operations` exception.
+The `http` feature compiles with `cap-std 4.0.3` and `rustix 1.1.4`. The
+library checks under default, `testing`-only, and `http`-only features, and the
+crate doctests under all features. `make lint` passes with no
+`no_std_fs_operations` exception.
 
 - `tests/staging_lock_policy.rs` covers every terminal `next_step` outcome and
   the retry table, and a `proptest` over random attempt traces asserts that
