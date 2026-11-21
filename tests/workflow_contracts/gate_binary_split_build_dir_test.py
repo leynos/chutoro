@@ -145,18 +145,26 @@ def run_cargo(
     )
 
 
-def assert_suites_ran(completed: subprocess.CompletedProcess[str]) -> None:
+def assert_suites_ran(completed: subprocess.CompletedProcess[str]) -> dict[str, Path]:
     """Require each selected suite to report a non-zero passing test count.
 
-    Cargo prints one ``Running tests/<suite>.rs`` line per selected test
-    binary, and each libtest harness then prints one ``test result: ok.``
-    summary. Both are checked, because a run that selected no tests would
-    otherwise pass against an empty result set.
+    Cargo prints one ``Running tests/<suite>.rs (<path>)`` line per selected
+    test binary, and each libtest harness then prints one
+    ``test result: ok.`` summary. Both are checked, because a run that
+    selected no tests would otherwise pass against an empty result set. The
+    harness paths are returned so the layout assertion can follow the profile
+    directory Cargo actually used.
     """
+    harnesses: dict[str, Path] = {}
     for suite in GATE_SUITES:
-        assert f"Running tests/{suite}.rs" in completed.stderr, (
+        match = re.search(
+            rf"Running tests/{re.escape(suite)}\.rs \(([^)]*)\)",
+            completed.stderr,
+        )
+        assert match is not None, (
             f"Cargo did not run the {suite} test binary:\n{completed.stderr}"
         )
+        harnesses[suite] = Path(match.group(1))
     results = re.findall(r"test result: ok\. (\d+) passed", completed.stdout)
     assert len(results) == len(GATE_SUITES), (
         "expected one passing summary per gate suite, got "
@@ -165,28 +173,32 @@ def assert_suites_ran(completed: subprocess.CompletedProcess[str]) -> None:
     assert all(int(count) > 0 for count in results), (
         f"a gate suite ran no tests: {results!r}"
     )
+    return harnesses
 
 
-def assert_artefact_layout(target: Path, build: Path) -> None:
-    """Require finished binaries in ``target/debug`` and hashes in ``build``.
+def assert_artefact_layout(
+    target: Path, build: Path, harnesses: dict[str, Path]
+) -> None:
+    """Require finished binaries in ``target`` and hashes in ``build``.
 
     The suites would also run if Cargo ignored ``CARGO_BUILD_BUILD_DIR`` and
     put everything in one directory, so this is the assertion that the layout
-    was actually split.
+    was actually split. The profile directory comes from the harness path
+    Cargo printed rather than from an assumed ``debug``: a ``build.target``
+    in Cargo configuration appends a target triple to both roots, and removing
+    ``CARGO_BUILD_TARGET`` from the environment cannot undo that.
     """
-    for gate in GATE_SUITES.values():
-        finished = target / "debug" / _executable(gate)
+    for suite, gate in GATE_SUITES.items():
+        harness = harnesses[suite]
+        assert harness.is_file(), f"the {suite} harness is missing: {harness}"
+        assert HASHED_ARTEFACT.search(harness.name), (
+            f"the {suite} harness is not a hashed artefact: {harness.name}"
+        )
+        relative_profile = harness.parent.parent.relative_to(build)
+        finished = target / relative_profile / _executable(gate)
         assert finished.is_file(), (
             f"the finished {gate} binary is missing from {finished.parent}"
         )
-    deps = build / "debug" / "deps"
-    assert deps.is_dir(), f"Cargo wrote no build-directory deps at {deps}"
-    names = [entry.name for entry in deps.iterdir()]
-    for suite in GATE_SUITES:
-        assert any(
-            name.startswith(f"{suite}-") and HASHED_ARTEFACT.search(name)
-            for name in names
-        ), f"no hashed {suite} harness landed in {deps}; found {names!r}"
 
 
 def test_gate_binaries_run_when_cargo_splits_the_build_directory(
@@ -231,5 +243,5 @@ def test_gate_binaries_run_when_cargo_splits_the_build_directory(
     )
     assert "running 0 tests" not in completed.stdout
     assert "running 0 tests" not in completed.stderr
-    assert_suites_ran(completed)
-    assert_artefact_layout(target, build)
+    harnesses = assert_suites_ran(completed)
+    assert_artefact_layout(target, build, harnesses)

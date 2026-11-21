@@ -46,8 +46,12 @@ struct GateCase {
     force: Some("true"),
     expected_run: true,
 })]
-fn kani_gate_binary_outputs_decision(gate_runner: GateRunner, #[case] case: GateCase) {
-    let output = gate_runner
+fn kani_gate_binary_outputs_decision(
+    gate_runner: std::io::Result<GateRunner>,
+    #[case] case: GateCase,
+) {
+    let runner = gate_runner.expect("gate runner must resolve the gate binary");
+    let output = runner
         .run(case.commit_epoch, case.now_epoch, case.force)
         .expect("kani_nightly_gate binary must run");
     if !output.status.success() {
@@ -66,8 +70,12 @@ fn kani_gate_binary_outputs_decision(gate_runner: GateRunner, #[case] case: Gate
 #[rstest]
 #[case::invalid_force("maybe")]
 #[case::invalid_force_whitespace("true-ish")]
-fn kani_gate_binary_rejects_invalid_force(gate_runner: GateRunner, #[case] force_value: &str) {
-    let output = gate_runner
+fn kani_gate_binary_rejects_invalid_force(
+    gate_runner: std::io::Result<GateRunner>,
+    #[case] force_value: &str,
+) {
+    let runner = gate_runner.expect("gate runner must resolve the gate binary");
+    let output = runner
         .run(SECONDS_PER_DAY, SECONDS_PER_DAY, Some(force_value))
         .expect("kani_nightly_gate binary must run");
     if output.status.success() {
@@ -86,8 +94,9 @@ fn kani_gate_binary_rejects_invalid_force(gate_runner: GateRunner, #[case] force
 /// independently of the policy table. A test harness run in place of the gate
 /// would exit successfully without printing `should_run=`.
 #[rstest]
-fn kani_gate_binary_writes_its_primary_output(gate_runner: GateRunner) {
-    let output = gate_runner
+fn kani_gate_binary_writes_its_primary_output(gate_runner: std::io::Result<GateRunner>) {
+    let runner = gate_runner.expect("gate runner must resolve the gate binary");
+    let output = runner
         .run(SECONDS_PER_DAY, SECONDS_PER_DAY, None)
         .expect("kani_nightly_gate binary must run");
     assert!(
@@ -104,7 +113,7 @@ fn kani_gate_binary_writes_its_primary_output(gate_runner: GateRunner) {
 }
 
 #[fixture]
-fn gate_runner() -> GateRunner {
+fn gate_runner() -> std::io::Result<GateRunner> {
     GateRunner::new()
 }
 
@@ -119,14 +128,23 @@ impl GateRunner {
     /// in the same package, whatever the target or build-directory layout.
     /// The path is checked here so a build that somehow embedded the wrong
     /// artefact fails before the gate's own assertions can misread it.
-    fn new() -> Self {
+    ///
+    /// # Errors
+    ///
+    /// Returns [`std::io::ErrorKind::NotFound`] when the compile-time path
+    /// does not name an existing file.
+    fn new() -> std::io::Result<Self> {
         let binary_path = PathBuf::from(env!("CARGO_BIN_EXE_kani_nightly_gate"));
-        assert!(
-            binary_path.is_file(),
-            "kani_nightly_gate binary is not a file: {}",
-            binary_path.display()
-        );
-        Self { binary_path }
+        if !binary_path.is_file() {
+            return Err(std::io::Error::new(
+                std::io::ErrorKind::NotFound,
+                format!(
+                    "kani_nightly_gate binary is not a file: {}",
+                    binary_path.display()
+                ),
+            ));
+        }
+        Ok(Self { binary_path })
     }
 
     fn run(
@@ -151,12 +169,12 @@ impl GateRunner {
         }
 
         let output = command.output()?;
-        reject_test_harness(&self.binary_path, &output);
+        reject_test_harness(&self.binary_path, &output)?;
         Ok(output)
     }
 }
 
-/// Fail when the "gate" executable was really a test harness.
+/// Reject a successful process that was a test harness rather than the gate.
 ///
 /// A libtest harness run in place of the gate prints `running 0 tests` and
 /// exits successfully, so a caller would otherwise read a successful process
@@ -164,7 +182,12 @@ impl GateRunner {
 /// invocation writes at least one `key=value` line to stdout, and a rejected
 /// input writes its diagnosis to stderr. Checking the pair keeps a legitimate
 /// failure path from being mistaken for a harness.
-fn reject_test_harness(binary_path: &Path, output: &Output) {
+///
+/// # Errors
+///
+/// Returns [`std::io::ErrorKind::InvalidData`] when the output carries the
+/// harness marker and no gate key.
+fn reject_test_harness(binary_path: &Path, output: &Output) -> std::io::Result<()> {
     let stdout = String::from_utf8_lossy(&output.stdout);
     let stderr = String::from_utf8_lossy(&output.stderr);
     let printed_key_value = stdout.lines().any(|line| {
@@ -172,12 +195,21 @@ fn reject_test_harness(binary_path: &Path, output: &Output) {
             .is_some_and(|(key, _)| !key.trim().is_empty())
     });
     let ran_harness = stdout.contains("running 0 tests") || stderr.contains("running 0 tests");
-    assert!(
-        printed_key_value || !ran_harness,
-        "a test harness ran instead of the gate binary at {}: stdout={stdout:?}, \
-         stderr={stderr:?}",
-        binary_path.display()
-    );
+    if printed_key_value || !ran_harness {
+        return Ok(());
+    }
+    Err(std::io::Error::new(
+        std::io::ErrorKind::InvalidData,
+        format!(
+            concat!(
+                "a test harness ran instead of the gate binary at ",
+                "{}: stdout={:?}, stderr={:?}"
+            ),
+            binary_path.display(),
+            stdout,
+            stderr
+        ),
+    ))
 }
 
 fn parse_should_run(stdout: &str) -> Option<bool> {

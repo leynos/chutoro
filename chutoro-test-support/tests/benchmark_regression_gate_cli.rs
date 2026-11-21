@@ -50,8 +50,12 @@ struct GateCase {
     expected_mode: "discovery_only",
     expected_should_compare: false,
 })]
-fn benchmark_gate_binary_outputs_expected_mode(gate_runner: GateRunner, #[case] case: GateCase) {
-    let output = gate_runner
+fn benchmark_gate_binary_outputs_expected_mode(
+    gate_runner: std::io::Result<GateRunner>,
+    #[case] case: GateCase,
+) {
+    let runner = gate_runner.expect("gate runner must resolve the gate binary");
+    let output = runner
         .run(case.event, case.policy)
         .expect("benchmark_regression_gate binary must run");
     if !output.status.success() {
@@ -80,11 +84,12 @@ fn benchmark_gate_binary_outputs_expected_mode(gate_runner: GateRunner, #[case] 
 #[case("pull_request_target", "pull_request")]
 #[case("push", "other")]
 fn benchmark_gate_binary_reports_event(
-    gate_runner: GateRunner,
+    gate_runner: std::io::Result<GateRunner>,
     #[case] event: &str,
     #[case] expected_event: &str,
 ) {
-    let output = gate_runner
+    let runner = gate_runner.expect("gate runner must resolve the gate binary");
+    let output = runner
         .run(event, None)
         .expect("benchmark_regression_gate binary must run");
     if !output.status.success() {
@@ -104,8 +109,9 @@ fn benchmark_gate_binary_reports_event(
 /// test harness run in place of the gate would exit successfully without
 /// printing `mode=`.
 #[rstest]
-fn benchmark_gate_binary_writes_its_primary_output(gate_runner: GateRunner) {
-    let output = gate_runner
+fn benchmark_gate_binary_writes_its_primary_output(gate_runner: std::io::Result<GateRunner>) {
+    let runner = gate_runner.expect("gate runner must resolve the gate binary");
+    let output = runner
         .run("pull_request", None)
         .expect("benchmark_regression_gate binary must run");
     assert!(
@@ -122,7 +128,7 @@ fn benchmark_gate_binary_writes_its_primary_output(gate_runner: GateRunner) {
 }
 
 #[fixture]
-fn gate_runner() -> GateRunner {
+fn gate_runner() -> std::io::Result<GateRunner> {
     GateRunner::new()
 }
 
@@ -137,14 +143,23 @@ impl GateRunner {
     /// in the same package, whatever the target or build-directory layout.
     /// The path is checked here so a build that somehow embedded the wrong
     /// artefact fails before the gate's own assertions can misread it.
-    fn new() -> Self {
+    ///
+    /// # Errors
+    ///
+    /// Returns [`std::io::ErrorKind::NotFound`] when the compile-time path
+    /// does not name an existing file.
+    fn new() -> std::io::Result<Self> {
         let binary_path = PathBuf::from(env!("CARGO_BIN_EXE_benchmark_regression_gate"));
-        assert!(
-            binary_path.is_file(),
-            "benchmark_regression_gate binary is not a file: {}",
-            binary_path.display()
-        );
-        Self { binary_path }
+        if !binary_path.is_file() {
+            return Err(std::io::Error::new(
+                std::io::ErrorKind::NotFound,
+                format!(
+                    "benchmark_regression_gate binary is not a file: {}",
+                    binary_path.display()
+                ),
+            ));
+        }
+        Ok(Self { binary_path })
     }
 
     fn run(&self, event: &str, policy: Option<&str>) -> std::io::Result<Output> {
@@ -159,12 +174,12 @@ impl GateRunner {
         }
 
         let output = command.output()?;
-        reject_test_harness(&self.binary_path, &output);
+        reject_test_harness(&self.binary_path, &output)?;
         Ok(output)
     }
 }
 
-/// Fail when the "gate" executable was really a test harness.
+/// Reject a successful process that was a test harness rather than the gate.
 ///
 /// A libtest harness run in place of the gate prints `running 0 tests` and
 /// exits successfully, so a caller would otherwise read a successful process
@@ -172,7 +187,12 @@ impl GateRunner {
 /// invocation writes at least one `key=value` line to stdout, and a rejected
 /// input writes its diagnosis to stderr. Checking the pair keeps a legitimate
 /// failure path from being mistaken for a harness.
-fn reject_test_harness(binary_path: &Path, output: &Output) {
+///
+/// # Errors
+///
+/// Returns [`std::io::ErrorKind::InvalidData`] when the output carries the
+/// harness marker and no gate key.
+fn reject_test_harness(binary_path: &Path, output: &Output) -> std::io::Result<()> {
     let stdout = String::from_utf8_lossy(&output.stdout);
     let stderr = String::from_utf8_lossy(&output.stderr);
     let printed_key_value = stdout.lines().any(|line| {
@@ -180,12 +200,21 @@ fn reject_test_harness(binary_path: &Path, output: &Output) {
             .is_some_and(|(key, _)| !key.trim().is_empty())
     });
     let ran_harness = stdout.contains("running 0 tests") || stderr.contains("running 0 tests");
-    assert!(
-        printed_key_value || !ran_harness,
-        "a test harness ran instead of the gate binary at {}: stdout={stdout:?}, \
-         stderr={stderr:?}",
-        binary_path.display()
-    );
+    if printed_key_value || !ran_harness {
+        return Ok(());
+    }
+    Err(std::io::Error::new(
+        std::io::ErrorKind::InvalidData,
+        format!(
+            concat!(
+                "a test harness ran instead of the gate binary at ",
+                "{}: stdout={:?}, stderr={:?}"
+            ),
+            binary_path.display(),
+            stdout,
+            stderr
+        ),
+    ))
 }
 
 fn parse_value<'a>(stdout: &'a str, key: &str) -> Option<&'a str> {
