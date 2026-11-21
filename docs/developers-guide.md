@@ -1732,9 +1732,38 @@ checksum-verified release archive `make install-dev-fast` uses, appends
 first Cargo step. An `ubuntu-latest` runner does not carry `mold`, so without
 that step each Cargo command would fail at link time. The gate writes one line
 to `$GITHUB_STEP_SUMMARY` for each outcome — forced dispatch, a recent `main`
-commit with its timestamp, or no `main` commit in the last 24 hours — so a
-skipped green run is visible in the job summary rather than only in the step's
-duration.
+commit with its timestamp, or no `main` commit in the last 24 hours — and tees
+the same line to the step log, so a skipped green run is visible in both places.
+
+A forced dispatch from this branch proves the lane now does the work it was
+written for. Commit `de36080`, run
+[44908616030](https://github.com/leynos/chutoro/actions/runs/44908616030),
+`force_run=true`: every step succeeded — the gate, `Install nightly Rust`,
+`Install mold`, `Test dense portable SIMD backend` (141 tests),
+`Test portable SIMD compile contract without feature`
+(`portable_simd_is_rejected_on_nightly_without_feature`),
+`Test portable SIMD compile contract` (`portable_simd_compiles_with_feature`)
+and `Lint dense portable SIMD backend` — and the gate logged
+`nightly-portable-simd: running because workflow_dispatch set force_run=true.`
+
+An earlier run,
+[44903789820](https://github.com/leynos/chutoro/actions/runs/44903789820),
+reached and passed the four Cargo steps, then failed in Clippy on
+`clippy::chunks-exact-to-as-chunks` under the unpinned nightly. That lint is
+newer than the pinned stable Clippy and the kernel now uses stable `as_chunks`;
+the run above is the re-dispatch. Run
+[44908912919](https://github.com/leynos/chutoro/actions/runs/44908912919) with
+`force_run=false` took the commit-recency branch, logged
+`nightly-portable-simd: running because origin/main has a commit at
+2026-11-20T16:31:30Z within the last 24 hours.`,
+and also passed every step. `main` still held a commit inside the 24-hour
+window, so the skip branch has not yet been exercised in a hosted run.
+
+Under the unpinned `nightly` channel the lane installs, a future nightly can
+break the lane through a new lint or language change rather than through
+repository code. Fix such a break in `chutoro-providers/dense` — as the
+`as_chunks` change did, which is stable since Rust 1.88 and so sits inside the
+workspace's 1.89 minimum — rather than silencing the lint.
 
 ## Cancelling superseded pull-request runs
 
