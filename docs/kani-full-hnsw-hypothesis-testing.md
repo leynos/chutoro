@@ -375,6 +375,18 @@ concrete fixture, so the widened harness was not retained.
   `Failed Checks: healing precondition: both base lists must start empty`.
 - Both mutations were reverted before the final run.
 
+### Final validation
+
+- `RUSTFLAGS="-D warnings" make kani`: 7 of 7 harnesses successful, 2262.5 s
+  wall, exit 0. The healing harness verified in 8.42 s with both covers
+  satisfied.
+- `RUSTFLAGS="-D warnings" make kani-full`: 18 of 18 `chutoro-core` harnesses
+  and both `chutoro-providers-dense` harnesses successful, 2523.6 s wall, exit
+  0. The healing harness verified in 7.71 s with both covers satisfied.
+
+The `-D warnings` assignment compiled cleanly; the pre-existing `dead_code`
+concern recorded for the nightly workflow did not reappear on this tree.
+
 ### Conclusion
 
 The all-concrete two-node healing path is tractable and proved. The harness

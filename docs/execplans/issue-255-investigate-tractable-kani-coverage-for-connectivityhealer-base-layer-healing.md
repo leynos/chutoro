@@ -152,11 +152,27 @@ commands, exit codes, elapsed times, and path counts.
   the `kani:` fast-tier recipe at `--default-unwind 9`, and the developers'
   guide, ADR 0002, hypothesis-testing document, contents index, and ExecPlan
   record the outcome.
-- [ ] Final gates: `make check-fmt`, `make lint`, `make test`,
-  `make test-workflow-contracts`, `RUSTFLAGS="-D warnings" make kani`,
-  `RUSTFLAGS="-D warnings" make kani-full`, Markdown lint, and Makefile
-  validation.
-- [ ] Commit, push, and open the draft pull request.
+- [x] (2026-11-21 12:46Z) `make check-fmt`, `make typecheck`,
+  `make markdownlint`, and `make nixie` pass. `make lint` reached clean rustdoc
+  and Clippy stages in one run; Whitaker was cut off by that background task's
+  limit and is re-run by the repository stop hook.
+- [x] (2026-11-21 13:58Z) `RUSTFLAGS="-D warnings" make kani` passed: 7 of 7
+  harnesses, 2262.5 s wall, exit 0; the healing harness verified in 8.42 s with
+  both covers satisfied.
+- [x] (2026-11-21 14:42Z) `RUSTFLAGS="-D warnings" make kani-full` passed:
+  18 of 18 `chutoro-core` harnesses and both `chutoro-providers-dense`
+  harnesses, 2523.6 s wall, exit 0; the healing harness verified in 7.71 s with
+  both covers satisfied.
+- [x] (2026-11-21 13:14Z) Commit `b6e8780` created with the code, Makefile, and
+  documentation changes.
+- [x] (2026-11-21 16:43Z) `make test-workflow-contracts` passed: 851 tests, one
+  skip, exit 0 (38m33s of pytest time, itself delayed by a nested Cargo compile
+  in the admission queue).
+- [x] (2026-11-21 16:36Z) The compile-contract test that timed out at 1800 s in
+  the first `make test` run passed standalone in 685 s once its fixture was
+  warm, confirming the timeout was environmental. The full suite is being rerun
+  with warm caches.
+- [ ] `make test` full rerun and the draft pull request.
 
 ## Surprises & discoveries
 
@@ -226,7 +242,7 @@ coverage belongs to tests rather than to widened bounds.
 
 What would be done differently: the first experiment should have measured a
 fully concrete fixture before concluding that the path was past the CBMC state
-space. The old conclusion generalised from a harness whose symbolic inputs were
+space. The old conclusion generalized from a harness whose symbolic inputs were
 not separated from the production cost.
 
 Residual gaps: eviction cascades, re-healing of evicted nodes, and global

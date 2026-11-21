@@ -273,6 +273,12 @@ demonstrates:
 - The normal healing tests and the `LinearVisitedSet` equivalence tests remain.
   The proof covers link creation on fresh lists only; eviction cascades,
   re-healing of evicted nodes, and global connectivity remain test-covered.
+- Final gate results on the branch: `RUSTFLAGS="-D warnings" make kani`
+  verified 7 of 7 harnesses (2262.5 s wall, exit 0), and
+  `RUSTFLAGS="-D warnings" make kani-full` verified 18 of 18 `chutoro-core`
+  harnesses and both `chutoro-providers-dense` harnesses (2523.6 s wall, exit
+  0). The healing harness verified in 8.42 s and 7.71 s respectively, with both
+  covers satisfied in each tier.
 
 ### Verification Targets (Next Invariants)
 
