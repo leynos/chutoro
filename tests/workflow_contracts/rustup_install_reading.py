@@ -287,12 +287,57 @@ HERE_DOCUMENT = re.compile(
 )
 
 
+def _here_document_at(
+    line: str, index: int, quote: str | None, escaped: bool
+) -> re.Match[str] | None:
+    """Return the live here-document match at *index*, if there is one."""
+    if quote is not None:
+        return None
+    if escaped:
+        return None
+    if not line.startswith("<<", index):
+        return None
+    return HERE_DOCUMENT.match(line, index)
+
+
+def _scan_state(
+    character: str, quote: str | None, escaped: bool
+) -> tuple[bool, str | None]:
+    """Return the escape and quote state after *character*."""
+    if escaped:
+        return False, quote
+    if _is_escape(character, quote):
+        return True, quote
+    return False, _quote_after(character, quote)
+
+
 def _here_document_delimiters(line: str) -> list[tuple[str, bool]]:
-    """Return each here-document delimiter and whether tabs are stripped."""
-    return [
-        (match.group(2).strip("'\""), match.group("dash") == "-")
-        for match in HERE_DOCUMENT.finditer(line)
-    ]
+    """Return each unquoted here-document delimiter and its tab rule.
+
+    The scan tracks quotes, escapes, and comments, so a printed operator such
+    as `echo "<<EOF"` or one inside a comment is not a redirection.
+    """
+    delimiters = []
+    quote: str | None = None
+    escaped = False
+    previous = " "
+    index = 0
+    while index < len(line):
+        match = _here_document_at(line, index, quote, escaped)
+        if match is not None:
+            delimiters.append(
+                (match.group(2).strip("'\""), match.group("dash") == "-")
+            )
+            index = match.end()
+            previous = " "
+            continue
+        character = line[index]
+        if _is_comment_start(character, quote, previous):
+            break
+        escaped, quote = _scan_state(character, quote, escaped)
+        previous = character
+        index += 1
+    return delimiters
 
 
 def mask_here_documents(script: str) -> str:
@@ -338,7 +383,7 @@ def rustup_installs(script: str) -> list[str]:
     >>> rustup_installs('echo "# kept"; rustup toolchain install nightly')
     ['rustup toolchain install nightly']
     """
-    text = mask_here_documents(strip_shell_comments(script))
+    text = strip_shell_comments(mask_here_documents(script))
     joined = join_continuations(text)
     boundaries = mask_escaped(mask_quoted(joined))
     return [
@@ -361,7 +406,7 @@ def runs_command(script: str, command: str) -> bool:
     >>> runs_command("scripts/install-mold.sh", "scripts/install-mold.sh")
     True
     """
-    text = mask_here_documents(strip_shell_comments(script))
+    text = strip_shell_comments(mask_here_documents(script))
     joined = join_continuations(text)
     boundaries = mask_escaped(mask_quoted(joined))
     pattern = re.compile(

@@ -282,6 +282,15 @@ def _nightly_workflow(installer: str | None) -> dict[str, typ.Any]:
             False,
             id="indented-delimiter-does-not-close",
         ),
+        pytest.param(
+            _nightly_workflow(
+                "cat <<'EOF'\ndon't\nEOF\n"
+                "rustup toolchain install nightly --profile minimal "
+                "--component clippy,rustfmt # required components"
+            ),
+            True,
+            id="here-document-body-does-not-change-quote-state",
+        ),
         pytest.param(_nightly_workflow(None), False, id="no-installer"),
         pytest.param(
             _nightly_workflow(
@@ -478,6 +487,26 @@ def test_portable_simd_feature_forwards_to_the_dense_provider() -> None:
             "cat <<EOF\n EOF\nrustup toolchain install nightly\nEOF",
             [],
             id="indented-delimiter-does-not-close",
+        ),
+        pytest.param(
+            'echo "<<EOF"\n'
+            "rustup toolchain install nightly --profile minimal "
+            "--component clippy rustfmt",
+            [
+                "rustup toolchain install nightly --profile minimal "
+                "--component clippy rustfmt"
+            ],
+            id="printed-operator-does-not-hide-installer",
+        ),
+        pytest.param(
+            "cat <<'EOF'\ndon't\nEOF\n"
+            "rustup toolchain install nightly --profile minimal "
+            "--component clippy,rustfmt # required components",
+            [
+                "rustup toolchain install nightly --profile minimal "
+                "--component clippy,rustfmt "
+            ],
+            id="here-document-body-does-not-change-quote-state",
         ),
         pytest.param(
             "rustup toolchain install nightly \\ \n  --component clippy",
