@@ -19,6 +19,12 @@ from __future__ import annotations
 
 import typing as typ
 
+#: Words after which an expression may begin, so a ``<`` there opens a
+#: qualified path rather than a comparison.
+_VALUE_KEYWORDS = frozenset(
+    {"match", "return", "break", "continue", "in", "if", "while", "else"}
+)
+
 #: Brackets that nest an argument without ending the list.
 OPENING: typ.Final[frozenset[str]] = frozenset("([{")
 
@@ -28,6 +34,19 @@ CLOSING: typ.Final[frozenset[str]] = frozenset(")]}")
 
 def skip_whitespace(text: str, index: int) -> int:
     """Return the index of the first non-space character at or after `index`.
+
+    Parameters
+    ----------
+    text
+        The source text to scan.
+    index
+        An absolute index into `text`; it may be ``len(text)``.
+
+    Returns
+    -------
+    int
+        The index of the first non-space character at or after `index`, or
+        ``len(text)`` when the rest of the text is spaces.
 
     Examples
     --------
@@ -51,6 +70,21 @@ def opens_a_value(text: str, index: int, start: int) -> bool:
     passes one borrowed value, and ``&mut`` marks its mutability, so the angle
     still opens it.
 
+    Parameters
+    ----------
+    text
+        The source text to scan.
+    index
+        The absolute index of the ``<`` being read.
+    start
+        The absolute index the enclosing scan began at, which bounds how far
+        back the preceding text is read.
+
+    Returns
+    -------
+    bool
+        Whether the ``<`` begins a value rather than following an operand.
+
     Examples
     --------
     >>> opens_a_value("<A>::b()", 0, 0)
@@ -63,15 +97,33 @@ def opens_a_value(text: str, index: int, start: int) -> bool:
     True
     >>> opens_a_value("&mut <A>::b", 5, 0)
     True
+    >>> opens_a_value("join(*<A>::b", 6, 0)
+    True
+    >>> opens_a_value("match <A>::b", 6, 0)
+    True
     """
     before = text[start:index].rstrip()
     if not before:
         return True
-    return before[-1] in "(," or before.endswith(("&", "&mut"))
+    if before[-1] in "(,*" or before.endswith(("&", "&mut")):
+        return True
+    word = before.rsplit(maxsplit=1)[-1]
+    return word in _VALUE_KEYWORDS
 
 
 def bracket_change(char: str) -> int:
     """Return how `char` changes argument-list nesting.
+
+    Parameters
+    ----------
+    char
+        One character of the source text.
+
+    Returns
+    -------
+    int
+        ``1`` for an opening bracket, ``-1`` for a closing one and ``0`` for
+        any other character.
 
     Examples
     --------
@@ -91,6 +143,19 @@ def bracket_change(char: str) -> int:
 
 def angle_change(text: str, index: int) -> int:
     """Return how the character at `index` changes generic-list depth.
+
+    Parameters
+    ----------
+    text
+        The source text to scan.
+    index
+        The absolute index of the character to read; it must be in range.
+
+    Returns
+    -------
+    int
+        ``1`` for an opening angle, ``-1`` for a closing one and ``0`` for any
+        other character, including the ``>`` of a function type's arrow.
 
     Examples
     --------
@@ -116,6 +181,19 @@ def is_angle_close(text: str, index: int) -> bool:
     An arrow in a function type closes nothing, since its ``>`` follows a
     ``-``.
 
+    Parameters
+    ----------
+    text
+        The source text to scan.
+    index
+        The absolute index of the character to read; it must be in range.
+
+    Returns
+    -------
+    bool
+        Whether the ``>`` at `index` closes a type list rather than following
+        an arrow or a minus sign.
+
     Examples
     --------
     >>> is_angle_close("a>b", 1)
@@ -140,6 +218,19 @@ def after_turbofish(text: str, start: int) -> int:
     ``[u8; { 1 << 2 }]`` is a shift, so the region is skipped whole, while a
     function type's arrow is still not a close. An unclosed list ends at the
     end of the text.
+
+    Parameters
+    ----------
+    text
+        The source text to scan.
+    start
+        The absolute index of the list's opening ``<``; it must be in range.
+
+    Returns
+    -------
+    int
+        The index just past the closing ``>``, or ``len(text)`` when the list
+        never closes.
 
     Examples
     --------
@@ -175,6 +266,19 @@ def turbofish_end(body: str, index: int) -> int | None:
     Rust permits whitespace between ``::`` and ``<``, so the two tokens are
     read separately; the type list itself is read by counting its angles.
 
+    Parameters
+    ----------
+    body
+        The source text to scan.
+    index
+        The absolute index where a ``::`` may begin.
+
+    Returns
+    -------
+    int | None
+        The index just past the type list, or ``None`` when no turbofish
+        begins at `index`.
+
     Examples
     --------
     >>> turbofish_end("::<_, ()>(x)", 0)
@@ -199,6 +303,22 @@ def after_generics(text: str, index: int, start: int) -> int | None:
     ``make_path::<A, B>()`` separate type arguments rather than the values the
     call is given. The ``::`` requirement is what keeps a comparison such as
     ``a < b`` from opening a list that never closes.
+
+    Parameters
+    ----------
+    text
+        The source text to scan.
+    index
+        The absolute index of the ``<`` being read; it must be in range.
+    start
+        The absolute index the enclosing scan began at, which bounds how far
+        back the ``::`` is looked for.
+
+    Returns
+    -------
+    int | None
+        The index just past the type list, or ``None`` when the ``<`` does not
+        follow a ``::``.
 
     Examples
     --------

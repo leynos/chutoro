@@ -116,8 +116,8 @@ def _hex_escape(text: str, index: int) -> tuple[str | None, int]:
     ('é', 4)
     >>> _hex_escape(chr(92) + "u006e", 0)
     ('n', 6)
-    >>> _hex_escape(chr(92) + "u06e", 0)[0] is None
-    True
+    >>> _hex_escape(chr(92) + "u6e", 0)
+    ('n', 4)
     """
     marker = text[index + 1 : index + 2]
     if marker == "x":
@@ -127,9 +127,9 @@ def _hex_escape(text: str, index: int) -> tuple[str | None, int]:
         return chr(int(digits, 16)), index + 2 + len(digits)
     width = 4 if marker == "u" else 8
     digits = _digits(text[index + 2 : index + 2 + width], _HEX_DIGITS)
-    if len(digits) != width:
+    if not 1 <= len(digits) <= width:
         return None, index
-    return chr(int(digits, 16)), index + 2 + width
+    return chr(int(digits, 16)), index + 2 + len(digits)
 
 
 def _decode_ansi_c(text: str) -> str:

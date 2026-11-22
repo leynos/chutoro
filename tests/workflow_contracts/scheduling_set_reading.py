@@ -20,6 +20,9 @@ Bash behaviour it models stated beside it.
 from __future__ import annotations
 
 import collections.abc as cabc
+import typing as typ
+
+from scheduling_segment_reading import argument_words
 
 #: The option name ``-o`` and ``+o`` take as their operand.
 ERREXIT_OPTION = "errexit"
@@ -28,50 +31,51 @@ ERREXIT_OPTION = "errexit"
 LASTPIPE_OPTION = "lastpipe"
 
 
-def builtin_arguments(words: cabc.Sequence[str]) -> cabc.Sequence[str]:
-    """Return `words` with a leading ``builtin`` or ``command`` removed.
+def builtin_arguments(words: cabc.Sequence[str]) -> list[str]:
+    """Return `words` without a ``builtin`` wrapper or a redirection.
 
-    Bash runs ``set`` in the current shell through either word, so
-    ``builtin set +e`` disables errexit exactly as ``set +e`` does.
+    Bash runs ``set`` in the current shell through ``builtin`` or ``command``,
+    so ``builtin set +e`` disables errexit exactly as ``set +e`` does. A
+    redirection configures a file descriptor rather than passing an argument,
+    so ``set > /dev/null +e`` still reaches its ``+e``.
 
     Examples
     --------
-    >>> list(builtin_arguments(["builtin", "set", "+e"]))
+    >>> builtin_arguments(["builtin", "set", "+e"])
     ['set', '+e']
-    >>> list(builtin_arguments(["command", "set", "-e"]))
+    >>> builtin_arguments(["command", "set", "-e"])
     ['set', '-e']
-    >>> list(builtin_arguments(["set", "+e"]))
+    >>> builtin_arguments(["set", "+e"])
+    ['set', '+e']
+    >>> builtin_arguments(["set", ">", "/dev/null", "+e"])
     ['set', '+e']
     """
-    if words[:1] in (["builtin"], ["command"]):
-        return words[1:]
-    return words
+    arguments = list(words)
+    if arguments[:1] in (["builtin"], ["command"]):
+        arguments = arguments[1:]
+    return argument_words(arguments)
 
 
-def _names_errexit(words: cabc.Sequence[str], index: int) -> bool:
-    """Return whether ``words[index]`` names errexit for ``-o`` or ``+o``.
+def _names_an_option(flag: str) -> bool:
+    """Return whether `flag` ends a short cluster with the option-name letter.
 
     Bash reads a cluster's final ``o`` as the option-name flag, so ``+xo
-    errexit`` turns errexit off exactly as ``+o errexit`` does, and ``-euo
-    pipefail`` sets errexit before naming pipefail.
+    errexit`` names the same option as ``+o errexit``, and ``-euo pipefail``
+    sets errexit before naming pipefail. ``-O`` names a ``shopt`` option
+    instead, so it is not one of these.
 
     Examples
     --------
-    >>> _names_errexit(["set", "-o", "errexit"], 1)
+    >>> _names_an_option("-o")
     True
-    >>> _names_errexit(["set", "+o", "errexit"], 1)
+    >>> _names_an_option("+xo")
     True
-    >>> _names_errexit(["set", "+xo", "errexit"], 1)
+    >>> _names_an_option("-euo")
     True
-    >>> _names_errexit(["set", "-o", "pipefail"], 1)
-    False
-    >>> _names_errexit(["set", "-e"], 1)
+    >>> _names_an_option("-e")
     False
     """
-    flag = words[index]
-    if flag[:1] not in {"-", "+"} or not flag[1:].endswith("o"):
-        return False
-    return words[index + 1 : index + 2] == [ERREXIT_OPTION]
+    return flag[:1] in {"-", "+"} and flag[1:].endswith("o")
 
 
 def _enables_errexit(flag: str) -> bool:
@@ -113,6 +117,33 @@ def _takes_a_name(flag: str) -> bool:
     False
     """
     return flag[:1] in {"-", "+"} and flag[1:].endswith(("o", "O"))
+
+
+def _set_options(words: cabc.Sequence[str]) -> typ.Iterator[tuple[str, str]]:
+    """Yield each option word of a ``set`` command with its operand, if any.
+
+    Option processing stops at ``--``, at a lone ``-`` and at the first word
+    that does not begin with ``-`` or ``+``: everything from there on is a
+    positional parameter. A flag whose last letter names an option takes the
+    next word as that name.
+
+    Examples
+    --------
+    >>> list(_set_options(["set", "-euo", "pipefail", "+e"]))
+    [('-euo', 'pipefail'), ('+e', '')]
+    >>> list(_set_options(["set", "--", "-e"]))
+    []
+    >>> list(_set_options(["set", "value", "-e"]))
+    []
+    """
+    index = 1
+    while index < len(words):
+        flag = words[index]
+        if flag in {"--", "-"} or flag[:1] not in {"-", "+"}:
+            return
+        takes_a_name = _takes_a_name(flag)
+        yield flag, words[index + 1] if takes_a_name and index + 1 < len(words) else ""
+        index += 2 if takes_a_name else 1
 
 
 def errexit_setting(words: cabc.Sequence[str]) -> bool | None:
@@ -161,14 +192,10 @@ def errexit_setting(words: cabc.Sequence[str]) -> bool | None:
     if words[:1] != ["set"]:
         return None
     setting: bool | None = None
-    index = 1
-    while index < len(words):
-        flag = words[index]
-        if flag in {"--", "-"} or flag[:1] not in {"-", "+"}:
-            break
-        if _names_errexit(words, index) or _enables_errexit(flag):
+    for flag, operand in _set_options(words):
+        names_errexit = operand == ERREXIT_OPTION and _names_an_option(flag)
+        if names_errexit or _enables_errexit(flag):
             setting = flag.startswith("-")
-        index += 2 if _takes_a_name(flag) else 1
     return setting
 
 
@@ -204,20 +231,10 @@ def enables_noexec(words: cabc.Sequence[str]) -> bool:
     if words[:1] != ["set"]:
         return False
     noexec = False
-    index = 1
-    while index < len(words):
-        flag = words[index]
-        if flag in {"--", "-"} or flag[:1] not in {"-", "+"}:
-            break
-        names_noexec = (
-            flag[1:].endswith("o")
-            and words[index + 1 : index + 2] == ["noexec"]
-        )
-        if names_noexec:
+    for flag, operand in _set_options(words):
+        names_noexec = operand == "noexec" and _names_an_option(flag)
+        if names_noexec or "n" in flag[1:]:
             noexec = flag[:1] == "-"
-        elif "n" in flag[1:]:
-            noexec = flag[:1] == "-"
-        index += 2 if _takes_a_name(flag) else 1
     return noexec
 
 

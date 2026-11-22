@@ -27,6 +27,17 @@ FIXTURES: typ.Final[Path] = Path(__file__).with_name("fixtures") / "trim_scoring
 def fixture(name: str) -> str:
     """Return the Rust source of one checked-in fixture.
 
+    Parameters
+    ----------
+    name
+        The fixture's file name without its ``.rs`` suffix, as the stem of
+        ``fixtures/trim_scoring/<name>.rs``.
+
+    Returns
+    -------
+    str
+        The UTF-8 Rust source of that fixture.
+
     Examples
     --------
     >>> "fn score_trim_jobs" in fixture("sequential")

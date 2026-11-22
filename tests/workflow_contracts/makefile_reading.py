@@ -63,10 +63,12 @@ def _declared_targets(declaration: str) -> list[str]:
     []
     >>> _declared_targets(".PHONY : gate")
     ['gate']
+    >>> _declared_targets(chr(9) + ".PHONY: gate")
+    []
     >>> _declared_targets("clean: gate")
     []
     """
-    if "=" in declaration:
+    if declaration[:1] == "\t" or "=" in declaration:
         return []
     colon = declaration.find(":")
     if colon == -1 or declaration[:colon].split() != [".PHONY"]:
@@ -146,6 +148,8 @@ def declares_target(line: str, target: str) -> bool:
     False
     >>> declares_target("build ::= 1", "build")
     False
+    >>> declares_target("build = prefix: suffix", "build")
+    False
     >>> declares_target("build::", "build")
     True
     >>> declares_target(chr(9) + "build:", "build")
@@ -160,7 +164,7 @@ def declares_target(line: str, target: str) -> bool:
     comment = make_comment_start(line)
     header = line if comment is None else line[:comment]
     colon = header.find(":")
-    if colon == -1:
+    if colon == -1 or "=" in header[:colon]:
         return False
     if header[colon:].lstrip(":").startswith("="):
         return False

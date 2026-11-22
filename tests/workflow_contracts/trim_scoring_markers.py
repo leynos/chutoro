@@ -209,12 +209,17 @@ def _past_group(body: str, start: int, index: int) -> int:
     4
     >>> _past_group("((join))(a)", 2, 6)
     8
+    >>> _past_group("((join) )(a)", 2, 6)
+    9
     """
     before = body[:start].rstrip()
     opened = len(before) - len(before.rstrip("("))
-    while opened and body[index : index + 1] == ")":
+    while opened:
+        spaced = skip_whitespace(body, index)
+        if body[spaced : spaced + 1] != ")":
+            return index
         opened -= 1
-        index += 1
+        index = spaced + 1
     return index
 
 

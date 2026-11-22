@@ -206,72 +206,43 @@ def _closes_a_definition(line: str) -> bool:
     return _directive(line).split()[:1] == ["endef"]
 
 
-def _starts_a_continued_comment(line: str) -> bool:
-    """Return whether `line` is a comment that continues onto the next one.
+def _logical_lines(text: str) -> list[str]:
+    """Return `text`'s physical lines with Make continuations joined.
+
+    GNU make replaces a backslash-newline pair with a space before it reads a
+    directive, so a line that merely continues an assignment cannot open or
+    close a conditional or a definition. Only an unescaped trailing backslash
+    joins.
 
     Examples
     --------
-    >>> _starts_a_continued_comment("# note " + chr(92))
-    True
-    >>> _starts_a_continued_comment(".PHONY: gate")
-    False
-    """
-    return make_comment_start(line) is not None and _continues(line)
-
-
-def _keep_line(lines: list[str], line: str) -> bool:
-    """Append `line`, dropping a continuation backslash, and report a comment.
-
-    A continued comment is kept without its backslash: the backslash
-    continued the comment rather than the declaration that follows it.
-
-    Examples
-    --------
-    >>> kept = []
-    >>> _keep_line(kept, ".PHONY: gate")
-    False
-    >>> kept
-    ['.PHONY: gate']
-    >>> kept = []
-    >>> _keep_line(kept, "# note " + chr(92))
-    True
-    >>> kept == ["# note "]
+    >>> joined = _logical_lines(".PHONY: clean " + chr(92) + chr(10) + " gate")
+    >>> " ".join(joined[0].split())
+    '.PHONY: clean gate'
+    >>> doubled = "a" + chr(92) * 2 + chr(10) + "b"
+    >>> len(_logical_lines(doubled))
+    2
+    >>> _logical_lines("x " + chr(92) + chr(10) + "endef")[0].endswith("endef")
     True
     """
-    if _starts_a_continued_comment(line):
-        lines.append(line[:-1])
-        return True
-    lines.append(line)
-    return False
+    lines: list[str] = []
+    pending = ""
+    for physical in text.splitlines():
+        joined = f"{pending} {physical}" if pending else physical
+        if _continues(physical):
+            pending = joined[:-1]
+            continue
+        lines.append(joined)
+        pending = ""
+    if pending:
+        lines.append(pending)
+    return lines
 
 
-def _definition_step(
-    line: str, depth: int, continued: bool
-) -> tuple[int, bool]:
-    """Return the definition depth and continuation state after `line`.
-
-    A line that continues joins the next one before make reads either, so an
-    ``endef`` written after a continuation is part of the joined text rather
-    than a directive of its own.
-
-    Examples
-    --------
-    >>> _definition_step("text " + chr(92), 1, False)
-    (1, True)
-    >>> _definition_step("endef", 1, True)
-    (1, False)
-    >>> _definition_step("endef", 1, False)
-    (0, False)
-    """
-    if continued or _continues(line):
-        return depth, _continues(line)
-    return depth + _definition_delta(line), False
-
-
-def _conditional_step(
-    line: str, conditionals: int, definition: int, continued: bool
-) -> tuple[int, int, bool, bool]:
-    """Return the conditional state after `line`.
+def _conditional_after(
+    line: str, conditionals: int, definition: int
+) -> tuple[int, int]:
+    """Return the conditional and inner-definition depths after `line`.
 
     A ``define`` opened inside an inactive conditional hides everything up to
     its own ``endef``, so the ``endif`` written there is variable text rather
@@ -279,81 +250,83 @@ def _conditional_step(
 
     Examples
     --------
-    >>> _conditional_step(".PHONY: gate", 1, 0, False)[:3]
-    (1, 0, False)
-    >>> _conditional_step("define UNUSED", 1, 0, False)[:3]
-    (1, 1, False)
-    >>> _conditional_step("endif", 1, 1, False)[:3]
-    (1, 1, False)
-    >>> _conditional_step("endif", 1, 0, False)[:3]
-    (0, 0, False)
+    >>> _conditional_after(".PHONY: gate", 1, 0)
+    (1, 0)
+    >>> _conditional_after("define UNUSED", 1, 0)
+    (1, 1)
+    >>> _conditional_after("endif", 1, 1)
+    (1, 1)
+    >>> _conditional_after("endif", 1, 0)
+    (0, 0)
     """
     if definition:
-        definition, continued = _definition_step(line, definition, continued)
-        return conditionals, definition, continued, False
+        return conditionals, definition + _definition_delta(line)
     if _opens_a_definition(line):
-        return conditionals, 1, False, False
-    continues = _starts_a_continued_comment(line)
-    return conditionals + _conditional_delta(line), 0, False, continues
+        return conditionals, 1
+    return conditionals + _conditional_delta(line), 0
 
 
 def declaring_lines(text: str) -> list[str]:
-    """Return `text`'s lines outside a continued comment or a definition.
+    """Return `text`'s lines outside a recipe, definition or conditional.
 
-    GNU make continues a comment whose line ends in an unescaped backslash, so
-    the line after it is comment text and declares nothing however it reads.
-    Dropping those lines before the declarations are selected keeps a
-    commented-out ``.PHONY:`` line from declaring a target that nothing
-    covers. The continuation backslash is removed with them. A doubled
-    backslash ends the comment instead, so the line after it stays. A
-    ``define`` body is dropped for the same reason: make stores its lines in
-    the named variable, so a ``.PHONY`` written there declares nothing. A
-    conditional block is dropped as well: the reading does not evaluate its
-    condition, so a declaration inside it is not evidence of an unconditional
-    target.
+    Make joins a continued line before it reads a directive, so the lines are
+    read logically. A recipe line begins with a tab, a ``define`` body is
+    stored in its variable, and a conditional's body declares only when its
+    condition holds; none of them declares a phony target. Comment lines are
+    kept for the caller to remove, because a ``#`` after a completed line is
+    not a declaration either.
 
     Examples
     --------
+    >>> declaring_lines(".PHONY: gate " + chr(35) + " note")
+    ['.PHONY: gate # note']
+    >>> continued = "# off " + chr(92) + chr(10) + ".PHONY: gate"
+    >>> " ".join(declaring_lines(continued)[0].split())
+    '# off .PHONY: gate'
+    >>> doubled = "# off " + chr(92) * 2 + chr(10) + ".PHONY: gate"
+    >>> declaring_lines(doubled)[1]
+    '.PHONY: gate'
+    >>> declaring_lines("gate:" + chr(10) + chr(9) + ".PHONY: gate")
+    ['gate:']
     >>> hidden = (
     ...     "ifeq (1,1)" + chr(10) + "define UNUSED" + chr(10) + "endif"
     ...     + chr(10) + ".PHONY: gate" + chr(10) + "endef" + chr(10) + "endif"
     ... )
     >>> declaring_lines(hidden)
     []
-    >>> continued = (
+    >>> continued_comment = (
     ...     "ifeq (0,1)" + chr(10) + "# hidden " + chr(92) + chr(10)
     ...     + "endif" + chr(10) + ".PHONY: gate" + chr(10) + "endif"
     ... )
-    >>> declaring_lines(continued)
+    >>> declaring_lines(continued_comment)
+    []
+    >>> continued_assignment = (
+    ...     "ifeq (0,1)" + chr(10) + "ignored = " + chr(92) + chr(10)
+    ...     + "endif" + chr(10) + ".PHONY: gate" + chr(10) + "endif"
+    ...     + chr(10) + "gate: ; @:"
+    ... )
+    >>> declaring_lines(continued_assignment)
+    ['gate: ; @:']
+    >>> joined_endef = (
+    ...     "define UNUSED" + chr(10) + "text " + chr(92) + chr(10)
+    ...     + "endef" + chr(10) + ".PHONY: gate" + chr(10) + "endef"
+    ... )
+    >>> declaring_lines(joined_endef)
     []
     """
     lines: list[str] = []
-    in_comment = False
     definition = 0
-    definition_continued = False
     conditionals = 0
     conditional_definition = 0
-    conditional_definition_continued = False
-    for line in text.splitlines():
-        if in_comment:
-            in_comment = _continues(line)
+    for line in _logical_lines(text):
+        if line[:1] == "\t":
             continue
         if definition:
-            definition, definition_continued = _definition_step(
-                line, definition, definition_continued
-            )
+            definition += _definition_delta(line)
             continue
         if conditionals:
-            (
-                conditionals,
-                conditional_definition,
-                conditional_definition_continued,
-                in_comment,
-            ) = _conditional_step(
-                line,
-                conditionals,
-                conditional_definition,
-                conditional_definition_continued,
+            conditionals, conditional_definition = _conditional_after(
+                line, conditionals, conditional_definition
             )
             continue
         if _opens_a_definition(line):
@@ -362,7 +335,7 @@ def declaring_lines(text: str) -> list[str]:
         if _opens_a_conditional(line):
             conditionals = 1
             continue
-        in_comment = _keep_line(lines, line)
+        lines.append(line)
     return lines
 
 

@@ -358,4 +358,29 @@ SELECTOR_CASES: typ.Final[tuple[tuple[str, bool, str], ...]] = (
         True,
         "an-interpreter-with-a-descriptor-copy",
     ),
+    (
+        f"{NEXTEST_INSTALLER} >$(LOG)#1 || true",
+        False,
+        "a-mask-after-a-make-variable-reference",
+    ),
+    (
+        f"exec > /dev/null\n{NEXTEST_INSTALLER}",
+        True,
+        "an-exec-that-only-redirects",
+    ),
+    (
+        "set $" + chr(39) + "-" + chr(92) + "u6e" + chr(39) + "\n" + NEXTEST_INSTALLER,
+        False,
+        "noexec-spelled-by-a-short-unicode-escape",
+    ),
+    (
+        f"set > /dev/null +e\n{NEXTEST_INSTALLER}\ntrue",
+        False,
+        "an-errexit-change-after-a-redirection",
+    ),
+    (
+        "printf x" + chr(92) + "\n#; " + NEXTEST_INSTALLER,
+        True,
+        "an-installer-after-a-continued-hash",
+    ),
 )

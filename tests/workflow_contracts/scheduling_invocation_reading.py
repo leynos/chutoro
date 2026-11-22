@@ -45,7 +45,7 @@ SHELL_SEPARATORS = frozenset({";", ";;", "&&", "||", "|", "&"})
 #: Flags that compile without running. `--no-run` builds the tests and executes
 #: none of them, so an invocation carrying it produces no runtime evidence even
 #: though its selector, count and flags all look right.
-COMPILE_ONLY_FLAGS = ("--no-run",)
+COMPILE_ONLY_FLAGS = ("--no-run", "--help", "-h")
 
 def _is_redirection(token: str) -> bool:
     """Return whether `token` is a redirection operator.
@@ -165,6 +165,8 @@ def is_nextest_invocation(command: str) -> bool:
     False
     >>> is_nextest_invocation("$(CARGO) nextest run -p chutoro-core 2>&1")
     True
+    >>> is_nextest_invocation("$(CARGO) nextest run -p chutoro-core --help")
+    False
     >>> is_nextest_invocation(
     ...     "$(CARGO) nextest run -p chutoro-core > 'scheduling>' & true"
     ... )

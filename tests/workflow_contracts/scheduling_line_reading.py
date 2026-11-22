@@ -299,6 +299,12 @@ def _command_step(
     True
     >>> _command_step("# note " + chr(92), "", "", lines)[:2]
     ('', '')
+    >>> lines = []
+    >>> joined, _, _ = _command_step("printf x" + chr(92), "", "", lines)
+    >>> _command_step("#; installer", joined, "", lines)[0]
+    ''
+    >>> lines[-1]
+    'printf x#; installer'
     >>> _command_step("cat <<'EOF'", "", "", [])[2]
     [HereDocument(word='EOF', strips_tabs=False, literal=True)]
     >>> _command_step('echo "pre' + chr(92), "", "", [])[0]
@@ -317,18 +323,18 @@ def _command_step(
     """
     if joined and _has_an_open_quote(joined):
         return _absorb_or_wait(joined, physical, pending, lines)
+    candidate = f"{joined}{physical}"
     try:
-        commented = strip_shell_comment(physical)
+        commented = strip_shell_comment(candidate)
     except ValueError:
         return _absorb_or_wait(joined, physical, pending, lines)
     text, continues = _continuation(commented)
-    joined = f"{joined}{text}"
     if continues:
-        return joined, pending, []
+        return text, pending, []
     try:
-        pending, documents = _absorb(pending, joined, lines)
+        pending, documents = _absorb(pending, text, lines)
     except ValueError:
-        return f"{joined}{chr(10)}", pending, []
+        return f"{text}{chr(10)}", pending, []
     return "", pending, documents
 
 

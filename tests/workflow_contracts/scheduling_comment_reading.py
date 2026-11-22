@@ -25,8 +25,9 @@ _WORD_SEPARATORS = frozenset(" \t\n")
 
 #: Characters after which the shell can start a new word. An operator ends the
 #: word before it, so a ``#`` written straight after one is still at a word
-#: start.
-_OPERATOR_CHARS = frozenset(";&|()<>")
+#: start. A ``)`` is not one: it closes an expansion that the word continues,
+#: as in ``>$(LOG)#1``.
+_OPERATOR_CHARS = frozenset(";&|<>")
 
 
 def _after_quoted(line: str, start: int) -> int:
@@ -71,6 +72,8 @@ def _is_word_start(line: str, index: int) -> bool:
     True
     >>> _is_word_start("run >log;# note", 9)
     True
+    >>> _is_word_start("echo $(LOG)#1", 11)
+    False
     """
     if index == 0:
         return True

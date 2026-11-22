@@ -27,7 +27,6 @@ from __future__ import annotations
 
 import typing as typ
 
-from scheduling_command_reading import is_redirection
 from scheduling_errexit_reading import (
     CARRYING_OPERATOR,
     OWN_LIST_END,
@@ -214,29 +213,14 @@ def _replaces_the_shell(words: list[str]) -> bool:
     True
     >>> _replaces_the_shell(["exec", "2>", "&", "1"])
     False
+    >>> _replaces_the_shell(["exec", ">", "/dev/null"])
+    False
     >>> _replaces_the_shell(["exit", "0"])
     False
     """
     if words[:1] != ["exec"]:
         return False
-    return any(not _is_descriptor_word(word) for word in words[1:])
-
-
-def _is_descriptor_word(word: str) -> bool:
-    """Return whether `word` is part of a redirection rather than a command.
-
-    Examples
-    --------
-    >>> _is_descriptor_word("2>")
-    True
-    >>> _is_descriptor_word("&")
-    True
-    >>> _is_descriptor_word("1")
-    True
-    >>> _is_descriptor_word("/bin/true")
-    False
-    """
-    return word == "&" or word.isdigit() or is_redirection(word)
+    return len(argument_words(words)) > 1
 
 
 def _runs_installer(words: list[str]) -> bool:
