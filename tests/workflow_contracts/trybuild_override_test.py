@@ -71,6 +71,8 @@ COMPILE_CONTRACT_TESTS: typ.Final[frozenset[str]] = frozenset({
     "error_code_accessors_are_must_use",
     "checksum_api_surface_compiles",
     "integrity_failure_requires_wildcard_arm",
+    "digest_algorithm_requires_wildcard_arm",
+    "checksum_parse_is_not_const",
     "checksum_unsupported_variant_is_removed",
 })
 

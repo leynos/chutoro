@@ -1,11 +1,16 @@
 //! Compile-time contract checks for the checksum and integrity error surface.
 //!
-//! `Checksum` is an inhabited value and `IntegrityFailure` is non-exhaustive,
-//! so downstream code must keep a wildcard arm when it matches the failure
-//! type. The removed `RecipeError::ChecksumUnsupported` variant must no longer
-//! compile.
+//! `Checksum` is an inhabited value and both `DigestAlgorithm` and
+//! `IntegrityFailure` are non-exhaustive, so downstream code must keep a
+//! wildcard arm when it matches either enum. The constructor and accessors
+//! are usable in const contexts, while `Checksum::parse` is not, and the
+//! removed `RecipeError::ChecksumUnsupported` variant must no longer compile.
 
 /// Verifies the inhabited checksum value and boxed integrity errors compile.
+///
+/// The fixture also evaluates `Checksum::new`, `DigestAlgorithm::prefix`,
+/// `DigestAlgorithm::digest_len`, `Checksum::algorithm`, and
+/// `Checksum::as_bytes` in const contexts.
 #[test]
 fn checksum_api_surface_compiles() {
     let cases = trybuild::TestCases::new();
@@ -17,6 +22,20 @@ fn checksum_api_surface_compiles() {
 fn integrity_failure_requires_wildcard_arm() {
     let cases = trybuild::TestCases::new();
     cases.compile_fail("tests/trybuild/integrity_failure_exhaustive.rs");
+}
+
+/// Verifies downstream matches keep a wildcard arm for `DigestAlgorithm`.
+#[test]
+fn digest_algorithm_requires_wildcard_arm() {
+    let cases = trybuild::TestCases::new();
+    cases.compile_fail("tests/trybuild/digest_algorithm_exhaustive.rs");
+}
+
+/// Verifies parsing is rejected in a const context because it is not `const`.
+#[test]
+fn checksum_parse_is_not_const() {
+    let cases = trybuild::TestCases::new();
+    cases.compile_fail("tests/trybuild/checksum_parse_in_const.rs");
 }
 
 /// Verifies the removed deferred-checksum variant no longer compiles.

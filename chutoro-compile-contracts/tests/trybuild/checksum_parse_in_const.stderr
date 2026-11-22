@@ -1,0 +1,11 @@
+error[E0015]: cannot call non-const associated function `Checksum::parse` in constants
+ --> tests/trybuild/checksum_parse_in_const.rs:5:47
+  |
+5 |   const PARSED: Result<Checksum, RecipeError> = Checksum::parse(concat!(
+  |  _______________________________________________^
+6 | |     "sha256:",
+7 | |     "0000000000000000000000000000000000000000000000000000000000000000",
+8 | | ));
+  | |__^
+  |
+  = note: calls in constants are limited to constant functions, tuple structs and tuple variants
