@@ -30,7 +30,7 @@ from workflow_support import jobs, load_workflow, run_script, steps
 #: sentence; it does not resolve a toolchain.
 RUSTUP_INVOCATION = re.compile(
     r"(?m)(?:^|[;&|])[ \t]*"
-    r"(?P<command>rustup[ \t]+toolchain[ \t]+install\b[^\n;&|]*)"
+    r"(?P<command>rustup[ \t]+toolchain[ \t]+install(?![^\s;&|])[^\n;&|]*)"
 )
 
 #: The flag whose repeated form is the whole point of this module.

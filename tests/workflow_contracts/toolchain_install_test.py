@@ -222,6 +222,14 @@ def _nightly_workflow(installer: str | None) -> dict[str, typ.Any]:
             False,
             id="quoted-command-word",
         ),
+        pytest.param(
+            _nightly_workflow(
+                "rustup toolchain install-extra nightly --profile minimal "
+                "--component clippy --component rustfmt"
+            ),
+            False,
+            id="install-extra-is-not-install",
+        ),
         pytest.param(_nightly_workflow(None), False, id="no-installer"),
         pytest.param(
             _nightly_workflow(
@@ -374,6 +382,11 @@ def test_portable_simd_feature_forwards_to_the_dense_provider() -> None:
             '"echo" rustup toolchain install nightly',
             [],
             id="quoted-command-word",
+        ),
+        pytest.param(
+            "rustup toolchain install-extra nightly --profile minimal",
+            [],
+            id="install-extra-is-not-install",
         ),
         pytest.param(
             "rustup toolchain install nightly \\ \n  --component clippy",
