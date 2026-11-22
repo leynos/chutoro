@@ -193,3 +193,69 @@ def ends_document(document: HereDocument, line: str) -> bool:
     """
     candidate = line.lstrip("\t") if document.strips_tabs else line
     return candidate == document.word
+
+
+def escape_continuation(line: str) -> tuple[str, bool]:
+    """Return `line` with a final escaped newline deleted, and that verdict.
+
+    Here-document text is not parsed for quotes, so only a backslash that
+    escapes the newline joins the next physical line.
+
+    Examples
+    --------
+    >>> escape_continuation("x " + chr(92))
+    ('x ', True)
+    >>> text, continues = escape_continuation("x" + chr(92) * 2)
+    >>> continues, len(text)
+    (False, 3)
+    """
+    run = len(line) - len(line.rstrip("\\"))
+    if run % 2 == 0:
+        return line, False
+    return f"{line[: len(line) - run]}{chr(92) * (run - 1)}", True
+
+
+def body_step(
+    documents: list[HereDocument], line: str, pending: str
+) -> str:
+    """Consume one physical line of the body of ``documents[0]``.
+
+    Returns the text of an expanded body line that continues onto the next
+    one, and the empty string once the line is complete. A literal body is
+    compared as written: the shell expands nothing there, so a trailing
+    backslash is a character and never a continuation. An expanded body has
+    its backslash-newline pairs deleted before the closing word is compared,
+    so ``x\\`` followed by ``EOF`` is the body line ``xEOF`` rather than the
+    document's close. The closing line itself is consumed with the document,
+    and a body with several documents open closes them one at a time.
+
+    Examples
+    --------
+    >>> documents = [HereDocument("EOF", False, True)]
+    >>> body_step(documents, "EO" + chr(92), "")
+    ''
+    >>> body_step(documents, "EOF", "")
+    ''
+    >>> documents
+    []
+    >>> expanded = [HereDocument("EOF", False, False)]
+    >>> connected = body_step(expanded, "x" + chr(92), "")
+    >>> connected
+    'x'
+    >>> body_step(expanded, "EOF", connected)
+    ''
+    >>> expanded
+    [HereDocument(word='EOF', strips_tabs=False, literal=False)]
+    """
+    document = documents[0]
+    if document.literal:
+        if ends_document(document, line):
+            documents.pop(0)
+        return ""
+    text, continues = escape_continuation(line)
+    joined = f"{pending}{text}"
+    if continues:
+        return joined
+    if ends_document(document, joined):
+        documents.pop(0)
+    return ""

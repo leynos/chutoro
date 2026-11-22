@@ -28,9 +28,12 @@ from scheduling_comment_reading import strip_shell_comment
 from scheduling_quote_reading import mask_quotes
 from scheduling_here_document_reading import (
     HereDocument,
+    body_step,
     ends_document,
+    escape_continuation,
     here_documents,
 )
+from scheduling_quote_state_reading import has_an_open_quote, in_single_quotes
 
 #: Operators that leave the command list open at the end of a line. Any of
 #: them makes the next line the right-hand side of the list, so the two
@@ -62,75 +65,6 @@ def _ends_with_operator(line: str) -> bool:
     """
     text = mask_quotes(line).text.rstrip()
     return any(text.endswith(operator) for operator in _LIST_OPERATORS)
-
-
-def _escape_continuation(line: str) -> tuple[str, bool]:
-    """Return `line` with a final escaped newline deleted, and that verdict.
-
-    Here-document text is not parsed for quotes, so only a backslash that
-    escapes the newline joins the next physical line.
-
-    Examples
-    --------
-    >>> _escape_continuation("x " + chr(92))
-    ('x ', True)
-    >>> text, continues = _escape_continuation("x" + chr(92) * 2)
-    >>> continues, len(text)
-    (False, 3)
-    """
-    run = len(line) - len(line.rstrip("\\"))
-    if run % 2 == 0:
-        return line, False
-    return f"{line[: len(line) - run]}{chr(92) * (run - 1)}", True
-
-
-def _in_single_quotes(text: str) -> bool:
-    """Return whether `text` ends inside an ordinary single-quoted string.
-
-    The shell preserves every character of such a string, including a
-    backslash-newline pair, so a line that ends inside one continues without
-    the pair being deleted.
-
-    Examples
-    --------
-    >>> _in_single_quotes("echo 'a")
-    True
-    >>> _in_single_quotes('echo "a')
-    False
-    >>> _in_single_quotes("echo 'a'")
-    False
-    >>> _in_single_quotes('echo "" ; ' + chr(39) + "a")
-    True
-    """
-    quote = ""
-    index = 0
-    while index < len(text):
-        char, index = _quote_step(text, index, quote)
-        if quote and char == quote:
-            quote = ""
-        elif not quote and char in "'\"":
-            quote = char
-    return quote == "'"
-
-
-def _quote_step(text: str, index: int, quote: str) -> tuple[str, int]:
-    """Return the character that decides quoting, and the index after it.
-
-    A backslash escapes the character after it wherever it is read, so the
-    pair is consumed whole and the escaped character is not returned as quote
-    syntax.
-
-    Examples
-    --------
-    >>> _quote_step('a"b', 0, "")
-    ('a', 1)
-    >>> escaped = chr(92) + '"'
-    >>> _quote_step(escaped, 0, '"')
-    ('', 2)
-    """
-    if quote != "'" and text[index : index + 1] == "\\":
-        return "", index + 2
-    return text[index : index + 1], index + 1
 
 
 def _continuation(line: str) -> tuple[str, bool]:
@@ -174,59 +108,13 @@ def _continuation(line: str) -> tuple[str, bool]:
     >>> _continuation(quoted)[0] == quoted + chr(10)
     True
     """
-    if _in_single_quotes(line):
+    if in_single_quotes(line):
         # The shell keeps the newline inside the quoted string.
         return f"{line}{chr(10)}", True
     run = len(line) - len(line.rstrip("\\"))
     if run % 2 == 0:
         return line, False
     return f"{line[: len(line) - run]}{chr(92) * (run - 1)}", True
-
-
-def _body_step(
-    documents: list[HereDocument], line: str, pending: str
-) -> str:
-    """Consume one physical line of the body of ``documents[0]``.
-
-    Returns the text of an expanded body line that continues onto the next
-    one, and the empty string once the line is complete. A literal body is
-    compared as written: the shell expands nothing there, so a trailing
-    backslash is a character and never a continuation. An expanded body has
-    its backslash-newline pairs deleted before the closing word is compared,
-    so ``x\\`` followed by ``EOF`` is the body line ``xEOF`` rather than the
-    document's close. The closing line itself is consumed with the document,
-    and a body with several documents open closes them one at a time.
-
-    Examples
-    --------
-    >>> documents = [HereDocument("EOF", False, True)]
-    >>> _body_step(documents, "EO" + chr(92), "")
-    ''
-    >>> _body_step(documents, "EOF", "")
-    ''
-    >>> documents
-    []
-    >>> expanded = [HereDocument("EOF", False, False)]
-    >>> connected = _body_step(expanded, "x" + chr(92), "")
-    >>> connected
-    'x'
-    >>> _body_step(expanded, "EOF", connected)
-    ''
-    >>> expanded
-    [HereDocument(word='EOF', strips_tabs=False, literal=False)]
-    """
-    document = documents[0]
-    if document.literal:
-        if ends_document(document, line):
-            documents.pop(0)
-        return ""
-    text, continues = _escape_continuation(line)
-    joined = f"{pending}{text}"
-    if continues:
-        return joined
-    if ends_document(document, joined):
-        documents.pop(0)
-    return ""
 
 
 def _absorb(
@@ -303,28 +191,6 @@ def _tail_lines(lines: list[str], pending: str, joined: str) -> list[str]:
     return lines
 
 
-def _has_an_open_quote(text: str) -> bool:
-    """Return whether `text` ends inside a quoted string.
-
-    The next physical line is quoted text in that case, so it must not be
-    read for comments or operators of its own.
-
-    Examples
-    --------
-    >>> _has_an_open_quote("echo 'a")
-    True
-    >>> _has_an_open_quote("echo 'a'")
-    False
-    >>> _has_an_open_quote("echo a")
-    False
-    """
-    try:
-        mask_quotes(text)
-    except ValueError:
-        return True
-    return False
-
-
 def _absorb_or_wait(
     joined: str, physical: str, pending: str, lines: list[str]
 ) -> tuple[str, str, list[HereDocument]]:
@@ -345,9 +211,9 @@ def _absorb_or_wait(
     1
     """
     combined = f"{joined}{physical}"
-    if _in_single_quotes(combined):
+    if in_single_quotes(combined):
         return f"{combined}{chr(10)}", pending, []
-    text, continues = _escape_continuation(physical)
+    text, continues = escape_continuation(physical)
     candidate = f"{joined}{text}" + ("" if continues else chr(10))
     if continues:
         return candidate, pending, []
@@ -403,7 +269,7 @@ def _command_step(
     >>> _command_step("b", opened, "", lines)[0].endswith(chr(10))
     True
     """
-    if joined and _has_an_open_quote(joined):
+    if joined and has_an_open_quote(joined):
         return _absorb_or_wait(joined, physical, pending, lines)
     candidate = f"{joined}{physical}"
     try:
@@ -479,7 +345,7 @@ def logical_lines(script: str) -> list[str]:
     joined = ""
     for physical in script.splitlines():
         if documents:
-            body = _body_step(documents, physical, body)
+            body = body_step(documents, physical, body)
             continue
         joined, pending, documents = _command_step(
             physical, joined, pending, lines

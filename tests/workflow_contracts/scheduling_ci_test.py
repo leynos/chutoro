@@ -19,6 +19,7 @@ import pytest
 from scheduling_reading import TARGET
 from scheduling_script_reading import NEXTEST_INSTALLER, installs_nextest
 from scheduling_selector_cases import SELECTOR_CASES
+from scheduling_selector_execution_cases import EXECUTION_CASES
 from scheduling_shell_reading import effective_shell, runs_the_script
 from workflow_support import job, load_workflow, run_script, steps
 
@@ -147,7 +148,7 @@ def test_ci_installs_nextest_before_the_scheduling_target() -> None:
     ("script", "expected"),
     [
         pytest.param(script, expected, id=name)
-        for script, expected, name in SELECTOR_CASES
+        for script, expected, name in SELECTOR_CASES + EXECUTION_CASES
     ],
 )
 def test_the_installer_selector_reads_executable_use(

@@ -40,11 +40,8 @@ from scheduling_segment_reading import (
     has_a_compound_command,
     read_lines,
 )
-from scheduling_set_reading import (
-    builtin_arguments,
-    enables_lastpipe,
-    enables_noexec,
-)
+from scheduling_script_hazard_reading import cannot_place
+from scheduling_set_reading import builtin_arguments, enables_noexec
 
 #: The script that installs ``cargo-nextest`` for the job.
 NEXTEST_INSTALLER = "scripts/install-nextest.sh"
@@ -291,103 +288,6 @@ def _counts_as_installation(
     return all(checks)
 
 
-def _enables_lastpipe(lines: list[list[Segment]]) -> bool:
-    """Return whether any command in `lines` turns on ``lastpipe``.
-
-    The reading assumes a pipeline element's state change dies with it, which
-    ``lastpipe`` breaks, so a script that enables the option is refused.
-
-    Examples
-    --------
-    >>> _enables_lastpipe(read_lines("shopt -s lastpipe"))
-    True
-    >>> _enables_lastpipe(read_lines("shopt -u lastpipe"))
-    False
-    >>> _enables_lastpipe(read_lines("shopt -s nullglob"))
-    False
-    """
-    return any(
-        enables_lastpipe(segment.words)
-        for line in lines
-        for segment in line
-    )
-
-
-def _sets_an_err_trap(lines: list[list[Segment]]) -> bool:
-    """Return whether any command installs an ``ERR`` trap.
-
-    Bash runs the handler when a command fails, so ``trap 'exit 0' ERR`` can
-    turn an installer failure into a successful exit. The reading cannot tell
-    whether a handler preserves the failure, so a script that installs one is
-    refused.
-
-    Examples
-    --------
-    >>> _sets_an_err_trap(read_lines("trap 'exit 0' ERR"))
-    True
-    >>> _sets_an_err_trap(read_lines("trap - ERR"))
-    False
-    >>> _sets_an_err_trap(read_lines("trap 'echo x' INT"))
-    False
-    """
-    return any(
-        _installs_a_trap(segment.words)
-        for line in lines
-        for segment in line
-    )
-
-
-def _installs_a_trap(words: list[str]) -> bool:
-    """Return whether `words` install a handler that can replace a failure.
-
-    ``ERR`` handlers run on a failed command and ``EXIT`` handlers (or signal
-    ``0``) run as the shell leaves, so either can turn an installer failure
-    into a successful exit. ``trap - ERR`` removes a handler instead.
-
-    Examples
-    --------
-    >>> _installs_a_trap(["trap", "'exit 0'", "ERR"])
-    True
-    >>> _installs_a_trap(["builtin", "trap", "'exit 0'", "ERR"])
-    True
-    >>> _installs_a_trap(["trap", "'exit 0'", "EXIT"])
-    True
-    >>> _installs_a_trap(["trap", "'exit 0'", "0"])
-    True
-    >>> _installs_a_trap(["trap", "-", "ERR"])
-    False
-    >>> _installs_a_trap(["true"])
-    False
-    """
-    words = builtin_arguments(words)
-    if words[:1] != ["trap"] or words[1:2] == ["-"]:
-        return False
-    return any(signal in {"ERR", "EXIT", "0"} for signal in words[1:])
-
-
-def _cannot_place(lines: list[list[Segment]]) -> bool:
-    """Return whether this reading cannot place the script's commands.
-
-    A compound command, a ``lastpipe`` change or an ``ERR`` trap each makes a
-    command's reachability depend on Bash semantics the reading does not
-    model, so the script yields no evidence at all.
-
-    Examples
-    --------
-    >>> _cannot_place(read_lines("if false; then" + chr(10) + "fi"))
-    True
-    >>> _cannot_place(read_lines("shopt -s lastpipe"))
-    True
-    >>> _cannot_place(read_lines("trap 'exit 0' ERR"))
-    True
-    >>> _cannot_place(read_lines("installer"))
-    False
-    """
-    if has_a_compound_command(lines) or _enables_lastpipe(lines):
-        return True
-    return _sets_an_err_trap(lines)
-
-
 def installs_nextest(script: str) -> bool:
     """Return whether `script` executes the nextest installer, blocking.
 
@@ -439,7 +339,7 @@ def installs_nextest(script: str) -> bool:
     False
     """
     lines = read_lines(script)
-    if _cannot_place(lines):
+    if cannot_place(lines):
         return False
     states = errexit_states(lines)
     stop = _stops_the_script(lines)
