@@ -173,6 +173,15 @@ def _nightly_workflow(installer: str | None) -> dict[str, typ.Any]:
             False,
             id="quoted-echo-is-not-an-installer",
         ),
+        pytest.param(
+            _nightly_workflow(
+                "printf '%s\\n' \"setup\n"
+                "rustup toolchain install nightly --profile minimal "
+                "--component clippy,rustfmt\n\""
+            ),
+            False,
+            id="quoted-multiline-installer-is-not-a-command",
+        ),
         pytest.param(_nightly_workflow(None), False, id="no-installer"),
         pytest.param(
             _nightly_workflow(
@@ -281,8 +290,24 @@ def test_portable_simd_feature_forwards_to_the_dense_provider() -> None:
     [
         pytest.param(
             "rustup toolchain install nightly \\\n  --component clippy",
-            ["rustup toolchain install nightly  --component clippy"],
+            ["rustup toolchain install nightly   --component clippy"],
             id="continuation-is-joined",
+        ),
+        pytest.param(
+            "rustup toolchain install nightly --profile minimal "
+            "--component clippy,\\\nrustfmt",
+            [
+                "rustup toolchain install nightly --profile minimal "
+                "--component clippy,rustfmt"
+            ],
+            id="continuation-inside-an-argument",
+        ),
+        pytest.param(
+            "printf '%s\\n' \"setup\n"
+            "rustup toolchain install nightly --profile minimal "
+            "--component clippy,rustfmt\n\"",
+            [],
+            id="quoted-multiline-installer-is-not-a-command",
         ),
         pytest.param(
             "rustup toolchain install nightly \\ \n  --component clippy",

@@ -24,10 +24,10 @@ import typing as typ
 from workflow_support import jobs, load_workflow, run_script, steps
 
 #: A `rustup` invocation at the start of an executable command. The script
-#: is joined first, so a command split across lines is one match rather than
-#: none. Requiring a command boundary keeps the phrase inside `echo` or a
-#: quoted string from reading as an install: `echo 'rustup ...'` prints a
-#: sentence, it does not resolve a toolchain.
+#: is joined first and quoted text is blanked in the copy the pattern reads,
+#: so a command split across lines is one match and a rustup phrase inside
+#: `echo` or a multi-line string is none. `echo 'rustup ...'` prints a
+#: sentence; it does not resolve a toolchain.
 RUSTUP_INVOCATION = re.compile(
     r"(?m)(?:^|[;&|])\s*(?P<command>rustup\s+toolchain\s+install\b[^\n;&|]*)"
 )
@@ -37,12 +37,17 @@ COMPONENT_FLAG = "--component"
 
 #: A shell line continuation, and only that.
 #:
-#: The shell joins lines on a backslash immediately followed by a newline. A
+#: The shell removes the backslash and the newline and nothing else, so any
+#: indentation on the next line stays and still separates arguments. A
 #: backslash followed by a space or a tab escapes that character instead, and
-#: the command ends at the newline. Matching the looser `\\\s*\n` would join
-#: lines the shell does not, so a truncated install would read here as a
-#: well-formed one, which is the opposite of what a contract is for.
-CONTINUATION = re.compile(r"\\\n[ \t]*")
+#: the command ends at the newline; the pattern therefore does not match it,
+#: and a truncated install cannot read as a well-formed one.
+CONTINUATION = re.compile(r"\\\n")
+
+#: Quoted shell text, including escaped double quotes. A quoted line break
+#: does not begin an executable command, so quoted spans are blanked before
+#: command boundaries are read.
+QUOTED_TEXT = re.compile(r"'[^']*'|\"(?:\\.|[^\"\\])*\"", re.DOTALL)
 
 #: The lane whose nightly installer this module holds to its purpose.
 NIGHTLY_WORKFLOW = "nightly-portable-simd.yml"
@@ -147,12 +152,28 @@ def shell_words(command: str) -> list[str]:
         return command.split()
 
 
+def _blank_quoted(match: re.Match[str]) -> str:
+    """Return spaces of the same length as a quoted span."""
+    return " " * len(match.group(0))
+
+
+def mask_quoted(script: str) -> str:
+    """Return *script* with quoted text blanked, preserving length.
+
+    Blanking the span keeps the offsets usable against the unblanked script,
+    while a command boundary inside a multi-line quoted string disappears.
+    """
+    return QUOTED_TEXT.sub(_blank_quoted, script)
+
+
 def rustup_installs(script: str) -> list[str]:
     """Return each rustup toolchain install in a step's script.
 
-    Comments are removed first, then genuine continuations are joined, so a
+    Comments are removed first and genuine continuations are deleted, so a
     command split across lines is one invocation rather than none and a
-    commented-out installer is no invocation at all. A backslash the shell
+    commented-out installer is no invocation at all. Quoted text is blanked
+    before command boundaries are read, so `echo 'rustup ...'` and a rustup
+    line inside a multi-line string install nothing. A backslash the shell
     would not treat as a continuation is left alone, and the invocation then
     ends on it, which is what
     `test_no_rustup_install_ends_on_a_dangling_backslash` looks for.
@@ -166,8 +187,12 @@ def rustup_installs(script: str) -> list[str]:
     >>> rustup_installs('echo "# kept"; rustup toolchain install nightly')
     ['rustup toolchain install nightly']
     """
-    joined = CONTINUATION.sub(" ", strip_shell_comments(script))
-    return [match.group("command") for match in RUSTUP_INVOCATION.finditer(joined)]
+    joined = CONTINUATION.sub("", strip_shell_comments(script))
+    boundaries = mask_quoted(joined)
+    return [
+        joined[match.start("command") : match.end("command")]
+        for match in RUSTUP_INVOCATION.finditer(boundaries)
+    ]
 
 
 def component_values(invocation: str) -> list[list[str]]:
