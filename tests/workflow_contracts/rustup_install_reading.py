@@ -31,16 +31,14 @@ from workflow_support import jobs, load_workflow, run_script, steps
 #: A shell variable assignment that may prefix a command.
 ASSIGNMENT = r"[A-Za-z_][A-Za-z0-9_]*=(?:'[^']*'|\"[^\"]*\"|[^\s;&|]*)"
 
-RUSTUP_INVOCATION = re.compile(
-    rf"(?m)(?:^|[;&|])[ \t]*(?:{ASSIGNMENT}[ \t]+)*"
-    r"(?P<command>rustup[ \t]+toolchain[ \t]+install(?![^\s;&|])[^\n;&|]*)"
-)
-
 #: The flag whose repeated form is the whole point of this module.
 COMPONENT_FLAG = "--component"
 
 #: Characters after which a `#` begins a new shell word, and so a comment.
 WORD_BOUNDARIES = frozenset(" \t;&|()<>")
+
+#: A placeholder for a character that belongs to the current word.
+WORD_CHARACTER = "x"
 
 #: An escaped character. A backslash makes the next character literal, so an
 #: escaped separator cannot end a command and is blanked in the copy the
@@ -99,7 +97,11 @@ def _scan_line(line: str, quote: str | None) -> tuple[int | None, str | None]:
     for index, character in enumerate(line):
         if escaped:
             escaped = False
-        elif _is_escape(character, quote):
+            # The escaped character belongs to the word, so it cannot leave
+            # whitespace that makes a following `#` start a comment.
+            previous = WORD_CHARACTER
+            continue
+        if _is_escape(character, quote):
             escaped = True
         elif _is_comment_start(character, quote, previous):
             return index, quote
@@ -366,6 +368,26 @@ def mask_here_documents(script: str) -> str:
     return "\n".join(masked)
 
 
+def commands_starting(script: str, command: str) -> list[str]:
+    """Return each executable command in *script* that starts with *command*.
+
+    Comments, here-document bodies, continuations, quoted text, escapes, and
+    assignment prefixes are handled as they are for the rustup reading, so a
+    printed command such as `echo 'cargo test ...'` is not an execution.
+    """
+    text = strip_shell_comments(mask_here_documents(script))
+    joined = join_continuations(text)
+    boundaries = mask_escaped(mask_quoted(joined))
+    pattern = re.compile(
+        rf"(?m)(?:^|[;&|])[ \t]*(?:{ASSIGNMENT}[ \t]+)*"
+        rf"(?P<command>{re.escape(command)}(?![^\s;&|])[^\n;&|]*)"
+    )
+    return [
+        joined[match.start("command") : match.end("command")]
+        for match in pattern.finditer(boundaries)
+    ]
+
+
 def rustup_installs(script: str) -> list[str]:
     """Return each rustup toolchain install in a step's script.
 
@@ -387,12 +409,10 @@ def rustup_installs(script: str) -> list[str]:
     >>> rustup_installs('echo "# kept"; rustup toolchain install nightly')
     ['rustup toolchain install nightly']
     """
-    text = strip_shell_comments(mask_here_documents(script))
-    joined = join_continuations(text)
-    boundaries = mask_escaped(mask_quoted(joined))
     return [
-        joined[match.start("command") : match.end("command")]
-        for match in RUSTUP_INVOCATION.finditer(boundaries)
+        command
+        for command in commands_starting(script, "rustup")
+        if shell_words(command)[:3] == ["rustup", "toolchain", "install"]
     ]
 
 
@@ -410,14 +430,7 @@ def runs_command(script: str, command: str) -> bool:
     >>> runs_command("scripts/install-mold.sh", "scripts/install-mold.sh")
     True
     """
-    text = strip_shell_comments(mask_here_documents(script))
-    joined = join_continuations(text)
-    boundaries = mask_escaped(mask_quoted(joined))
-    pattern = re.compile(
-        rf"(?m)(?:^|[;&|])[ \t]*(?:{ASSIGNMENT}[ \t]+)*"
-        rf"{re.escape(command)}(?![^\s;&|])"
-    )
-    return pattern.search(boundaries) is not None
+    return bool(commands_starting(script, command))
 
 
 def component_values(invocation: str) -> list[list[str]]:

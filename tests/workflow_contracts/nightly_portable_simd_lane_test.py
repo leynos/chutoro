@@ -17,7 +17,12 @@ import collections.abc as cabc
 import typing as typ
 
 import pytest
-from rustup_install_reading import runs_command, rustup_installs
+from rustup_install_reading import (
+    commands_starting,
+    runs_command,
+    rustup_installs,
+    shell_words,
+)
 from workflow_support import job, run_script, steps
 
 #: The lane under contract.
@@ -78,35 +83,71 @@ def _is_mold_installer(step: dict[str, typ.Any]) -> bool:
     return runs_command(run_script(step), "scripts/install-mold.sh")
 
 
+def _cargo_commands(step: dict[str, typ.Any]) -> list[list[str]]:
+    """Return the decoded executable Cargo commands in one step."""
+    return [
+        shell_words(command)
+        for command in commands_starting(run_script(step), "cargo")
+    ]
+
+
+def _has_cargo(
+    step: dict[str, typ.Any],
+    required: set[str],
+    forbidden: frozenset[str] = frozenset(),
+) -> bool:
+    """Report whether an executable Cargo command has the required words."""
+    for words in _cargo_commands(step):
+        present = set(words)
+        if required <= present and not forbidden & present:
+            return True
+    return False
+
+
+#: The words a nightly Cargo test carries.
+NIGHTLY_TEST = frozenset({"+nightly", "test"})
+
+#: The dense provider selection.
+DENSE_PROVIDER = frozenset({"-p", "chutoro-providers-dense"})
+
+#: The compile-contract package selection.
+COMPILE_CONTRACTS = frozenset({"-p", "chutoro-compile-contracts"})
+
+#: The portable-SIMD gating test selection.
+GATING_TEST = frozenset({"--test", "portable_simd_gating"})
+
+#: The portable-SIMD feature selection.
+PORTABLE_FEATURE = frozenset({"--features", "nightly_portable_simd"})
+
+
 def _is_dense_test(step: dict[str, typ.Any]) -> bool:
     """Report whether a step tests the dense provider's portable SIMD backend."""
-    script = run_script(step)
-    return "cargo +nightly test" in script and "-p chutoro-providers-dense" in script
+    return _has_cargo(step, NIGHTLY_TEST | DENSE_PROVIDER | PORTABLE_FEATURE)
 
 
 def _is_contract_without_feature(step: dict[str, typ.Any]) -> bool:
     """Report whether a step tests the compile refusal before the feature."""
-    script = run_script(step)
-    return (
-        "cargo +nightly test" in script
-        and "-p chutoro-compile-contracts" in script
-        and "--features nightly_portable_simd" not in script
+    return _has_cargo(
+        step,
+        NIGHTLY_TEST | COMPILE_CONTRACTS | GATING_TEST,
+        frozenset({"--features"}),
     )
 
 
 def _is_contract_with_feature(step: dict[str, typ.Any]) -> bool:
     """Report whether a step tests the compile contract with the feature."""
-    script = run_script(step)
-    return (
-        "cargo +nightly test" in script
-        and "-p chutoro-compile-contracts" in script
-        and "--features nightly_portable_simd" in script
+    return _has_cargo(
+        step,
+        NIGHTLY_TEST | COMPILE_CONTRACTS | GATING_TEST | PORTABLE_FEATURE,
     )
 
 
 def _is_clippy(step: dict[str, typ.Any]) -> bool:
     """Report whether a step lints the dense provider under nightly."""
-    return "cargo +nightly clippy" in run_script(step)
+    return _has_cargo(
+        step,
+        frozenset({"+nightly", "clippy"}) | DENSE_PROVIDER | PORTABLE_FEATURE,
+    )
 
 
 #: Every gated step, named for its failure message and selected by predicate.
@@ -195,6 +236,30 @@ def test_an_assignment_prefixed_mold_installer_is_selected() -> None:
     step = {"run": "MOLD_INSTALL_PREFIX=/tmp scripts/install-mold.sh"}
 
     assert _is_mold_installer(step)
+
+
+def test_a_printed_cargo_test_is_not_a_test() -> None:
+    """A step that prints a Cargo command runs no tests."""
+    step = {
+        "run": (
+            "echo 'cargo +nightly test -p chutoro-providers-dense "
+            "--features nightly_portable_simd'"
+        )
+    }
+
+    assert not _is_dense_test(step)
+
+
+def test_a_commented_cargo_lint_is_not_a_lint() -> None:
+    """A commented-out Cargo lint runs nothing."""
+    step = {
+        "run": (
+            "# cargo +nightly clippy -p chutoro-providers-dense "
+            "--features nightly_portable_simd"
+        )
+    }
+
+    assert not _is_clippy(step)
 
 
 def test_the_gate_records_its_decision_in_the_job_summary() -> None:
