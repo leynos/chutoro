@@ -259,3 +259,23 @@ def is_redirection(token: str) -> bool:
     False
     """
     return _REDIRECTION.fullmatch(token) is not None
+
+
+def starts_a_redirection(token: str) -> bool:
+    """Return whether `token` begins with a redirection operator.
+
+    ``>/dev/null`` is one word: the operator and its target are attached. A
+    caller that strips redirections drops such a word whole.
+
+    Examples
+    --------
+    >>> starts_a_redirection(">/dev/null")
+    True
+    >>> starts_a_redirection("2>&1")
+    True
+    >>> starts_a_redirection("scheduling>")
+    False
+    >>> starts_a_redirection("'>/dev/null'")
+    False
+    """
+    return _REDIRECTION.match(token) is not None

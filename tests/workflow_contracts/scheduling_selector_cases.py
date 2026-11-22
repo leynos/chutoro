@@ -423,4 +423,29 @@ SELECTOR_CASES: typ.Final[tuple[tuple[str, bool, str], ...]] = (
         True,
         "an-escaped-apostrophe-before-the-installer",
     ),
+    (
+        f"set $\"-n\"\n{NEXTEST_INSTALLER}",
+        False,
+        "noexec-spelled-by-a-locale-quoted-word",
+    ),
+    (
+        f"command -- set +e\n{NEXTEST_INSTALLER}\ntrue",
+        False,
+        "an-errexit-change-after-the-command-terminator",
+    ),
+    (
+        f"builtin trap 'exit 0' ERR\n{NEXTEST_INSTALLER}",
+        False,
+        "an-err-trap-through-builtin",
+    ),
+    (
+        f"trap 'exit 0' EXIT\n{NEXTEST_INSTALLER}",
+        False,
+        "an-exit-trap-before-the-installer",
+    ),
+    (
+        f"set >/dev/null +e\n{NEXTEST_INSTALLER}\ntrue",
+        False,
+        "an-errexit-change-after-an-attached-redirection",
+    ),
 )

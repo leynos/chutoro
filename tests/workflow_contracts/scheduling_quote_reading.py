@@ -234,6 +234,8 @@ def mask_quotes(line: str) -> MaskedLine:
     False
     >>> mask_quotes("set $" + chr(39) + chr(92) + "x2dn" + chr(39)).quoted
     ['-n']
+    >>> mask_quotes('set $"-n"').quoted
+    ['-n']
     """
     masked: list[str] = []
     quoted: list[str] = []
@@ -245,17 +247,20 @@ def mask_quotes(line: str) -> MaskedLine:
             masked.append("\\" + _QUOTED.format(len(quoted) - 1))
             index += 2
             continue
-        if char == "$" and line[index + 1 : index + 2] == "'":
-            # An ANSI-C string is one word, dollar sign and quotes included,
-            # so the dollar is left out of the masked text.
+        if char == "$" and line[index + 1 : index + 2] in {"'", '"'}:
+            # A dollar-quoted string is one word, dollar sign and quotes
+            # included, so the dollar is left out of the masked text.
+            ansi = line[index + 1] == "'"
             index += 1
-        elif char not in "'\"":
+            text, index = _take_quoted(line, index, ansi=ansi)
+            quoted.append(text)
+            masked.append(_QUOTED.format(len(quoted) - 1))
+            continue
+        if char not in "'\"":
             masked.append(char)
             index += 1
             continue
-        text, index = _take_quoted(
-            line, index, ansi=char == "$"
-        )
+        text, index = _take_quoted(line, index)
         quoted.append(text)
         masked.append(_QUOTED.format(len(quoted) - 1))
     return MaskedLine("".join(masked), quoted)

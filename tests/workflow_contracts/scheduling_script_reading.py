@@ -331,12 +331,38 @@ def _sets_an_err_trap(lines: list[list[Segment]]) -> bool:
     False
     """
     return any(
-        segment.words[:1] == ["trap"]
-        and segment.words[1:2] != ["-"]
-        and "ERR" in segment.words
+        _installs_a_trap(segment.words)
         for line in lines
         for segment in line
     )
+
+
+def _installs_a_trap(words: list[str]) -> bool:
+    """Return whether `words` install a handler that can replace a failure.
+
+    ``ERR`` handlers run on a failed command and ``EXIT`` handlers (or signal
+    ``0``) run as the shell leaves, so either can turn an installer failure
+    into a successful exit. ``trap - ERR`` removes a handler instead.
+
+    Examples
+    --------
+    >>> _installs_a_trap(["trap", "'exit 0'", "ERR"])
+    True
+    >>> _installs_a_trap(["builtin", "trap", "'exit 0'", "ERR"])
+    True
+    >>> _installs_a_trap(["trap", "'exit 0'", "EXIT"])
+    True
+    >>> _installs_a_trap(["trap", "'exit 0'", "0"])
+    True
+    >>> _installs_a_trap(["trap", "-", "ERR"])
+    False
+    >>> _installs_a_trap(["true"])
+    False
+    """
+    words = builtin_arguments(words)
+    if words[:1] != ["trap"] or words[1:2] == ["-"]:
+        return False
+    return any(signal in {"ERR", "EXIT", "0"} for signal in words[1:])
 
 
 def _cannot_place(lines: list[list[Segment]]) -> bool:

@@ -85,6 +85,10 @@ def _directive(line: str) -> str:
     return line if comment is None else line[:comment]
 
 
+#: The operators that make a line an assignment rather than a directive.
+_ASSIGNMENTS = frozenset({"=", ":=", "::=", "+=", "?=", "!="})
+
+
 def _opens_a_definition(line: str) -> bool:
     """Return whether `line` opens a ``define`` body.
 
@@ -102,6 +106,8 @@ def _opens_a_definition(line: str) -> bool:
     True
     >>> _opens_a_definition("private override define job")
     True
+    >>> _opens_a_definition("define = unused")
+    False
     >>> _opens_a_definition(chr(9) + "define job")
     False
     >>> _opens_a_definition("# define job")
@@ -112,6 +118,8 @@ def _opens_a_definition(line: str) -> bool:
     words = _directive(line).split()
     while words[:1] in (["override"], ["export"], ["private"]):
         words = words[1:]
+    if words[1:2] and words[1] in _ASSIGNMENTS:
+        return False
     return words[:1] == ["define"]
 
 
@@ -155,8 +163,10 @@ def _opens_a_conditional(line: str) -> bool:
     """
     if line[:1] == "\t":
         return False
-    word = _directive(line).split()[:1]
-    return word in (["ifeq"], ["ifneq"], ["ifdef"], ["ifndef"])
+    words = _directive(line).split()
+    if words[1:2] and words[1] in _ASSIGNMENTS:
+        return False
+    return words[:1] in (["ifeq"], ["ifneq"], ["ifdef"], ["ifndef"])
 
 
 def _conditional_delta(line: str) -> int:

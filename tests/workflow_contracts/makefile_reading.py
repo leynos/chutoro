@@ -24,6 +24,10 @@ from makefile_structure_reading import (
     make_comment_start,
 )
 
+#: The characters a backslash quotes in a Make target name.
+_MAKE_QUOTED = frozenset(" \t#:;=\\\\")
+
+
 def _target_names(text: str) -> list[str]:
     """Return the target names `text` lists, with escapes resolved.
 
@@ -59,9 +63,11 @@ def _target_names(text: str) -> list[str]:
 def _name_step(text: str, index: int) -> tuple[str, int, bool]:
     """Return the character at `index`, the index after it and its escape.
 
-    A backslash escapes the character after it, so the pair contributes that
-    character alone, and an escaped space belongs to the name rather than
-    separating names.
+    A backslash quotes only the characters Make reads specially — whitespace,
+    ``#``, ``:``, ``;``, ``=`` and another backslash — so the pair contributes
+    that character alone and an escaped space belongs to the name rather than
+    separating names. A backslash before an ordinary character is part of the
+    name.
 
     Examples
     --------
@@ -69,8 +75,10 @@ def _name_step(text: str, index: int) -> tuple[str, int, bool]:
     ('a', 1, False)
     >>> _name_step(chr(92) + " ", 0)
     (' ', 2, True)
+    >>> _name_step(chr(92) + "g", 0)
+    ('\\\\', 1, False)
     """
-    if text[index] == "\\" and index + 1 < len(text):
+    if text[index] == "\\" and text[index + 1 : index + 2] in _MAKE_QUOTED:
         return text[index + 1], index + 2, True
     return text[index], index + 1, False
 
@@ -152,6 +160,8 @@ def phony_targets(text: str) -> set[str]:
     ['clean']
     >>> phony_targets(".PHONY:= gate")
     set()
+    >>> "gate" not in phony_targets(".PHONY: " + chr(92) + "gate")
+    True
     >>> declaration = ".PHONY: clean " + chr(92) + chr(10) + " gate"
     >>> sorted(phony_targets(declaration))
     ['clean', 'gate']

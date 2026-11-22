@@ -154,7 +154,8 @@ def errexit_states(
     A change made in a subshell is ignored rather than applied: Bash runs
     every pipeline element and every backgrounded list in a subshell, so
     ``set -e | true`` and ``set -e && true &`` leave the parent's state
-    exactly as it was.
+    exactly as it was. A conditional change that leaves the state as it was
+    keeps the known state rather than turning it unknown.
 
     Examples
     --------
@@ -179,7 +180,7 @@ def errexit_states(
     ...     [Command(["false"], ""), Command(["set", "-e"], "&&")],
     ...     [Command(["a"], "")],
     ... ])
-    [[True, True], [None]]
+    [[True, True], [True]]
     >>> errexit_states([
     ...     [Command(["set", "+e"], "")],
     ...     [Command(["set", "-e"], "|"), Command(["true"], "")],
@@ -202,7 +203,8 @@ def errexit_states(
             change = errexit_setting(command.words)
             if change is None or runs_in_a_subshell(line, index):
                 continue
-            state = change if _runs_unconditionally(line, index) else None
+            certain = _runs_unconditionally(line, index) or change == state
+            state = change if certain else None
         states.append(line_states)
     return states
 

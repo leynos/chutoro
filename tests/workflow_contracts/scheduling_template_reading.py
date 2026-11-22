@@ -142,6 +142,8 @@ def _reaches_the_script(options: list[str]) -> bool:
         if takes_an_operand(previous):
             previous = ""
             continue
+        if word == "--":
+            return False
         if runs_a_command_string(word):
             return False
         if not word.startswith("-") or word == "-":
@@ -216,7 +218,7 @@ def runs_the_script(shell: str | None) -> bool:
     False
     >>> runs_the_script("bash --rcfile errexit {0}")
     False
-    >>> runs_the_script("bash -o onecmd -e {0}")
+    >>> runs_the_script("bash -- -e {0}")
     False
     >>> runs_the_script("bash -eD {0}")
     False

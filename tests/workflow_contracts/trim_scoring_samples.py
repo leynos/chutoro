@@ -126,3 +126,5 @@ IN_PLACE_SCOPE = fixture("in_place_scope")
 GROUPED_FREE_JOIN = fixture("grouped_free_join")
 
 SPACED_TURBOFISH_INSTALL = fixture("spaced_turbofish_install")
+
+SEQUENTIAL_BINDING = fixture("sequential_binding")

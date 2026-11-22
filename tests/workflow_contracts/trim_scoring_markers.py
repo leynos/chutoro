@@ -311,9 +311,9 @@ def free_call(name: str) -> _Predicate:
 #: as `jobs.par_chunks(2)` does.
 DISPATCH_MARKERS: typ.Final[tuple[tuple[str, _Predicate], ...]] = (
     ("ParallelSliceMut::par_sort", _matches(r"\bParallelSliceMut\s*::\s*par_sort\b")),
-    ("into_par_iter", _matches(r"\binto_par_iter\b")),
-    ("par_iter_mut", _matches(r"\bpar_iter_mut\b")),
-    ("par_iter", _matches(r"\bpar_iter\b")),
+    ("into_par_iter", calls_the_method("into_par_iter")),
+    ("par_iter_mut", calls_the_method("par_iter_mut")),
+    ("par_iter", calls_the_method("par_iter")),
     (".par_bridge(", _matches(r"\.\s*par_bridge\s*\(")),
     (".par_chunks", _matches(r"\.\s*par_chunks")),
     # The prefix carries the reverse-chunk family too: `par_rchunks`,

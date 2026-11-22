@@ -99,12 +99,14 @@ def _in_single_quotes(text: str) -> bool:
     False
     >>> _in_single_quotes("echo 'a'")
     False
+    >>> _in_single_quotes('echo "" ; ' + chr(39) + "a")
+    True
     """
     quote = ""
     index = 0
     while index < len(text):
         char, index = _quote_step(text, index, quote)
-        if quote == "'" and char == "'":
+        if quote and char == quote:
             quote = ""
         elif not quote and char in "'\"":
             quote = char

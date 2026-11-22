@@ -25,7 +25,11 @@ from __future__ import annotations
 
 import typing as typ
 
-from scheduling_command_reading import is_redirection, shell_tokens
+from scheduling_command_reading import (
+    is_redirection,
+    shell_tokens,
+    starts_a_redirection,
+)
 from scheduling_quote_reading import mask_quotes, restore_quotes
 from scheduling_line_reading import logical_lines
 
@@ -204,12 +208,17 @@ def argument_words(words: list[str]) -> list[str]:
     ['bash', 'installer']
     >>> argument_words(["installer", ">", "log"])
     ['installer']
+    >>> argument_words(["set", ">/dev/null", "+e"])
+    ['set', '+e']
     """
     arguments: list[str] = []
     index = 0
     while index < len(words):
         if is_redirection(words[index]):
             index += 3 if words[index + 1 : index + 2] == ["&"] else 2
+            continue
+        if starts_a_redirection(words[index]):
+            index += 1
             continue
         arguments.append(words[index])
         index += 1

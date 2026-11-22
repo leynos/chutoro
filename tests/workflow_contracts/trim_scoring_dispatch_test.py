@@ -70,6 +70,7 @@ from trim_scoring_samples import (
     REVERSE_CHUNKS,
     SCOPED_HELPER_NAME,
     SEQUENTIAL,
+    SEQUENTIAL_BINDING,
     SLICE_JOIN,
     SLICE_JOIN_TRAILING_COMMA,
     SLICE_JOIN_VARIABLE,
@@ -128,6 +129,9 @@ def test_the_historical_scorer_is_the_dispatch_the_contract_rejects() -> None:
     ("source", "marker"),
     [
         pytest.param(SEQUENTIAL, None, id="a-serial-body"),
+        pytest.param(
+            SEQUENTIAL_BINDING, None, id="a-sequential-iterator-binding"
+        ),
         pytest.param(DISPATCHING, "into_par_iter", id="a-parallel-iterator"),
         pytest.param(COMMENTED_MENTION, None, id="a-mention-in-a-comment"),
         pytest.param(LITERAL_MENTION, None, id="a-mention-in-a-literal"),

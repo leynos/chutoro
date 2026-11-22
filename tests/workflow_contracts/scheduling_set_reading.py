@@ -54,7 +54,7 @@ def _after_wrapper(arguments: list[str]) -> list[str]:
     if arguments[:1] != ["command"]:
         return arguments
     arguments = arguments[1:]
-    while arguments[:1] in (["-p"], ["-v"], ["-V"]):
+    while arguments[:1] in (["-p"], ["-v"], ["-V"], ["--"]):
         if arguments[0] in {"-v", "-V"}:
             return []
         arguments = arguments[1:]
@@ -85,6 +85,8 @@ def builtin_arguments(words: cabc.Sequence[str]) -> list[str]:
     ['set', '+e']
     >>> builtin_arguments(["command", "-v", "set"])
     []
+    >>> builtin_arguments(["command", "--", "set", "+e"])
+    ['set', '+e']
     """
     return _after_wrapper(argument_words(list(words)))
 
