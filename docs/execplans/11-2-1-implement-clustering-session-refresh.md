@@ -70,8 +70,8 @@ This plan authorizes:
   edges it selected as *raw* `CandidateEdge` values (not weighted `MstEdge`),
   so every refresh reweights from raw distances and current core distances.
   This is a small, correctness-critical refinement of design Figure 3 (see
-  Decision Log and ADR-0007); without it, reweighting a previously weighted
-  edge ratchets weights upward across refreshes.
+  Decision Log and the refresh ADR); without it, reweighting a previously
+  weighted edge ratchets weights upward across refreshes.
 - Promoting `map_cpu_mst_error(&MstError)` and
   `map_cpu_hierarchy_error(&HierarchyError)` from private to `pub(crate)`,
   signatures unchanged, so `refresh` can reuse them.
@@ -187,7 +187,7 @@ Hard invariants. Violation requires escalation, not a workaround.
   deterministically; the guard adds no new error behaviour, it only fails
   before the reweight and Kruskal work and names the offending id exactly. No
   panic. Document the contiguity requirement on `append` and `refresh` and in
-  ADR-0007.
+  the refresh ADR.
 
 - Risk: **Cross-refresh weight drift (mitigated by raw retention).** If the
   MST backbone were retained as weighted `MstEdge` and reweighted again, the
@@ -233,8 +233,13 @@ Hard invariants. Violation requires escalation, not a workaround.
   backbone recovery keys on integer `(source, target, sequence)`, never on edge
   equality), #391 (see AXM-1), #395 (see the drift risk), #396 (see OBL-8),
   #399 (see AXM-2), and #430 (serial session core-distance searches; a latency
-  cost, not a correctness one). Severity: low. Mitigation: re-check this list
-  at each milestone and before marking the plan `COMPLETE`.
+  cost, not a correctness one). Open pull requests overlapping this plan's
+  files are coordination items, not blockers: #410 and #411 (draft, conflicting
+  with main) change `chutoro-core/Cargo.toml` package metadata and two doc
+  comments in `session_impl.rs` and `session/tests/append.rs`, and #437, #447,
+  and #453 each claim ADR-0007 (hence the authoring-time ADR numbering in
+  EP-M5). Severity: low. Mitigation: re-check this list at each milestone and
+  before marking the plan `COMPLETE`.
 
 - Risk: **Label-length contract.** Verified: `extract_flat_labels` returns
   `vec![_; node_count]` (`chutoro-core/src/hierarchy/single_linkage/mod.rs`);
@@ -255,7 +260,7 @@ Hard invariants. Violation requires escalation, not a workaround.
 - [ ] EP-M4: Formal verification — Verus lemmas OBL-1 and OBL-2; optional
   bounded Kani harness (go/no-go).
 - [ ] EP-M5: Documentation — design §12.5, users' guide, developers' guide,
-  ADR-0007; mark roadmap `11.2.1` done.
+  the refresh ADR; mark roadmap `11.2.1` done.
 
 ## Surprises & discoveries
 
@@ -442,8 +447,8 @@ stays serial until #430. Compare the shipped `refresh` against the three
 observable success criteria in Purpose. Before marking this plan `COMPLETE`,
 reconcile every discovery with the Conformance Basis artefacts: the DES-FIG3
 raw-backbone refinement and the §12.4 auto-recompute wording must have landed in
-`docs/chutoro-design.md`, and ADR-0007 must exist and be referenced from the
-design document.
+`docs/chutoro-design.md`, and the refresh ADR must exist and be referenced
+from the design document.
 
 ## Context and orientation
 
@@ -570,7 +575,8 @@ these identifiers:
 - ADRs (in `docs/adrs/`): ADR-0002 (Kani adoption) and ADR-0003 (adapter
   boundaries) govern verification and layering conventions; ADR-0006
   (sequential trim scoring) records the HNSW single-writer critical section that
-  `append` relies on. ADR-0007 is authored by this plan.
+  `append` relies on. The refresh ADR is authored by this plan (numbering: see
+  EP-M5).
 
 Trace links (upstream → milestone → acceptance evidence):
 
@@ -593,8 +599,8 @@ requiring the plan approver's acceptance at the approval gate):
 
 - **DES-FIG3 deviation**: `mst_edges: Vec<MstEdge>` becomes
   `mst_backbone: Vec<CandidateEdge>` (raw retention). Upstream impact: Figure 3
-  and §12.5 step 8 wording must be updated in EP-M5; ADR-0007 records the
-  rationale. Downstream impact: roadmap `11.2.5` retains raw non-MST edges
+  and §12.5 step 8 wording must be updated in EP-M5; the refresh ADR records
+  the rationale. Downstream impact: roadmap `11.2.5` retains raw non-MST edges
   against the same representation.
 - **RM-11.2.1 literal-wording deviation**: "construct a fresh `EdgeHarvest`"
   is realized via `parallel_kruskal_from_edges`, which the public wrapper
@@ -1031,7 +1037,10 @@ harness); apply its go/no-go rule and record the outcome either way.
   lower-layer mutual-reachability helpers, the raw-backbone retention
   rationale, the dedup-in-`prepare_edge_list` fact, and the contiguity
   invariant with its `CpuMstFailure` (`INVALID_NODE_ID`) guard.
-- `docs/adrs/adr-0007-incremental-refresh-domain-boundary.md`: a Y-Statement ADR
+- The refresh ADR, `docs/adrs/adr-nnnn-incremental-refresh-domain-boundary.md`,
+  where `nnnn` is the next free four-digit number in `docs/adrs/` on the target
+  branch when the file is written (0007 at `051d395`, but open PRs #437, #447,
+  and #453 each claim 0007, so re-check before committing): a Y-Statement ADR
   capturing (a) the pure-domain refresh boundary, (b) raw-backbone retention
   and why weighted retention is unsound across refreshes, (c) the contiguous
   point-id invariant and its `CpuMstFailure` guard, (d) graceful degenerate
@@ -1093,14 +1102,14 @@ format exists yet — session checkpointing arrives in §13).
 
 - **EP-M5 — documentation.**
   Outcome: design §12.4/§12.5/Figure 3 updated; users' and developers' guides
-  updated; ADR-0007 authored and referenced; roadmap ticked. Requirements:
-  closes the DES-FIG3 and degenerate-behaviour deviations by landing their
-  upstream edits; completes RM-11.2.1. Acceptance evidence: `make markdownlint`
-  and `make nixie` green; roadmap shows `[x] 11.2.1`. Conformance check: every
-  deviation recorded in Conformance Basis now has its upstream edit landed or
-  an accepted Decision Log entry; no unrecorded drift remains (prerequisite for
-  `COMPLETE`). Recovery: docs-only; revert freely. Remaining gaps: none for
-  this roadmap item; `11.2.2`–`11.2.6` follow.
+  updated; the refresh ADR authored and referenced; roadmap ticked.
+  Requirements: closes the DES-FIG3 and degenerate-behaviour deviations by
+  landing their upstream edits; completes RM-11.2.1. Acceptance evidence:
+  `make markdownlint` and `make nixie` green; roadmap shows `[x] 11.2.1`.
+  Conformance check: every deviation recorded in Conformance Basis now has its
+  upstream edit landed or an accepted Decision Log entry; no unrecorded drift
+  remains (prerequisite for `COMPLETE`). Recovery: docs-only; revert freely.
+  Remaining gaps: none for this roadmap item; `11.2.2`–`11.2.6` follow.
 
 ## Concrete steps
 
@@ -1309,10 +1318,10 @@ for their errors; (4) the contiguity guard becomes an O(1)
 error and staying deterministic ahead of Kruskal (#206); (5) the
 `parallel_kruskal_from_edges` decision now cites #276, which moved the batch
 path onto the same entry point, and records its `&[CandidateEdge]` signature;
-(6) the plan's ADR is renumbered ADR-0007
-(`docs/adrs/adr-0007-incremental-refresh-domain-boundary.md`), because #289
-took ADR-005 for the Cranelift development route. No scope change; the plan
-still awaits approval.
+(6) the plan's ADR is renumbered ADR-006
+(`docs/adr-006-incremental-refresh-domain-boundary.md`), because #289 took
+ADR-005 for the Cranelift development route. No scope change; the plan still
+awaits approval.
 
 Revised 2026-11-22 after rebasing onto main `051d395`, to bring observations,
 references, and blockers up to date. Changes: (1) the contiguity guard now
@@ -1320,14 +1329,16 @@ reports `CpuMstFailure` (`INVALID_NODE_ID`, caller input) instead of
 `CpuHnswFailure` (`GRAPH_INVARIANT_VIOLATION`, internal fault), following the
 error taxonomy #207 published in the users' guide, and the users'-guide work in
 EP-M5 now extends those tables; (2) ADRs moved to `docs/adrs/` with four-digit
-numbers and #378 took ADR-0006, so this plan's ADR becomes
-`docs/adrs/adr-0007-incremental-refresh-domain-boundary.md`; (3) session
-orientation reflects #141 (`NumericTestSource` via
-`session_test_source_with_len`, `tests/mod.rs`) and #389 (the shared
-`crate::core_distance` selection rule and `core_updates.rs`); (4) AXM-1 no
-longer cites Kani for spanning (#391), AXM-2 records the NaN stability boundary
-for coincident points (#399), the drift risk no longer assumes core-distance
-monotonicity (#395), and the optional Kani harness moves to a `kani_*.rs` file
-(#396); (5) a new Risks entry records the verified upstream issue state:
-nothing blocks implementation. Design §12 and roadmap 11.2.1 are unchanged
-since the last revision. No scope change; the plan still awaits approval.
+numbers and #378 took ADR-0006; because open PRs #437, #447, and #453 each
+claim ADR-0007, the plan now calls it "the refresh ADR" and EP-M5 allocates the
+next free number when the file is written; (3) session orientation reflects the
+fixture consolidation (#141: `NumericTestSource` via
+`session_test_source_with_len`, `tests/mod.rs`) and the batch parallelization
+(#389) that introduced the shared `crate::core_distance` selection rule and
+`core_updates.rs`; (4) AXM-1 no longer cites Kani for spanning (#391), AXM-2
+records the NaN stability boundary for coincident points (#399), the drift risk
+no longer assumes core-distance monotonicity (#395), and the optional Kani
+harness moves to a `kani_*.rs` file (#396); (5) a new Risks entry records the
+verified upstream issue state: nothing blocks implementation. Design §12 and
+roadmap 11.2.1 are unchanged since the last revision. No scope change; the plan
+still awaits approval.
