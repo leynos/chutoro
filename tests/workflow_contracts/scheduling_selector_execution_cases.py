@@ -344,4 +344,29 @@ EXECUTION_CASES: typ.Final[tuple[tuple[str, bool, str], ...]] = (
         False,
         "an-errexit-change-after-an-attached-redirection",
     ),
+    (
+        f"builtin builtin set +e\n{NEXTEST_INSTALLER}\ntrue",
+        False,
+        "an-errexit-change-through-repeated-wrappers",
+    ),
+    (
+        f"set +e\nset '>/dev/null' -e\n{NEXTEST_INSTALLER}\ntrue",
+        False,
+        "a-quoted-attached-redirection-in-set",
+    ),
+    (
+        f"trap 'exit 0' DEBUG\n{NEXTEST_INSTALLER}",
+        False,
+        "a-debug-trap-before-the-installer",
+    ),
+    (
+        f"shopt -u -o errexit\n{NEXTEST_INSTALLER}\ntrue",
+        False,
+        "an-errexit-change-through-shopt-o",
+    ),
+    (
+        f"shopt -s -o noexec\n{NEXTEST_INSTALLER}",
+        False,
+        "a-noexec-change-through-shopt-o",
+    ),
 )

@@ -18,10 +18,13 @@ from scheduling_segment_reading import (
     has_a_compound_command,
     read_lines,
 )
-from scheduling_set_reading import builtin_arguments, enables_lastpipe as enables_the_option
+from scheduling_wrapper_reading import builtin_arguments
+
+#: The ``shopt`` name that runs a pipeline's last element in the parent.
+LASTPIPE_OPTION = "lastpipe"
 
 
-def enables_lastpipe(lines: list[list[Segment]]) -> bool:
+def turns_on_lastpipe(lines: list[list[Segment]]) -> bool:
     """Return whether any command in `lines` turns on ``lastpipe``.
 
     The reading assumes a pipeline element's state change dies with it, which
@@ -29,15 +32,15 @@ def enables_lastpipe(lines: list[list[Segment]]) -> bool:
 
     Examples
     --------
-    >>> enables_lastpipe(read_lines("shopt -s lastpipe"))
+    >>> turns_on_lastpipe(read_lines("shopt -s lastpipe"))
     True
-    >>> enables_lastpipe(read_lines("shopt -u lastpipe"))
+    >>> turns_on_lastpipe(read_lines("shopt -u lastpipe"))
     False
-    >>> enables_lastpipe(read_lines("shopt -s nullglob"))
+    >>> turns_on_lastpipe(read_lines("shopt -s nullglob"))
     False
     """
     return any(
-        enables_the_option(segment.words)
+        enables_lastpipe(segment.words)
         for line in lines
         for segment in line
     )
@@ -70,9 +73,10 @@ def sets_an_err_trap(lines: list[list[Segment]]) -> bool:
 def installs_a_trap(words: list[str]) -> bool:
     """Return whether `words` install a handler that can replace a failure.
 
-    ``ERR`` handlers run on a failed command and ``EXIT`` handlers (or signal
-    ``0``) run as the shell leaves, so either can turn an installer failure
-    into a successful exit. ``trap - ERR`` removes a handler instead.
+    ``ERR`` handlers run on a failed command, ``DEBUG`` handlers run before
+    each one, and ``EXIT`` handlers (or signal ``0``) run as the shell leaves,
+    so any of them can turn an installer failure into a successful exit.
+    ``trap - ERR`` removes a handler instead.
 
     Examples
     --------
@@ -84,6 +88,8 @@ def installs_a_trap(words: list[str]) -> bool:
     True
     >>> installs_a_trap(["trap", "'exit 0'", "0"])
     True
+    >>> installs_a_trap(["trap", "'exit 0'", "DEBUG"])
+    True
     >>> installs_a_trap(["trap", "-", "ERR"])
     False
     >>> installs_a_trap(["true"])
@@ -92,7 +98,7 @@ def installs_a_trap(words: list[str]) -> bool:
     words = builtin_arguments(words)
     if words[:1] != ["trap"] or words[1:2] == ["-"]:
         return False
-    return any(signal in {"ERR", "EXIT", "0"} for signal in words[1:])
+    return any(signal in {"ERR", "EXIT", "DEBUG", "0"} for signal in words[1:])
 
 
 def cannot_place(lines: list[list[Segment]]) -> bool:
@@ -113,6 +119,43 @@ def cannot_place(lines: list[list[Segment]]) -> bool:
     >>> cannot_place(read_lines("installer"))
     False
     """
-    if has_a_compound_command(lines) or enables_lastpipe(lines):
+    if has_a_compound_command(lines) or turns_on_lastpipe(lines):
         return True
     return sets_an_err_trap(lines)
+
+
+def enables_lastpipe(words: cabc.Sequence[str]) -> bool:
+    """Return whether a ``shopt`` command turns on ``lastpipe``.
+
+    With job control off, ``lastpipe`` runs a pipeline's last element in the
+    parent shell, so a ``set`` written there changes the script's own state.
+    The reading cannot place that, so a script that enables the option is
+    refused rather than read as if its pipeline elements were isolated.
+
+    Examples
+    --------
+    >>> enables_lastpipe(["shopt", "-s", "lastpipe"])
+    True
+    >>> enables_lastpipe(["shopt", "-so", "lastpipe"])
+    True
+    >>> enables_lastpipe(["shopt", "-u", "lastpipe"])
+    False
+    >>> enables_lastpipe(["shopt", "lastpipe"])
+    False
+    >>> enables_lastpipe(["shopt", "-s", "nullglob"])
+    False
+    """
+    words = builtin_arguments(words)
+    if words[:1] != ["shopt"]:
+        return False
+    setting = False
+    for word in words[1:]:
+        if word.startswith("-"):
+            if "s" in word[1:]:
+                setting = True
+            if "u" in word[1:]:
+                setting = False
+            continue
+        if word == LASTPIPE_OPTION:
+            return setting
+    return False

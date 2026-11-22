@@ -5,6 +5,10 @@
 Accepted - 2026-11-14: trim scoring stays inside the insertion critical section
 and runs sequentially on the thread that holds `insert_mutex`.
 
+Amended 2026-11-22: the decision is unchanged; the deterministic guard's scope
+and limits, the runtime evidence, the negative control, and the gate record
+were added. See [Amendments](#amendments).
+
 ## Date
 
 2026-11-20
@@ -184,20 +188,21 @@ section may block on, or dispatch work to, the Rayon pool.
   `pool.install:: <_, ()>(...)`, and a qualified type path such as
   `<ThreadPool>::scope(pool, |_| ())` or a trait call such as
   `ParallelSliceMut::par_sort(&mut weights[..])` names the parallel operation
-  it is. The iterator adapters need a call rather than a mention, so a body
-  that only binds a name such as `par_iter` stays serial. The synthetic sources
-  these readings are checked against live in `fixtures/trim_scoring`, loaded by
-  `trim_scoring_samples.py`. Dispatch in a listed helper is therefore caught;
-  dispatch it cannot see still evades it: an unlisted helper called by one of
-  the five, an aliased import such as `use rayon::spawn as run; run(...)`, or a
-  `DataSource` that dispatches on its own account. The scan fails closed when a
-  pinned function is missing, so a rename or a move cannot read as clean. The
-  runtime scheduling tests in `hnsw::cpu::trim_tests` remain as broader
-  coverage, and they may catch unlisted helper dispatch, but they are
-  observations rather than proofs: the caller's first distance callback waits
-  up to two seconds for another worker, and if no worker steals in that
-  interval a dispatching implementation can still finish the batch on the
-  caller and pass.
+  it is, while `in_place_scope` runs its closure on the calling thread and only
+  pooled work spawned through the scope is dispatch. The iterator adapters need
+  a call rather than a mention, so a body that only binds a name such as
+  `par_iter` stays serial. The synthetic sources these readings are checked
+  against live in `fixtures/trim_scoring`, loaded by `trim_scoring_samples.py`.
+  Dispatch in a listed helper is therefore caught; dispatch it cannot see still
+  evades it: an unlisted helper called by one of the five, an aliased import
+  such as `use rayon::spawn as run; run(...)`, or a `DataSource` that
+  dispatches on its own account. The scan fails closed when a pinned function
+  is missing, so a rename or a move cannot read as clean. The runtime
+  scheduling tests in `hnsw::cpu::trim_tests` remain as broader coverage, and
+  they may catch unlisted helper dispatch, but they are observations rather
+  than proofs: the caller's first distance callback waits up to two seconds for
+  another worker, and if no worker steals in that interval a dispatching
+  implementation can still finish the batch on the caller and pass.
 - **A watchdog stress test was considered and rejected.** An earlier
   watchdog-based stress test passed three times out of three on the unfixed
   code, because the stall is a scheduling race rather than a deterministic
@@ -334,18 +339,20 @@ a declaration, so is `.PHONY: gate = value`, and a rule header written
 `build ::=` assigns rather than declaring; `.PHONY : gate` with a space before
 the colon declares as usual, an assignment before the colon is a variable
 rather than a rule, an inline recipe after `;` is not part of the declaration
-header, a recipe prefix is one tab rather than the line's indentation, and a
-recipe continues across comment lines, which are skipped as make skips them; a
-tab-prefixed `.PHONY` is recipe text and declares nothing. A `.PHONY` inside a
-conditional block declares only when that condition holds, the reading does not
-evaluate conditions, so the block declares nothing either, a definition opened
-inside the block hides its body from the conditional, and a continued line is
-joined before any directive is read, so an `endif` after a continuation is part
-of the line it continues. Comments are removed with shell word boundaries, so a
-`#` inside a word, as in a redirect to `scheduling#log`, is part of that word
-and the mask after it stays visible; an escaped operator ends no word either, so
-`>scheduling\;#log` keeps its mask too. Quoted text is data, so
-`echo '&&' installer` prints the path rather than running it; an escaped
+header, a recipe prefix is one tab rather than the line's indentation, a recipe
+continues across comment lines, which are skipped as make skips them, and a `#`
+that continues a word through a recipe continuation is part of that word; a
+tab-prefixed `.PHONY` is recipe text and declares nothing, and a target header
+inside a definition or an inactive conditional has no recipe. A `.PHONY` inside
+a conditional block declares only when that condition holds, the reading does
+not evaluate conditions, so the block declares nothing either, a definition
+opened inside the block hides its body from the conditional, and a continued
+line is joined before any directive is read, so an `endif` after a continuation
+is part of the line it continues. Comments are removed with shell word
+boundaries, so a `#` inside a word, as in a redirect to `scheduling#log`, is
+part of that word and the mask after it stays visible; an escaped operator ends
+no word either, so `>scheduling\;#log` keeps its mask too. Quoted text is data,
+so `echo '&&' installer` prints the path rather than running it; an escaped
 operator is data for the same reason, so `echo \&\& installer` prints both
 ampersands, and a Bash ANSI-C string (`$'...'`) honours its backslash escapes,
 so an escaped `'` does not end it. A `#` after a completed expansion, as in
@@ -379,17 +386,19 @@ ends the script as `exit` does, `exec` with a command replaces the shell,
 changes only that element's subshell. Redirections are removed before an option
 or a `builtin` wrapper is read, both spaced and attached, so
 `set > /dev/null +e`, `set >/dev/null +e` and `> /dev/null builtin set +e`
-still disable errexit, while a quoted `>` stays an argument, a `command -p`
-wrapper is read through to its builtin, and a negated pipeline is refused
-rather than read as if the `!` were not there, `command --` ends the wrapper's
-options, and a conditional change that cannot alter the state keeps the known
-one. A script that installs an `ERR`, `EXIT` or signal-`0` trap is refused: the
-handler can turn an installer failure into success, whether or not it is
-written through `builtin`. The reading skips an option operand
-(`set -o pipefail -e`), stops at `--` and at the first positional parameter
-(`set -- -e` sets `$1`), treats an option change after `&&` or `||` as
-uncertain rather than applied, ignores one written in a pipeline element or a
-backgrounded list because that list runs in a subshell of its own, and takes
+still disable errexit, while a quoted `>` — including a quoted attached form
+such as `'>/dev/null'` — stays an argument, a `command -p` wrapper is read
+through to its builtin, and a negated pipeline is refused rather than read as
+if the `!` were not there. `command --` ends the wrapper's options, repeated
+`builtin`/`command` wrappers are read through, `shopt -o` changes the same
+options as `set -o`, and a conditional change that cannot alter the state keeps
+the known one. A script that installs an `ERR`, `EXIT`, `DEBUG` or signal-`0`
+trap is refused: the handler can turn an installer failure into success,
+whether or not it is written through `builtin`. The reading skips an option
+operand (`set -o pipefail -e`), stops at `--` and at the first positional
+parameter (`set -- -e` sets `$1`), treats an option change after `&&` or `||`
+as uncertain rather than applied, ignores one written in a pipeline element or
+a backgrounded list because that list runs in a subshell of its own, and takes
 either an `exit` or a `set` that enables `noexec` before the installer as
 ending the script's execution. A comment is classified on the line as a
 continuation leaves it, so `#; installer` after a handled backslash is text and
@@ -460,6 +469,27 @@ The runtime outcome is scheduler-dependent by construction — a pool with no
 idle worker can let the mutated caller finish the batch itself — which is why
 the Python contract, not the runtime regressions, is the guarantee. The scratch
 mutation was discarded and the candidate worktree was never changed.
+
+## Amendments
+
+- 2026-11-20: expanded the description of the deterministic guard from a
+  single-function scan to the five pinned functions, and stated the markers,
+  join reading, and the unlisted-helper and aliased-import limits it cannot see.
+- 2026-11-20: replaced the single runtime observation with the direct and
+  insertion-path regressions, and recorded that only the insertion-path test
+  probes `insert_mutex` while the direct test records Rayon workers and holds
+  no lock.
+- 2026-11-20: recorded the negative control, the positive gate evidence, and
+  the `make test-scheduling-contract` CI wiring; later amendments record each
+  subsequent evidence head rather than rewriting earlier ones.
+- 2026-11-21 to 2026-11-22: recorded the contract's response to the review
+  rounds in its own text — the shell, Make, and Rust forms it reads and the
+  forms it refuses — while the decision, its drivers, the rejected
+  alternatives, and the known risks remain as accepted.
+- 2026-11-22: added Hypothesis properties for the readers' invariants —
+  masking leaves plain text alone, comment removal is idempotent, logical-line
+  joining is stable, a word list survives a second redaction, and escaped
+  target names round-trip — beside the worked examples.
 
 ## References
 

@@ -36,10 +36,10 @@ from scheduling_errexit_reading import (
 )
 from scheduling_segment_reading import (
     Segment,
-    argument_words,
     has_a_compound_command,
     read_lines,
 )
+from scheduling_wrapper_reading import argument_words
 from scheduling_script_hazard_reading import cannot_place
 from scheduling_set_reading import builtin_arguments, enables_noexec
 

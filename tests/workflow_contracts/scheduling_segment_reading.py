@@ -123,8 +123,9 @@ def _joins_pipeline(words: list[str], token: str) -> bool:
 def _word(token: str, quoted: list[str]) -> str:
     """Return a token's shell word, keeping a quoted redirection as data.
 
-    A quoted ``>`` is an argument rather than a redirection, so the quotes are
-    kept on a word that would otherwise be stripped as one.
+    A quoted redirection is an argument rather than one, so the quotes are
+    kept on a word that would otherwise be stripped as a redirection or an
+    attached redirection.
 
     Examples
     --------
@@ -132,11 +133,41 @@ def _word(token: str, quoted: list[str]) -> str:
     'a'
     >>> _word("\x010\x02", [">"])
     "'>'"
+    >>> _word("\x010\x02", [">/dev/null"])
+    "'>/dev/null'"
     """
     word = restore_quotes(token, quoted)
-    if is_redirection(word) and word != token:
+    if _was_quoted(token, word) and _is_redirection_word(word):
         return f"'{word}'"
     return word
+
+
+def _was_quoted(token: str, word: str) -> bool:
+    """Return whether restoring the token changed it, so it held quotes.
+
+    Examples
+    --------
+    >>> _was_quoted("a", "a")
+    False
+    >>> _was_quoted("\x010\x02", ">")
+    True
+    """
+    return word != token
+
+
+def _is_redirection_word(word: str) -> bool:
+    """Return whether `word` would be stripped as a redirection.
+
+    Examples
+    --------
+    >>> _is_redirection_word(">")
+    True
+    >>> _is_redirection_word(">/dev/null")
+    True
+    >>> _is_redirection_word("scheduling>")
+    False
+    """
+    return is_redirection(word) or starts_a_redirection(word)
 
 
 def read_segments(tokens: list[str], quoted: list[str]) -> list[Segment]:
@@ -191,38 +222,6 @@ def read_segments(tokens: list[str], quoted: list[str]) -> list[Segment]:
     if words:
         segments.append(Segment(words, ""))
     return segments
-
-
-def argument_words(words: list[str]) -> list[str]:
-    """Return `words` without redirection operators or their targets.
-
-    A redirection configures a file descriptor rather than passing an argument,
-    so ``bash scripts/install-nextest.sh 2>&1`` runs the installer from a
-    shell and the descriptor copy is not one of that shell's arguments.
-
-    Examples
-    --------
-    >>> argument_words(["bash", "installer"])
-    ['bash', 'installer']
-    >>> argument_words(["bash", "installer", "2>", "&", "1"])
-    ['bash', 'installer']
-    >>> argument_words(["installer", ">", "log"])
-    ['installer']
-    >>> argument_words(["set", ">/dev/null", "+e"])
-    ['set', '+e']
-    """
-    arguments: list[str] = []
-    index = 0
-    while index < len(words):
-        if is_redirection(words[index]):
-            index += 3 if words[index + 1 : index + 2] == ["&"] else 2
-            continue
-        if starts_a_redirection(words[index]):
-            index += 1
-            continue
-        arguments.append(words[index])
-        index += 1
-    return arguments
 
 
 def read_lines(script: str) -> list[list[Segment]]:

@@ -22,73 +22,13 @@ from __future__ import annotations
 import collections.abc as cabc
 import typing as typ
 
-from scheduling_segment_reading import argument_words
+from scheduling_wrapper_reading import builtin_arguments
 
 #: The option name ``-o`` and ``+o`` take as their operand.
 ERREXIT_OPTION = "errexit"
 
-#: The ``shopt`` name that runs a pipeline's last element in the parent.
-LASTPIPE_OPTION = "lastpipe"
-
-
-def _after_wrapper(arguments: list[str]) -> list[str]:
-    """Return the words a ``builtin`` or ``command`` wrapper runs.
-
-    ``command -p`` runs the builtin it names, while ``command -v`` and
-    ``command -V`` only report where the name is found, so a lookup yields no
-    words at all.
-
-    Examples
-    --------
-    >>> _after_wrapper(["builtin", "set", "+e"])
-    ['set', '+e']
-    >>> _after_wrapper(["command", "-p", "set", "+e"])
-    ['set', '+e']
-    >>> _after_wrapper(["command", "-v", "set"])
-    []
-    >>> _after_wrapper(["set", "+e"])
-    ['set', '+e']
-    """
-    if arguments[:1] == ["builtin"]:
-        return arguments[1:]
-    if arguments[:1] != ["command"]:
-        return arguments
-    arguments = arguments[1:]
-    while arguments[:1] in (["-p"], ["-v"], ["-V"], ["--"]):
-        if arguments[0] in {"-v", "-V"}:
-            return []
-        arguments = arguments[1:]
-    return arguments
-
-
-def builtin_arguments(words: cabc.Sequence[str]) -> list[str]:
-    """Return `words` without a ``builtin`` wrapper or a redirection.
-
-    Bash runs ``set`` in the current shell through ``builtin`` or ``command``,
-    so ``builtin set +e`` disables errexit exactly as ``set +e`` does. A
-    redirection configures a file descriptor rather than passing an argument,
-    so ``set > /dev/null +e`` still reaches its ``+e``.
-
-    Examples
-    --------
-    >>> builtin_arguments(["builtin", "set", "+e"])
-    ['set', '+e']
-    >>> builtin_arguments(["command", "set", "-e"])
-    ['set', '-e']
-    >>> builtin_arguments(["set", "+e"])
-    ['set', '+e']
-    >>> builtin_arguments(["set", ">", "/dev/null", "+e"])
-    ['set', '+e']
-    >>> builtin_arguments([">", "/dev/null", "builtin", "set", "+e"])
-    ['set', '+e']
-    >>> builtin_arguments(["command", "-p", "set", "+e"])
-    ['set', '+e']
-    >>> builtin_arguments(["command", "-v", "set"])
-    []
-    >>> builtin_arguments(["command", "--", "set", "+e"])
-    ['set', '+e']
-    """
-    return _after_wrapper(argument_words(list(words)))
+#: The ``set -o`` option name ``shopt -o`` also sets.
+NOEXEC_OPTION = "noexec"
 
 
 def _names_an_option(flag: str) -> bool:
@@ -216,6 +156,10 @@ def errexit_setting(words: cabc.Sequence[str]) -> bool | None:
     True
     >>> errexit_setting(["builtin", "set", "+e"])
     False
+    >>> errexit_setting(["builtin", "builtin", "set", "+e"])
+    False
+    >>> errexit_setting(["shopt", "-u", "-o", "errexit"])
+    False
     >>> errexit_setting(["set", "value", "-e"]) is None
     True
     >>> errexit_setting(["set", "-x"]) is None
@@ -224,12 +168,13 @@ def errexit_setting(words: cabc.Sequence[str]) -> bool | None:
     True
     """
     words = builtin_arguments(words)
+    if words[:1] == ["shopt"]:
+        return shopt_setting(words, ERREXIT_OPTION)
     if words[:1] != ["set"]:
         return None
     setting: bool | None = None
     for flag, operand in _set_options(words):
-        names_errexit = operand == ERREXIT_OPTION and _names_an_option(flag)
-        if names_errexit or _enables_errexit(flag):
+        if _sets_option(flag, operand, ERREXIT_OPTION, "e"):
             setting = flag.startswith("-")
     return setting
 
@@ -261,52 +206,75 @@ def enables_noexec(words: cabc.Sequence[str]) -> bool:
     True
     >>> enables_noexec(["true"])
     False
+    >>> enables_noexec(["shopt", "-s", "-o", "noexec"])
+    True
     """
     words = builtin_arguments(words)
+    if words[:1] == ["shopt"]:
+        return shopt_setting(words, NOEXEC_OPTION) is True
     if words[:1] != ["set"]:
         return False
     noexec = False
     for flag, operand in _set_options(words):
-        names_noexec = operand == "noexec" and _names_an_option(flag)
-        if names_noexec or "n" in flag[1:]:
+        if _sets_option(flag, operand, NOEXEC_OPTION, "n"):
             noexec = flag[:1] == "-"
     return noexec
 
 
-def enables_lastpipe(words: cabc.Sequence[str]) -> bool:
-    """Return whether a ``shopt`` command turns on ``lastpipe``.
+def shopt_setting(words: cabc.Sequence[str], option: str) -> bool | None:
+    """Return the state a ``shopt -o`` command leaves for `option`.
 
-    With job control off, ``lastpipe`` runs a pipeline's last element in the
-    parent shell, so a ``set`` written there changes the script's own state.
-    The reading cannot place that, so a script that enables the option is
-    refused rather than read as if its pipeline elements were isolated.
+    ``shopt -o`` changes the same options ``set -o`` exposes, so
+    ``shopt -u -o errexit`` disables errexit and ``shopt -s -o noexec``
+    enables noexec. Any other ``shopt`` command leaves the state alone.
 
     Examples
     --------
-    >>> enables_lastpipe(["shopt", "-s", "lastpipe"])
+    >>> shopt_setting(["shopt", "-u", "-o", "errexit"], "errexit")
+    False
+    >>> shopt_setting(["shopt", "-s", "-o", "noexec"], "noexec")
     True
-    >>> enables_lastpipe(["shopt", "-so", "lastpipe"])
+    >>> shopt_setting(["shopt", "-s", "lastpipe"], "errexit") is None
     True
-    >>> enables_lastpipe(["shopt", "-u", "lastpipe"])
-    False
-    >>> enables_lastpipe(["shopt", "lastpipe"])
-    False
-    >>> enables_lastpipe(["shopt", "-s", "nullglob"])
-    False
+    >>> shopt_setting(["shopt", "-o", "errexit"], "errexit") is None
+    True
     """
     words = builtin_arguments(words)
-    if words[:1] != ["shopt"]:
-        return False
-    setting = False
-    for word in words[1:]:
-        if word.startswith("-"):
-            if "s" in word[1:]:
-                setting = True
-            if "u" in word[1:]:
-                setting = False
-            continue
-        if word == LASTPIPE_OPTION:
-            return setting
-    return False
+    flags = "".join(word[1:] for word in words[1:] if word.startswith("-"))
+    if not _names_shopt_option(words, option, flags):
+        return None
+    if "s" in flags:
+        return True
+    return False if "u" in flags else None
 
 
+def _names_shopt_option(
+    words: cabc.Sequence[str], option: str, flags: str
+) -> bool:
+    """Return whether a ``shopt`` command names `option` through ``-o``.
+
+    Examples
+    --------
+    >>> _names_shopt_option(["shopt", "-u", "-o", "errexit"], "errexit", "uo")
+    True
+    >>> _names_shopt_option(["shopt", "-s", "lastpipe"], "lastpipe", "s")
+    False
+    >>> _names_shopt_option(["shopt", "-o", "errexit"], "errexit", "o")
+    True
+    """
+    return words[:1] == ["shopt"] and option in words[1:] and "o" in flags
+
+
+def _sets_option(flag: str, operand: str, option: str, letter: str) -> bool:
+    """Return whether an option word names `option` or sets its letter.
+
+    Examples
+    --------
+    >>> _sets_option("-o", "errexit", "errexit", "e")
+    True
+    >>> _sets_option("+e", "", "errexit", "e")
+    True
+    >>> _sets_option("-x", "", "errexit", "e")
+    False
+    """
+    return (operand == option and _names_an_option(flag)) or letter in flag[1:]

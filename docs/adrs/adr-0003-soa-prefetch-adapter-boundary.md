@@ -6,6 +6,10 @@ Accepted - 2026-06-25. Keep SoA and prefetch policy private to dense adapters,
 and defer core HNSW structural changes until separate benchmark evidence
 justifies them.
 
+Amended 2026-11-19: the Context's phase order was corrected. The decision, its
+drivers, its measurements, and the deferral of structural work are unchanged.
+See [Amendments](#amendments).
+
 ## Date
 
 2026-11-20
@@ -127,7 +131,19 @@ API justification before implementation.
 - Keeping `batch_distances_into` deferred means allocation improvements remain
   local until profiling proves a shared trait method is needed.
 
-## Clarification (2026-11-19)
+## Amendments
+
+### 2026-11-19: phase order
+
+Clarification for the record: the Context bullet describing the phase order was
+corrected in place, and the accepted decision text is otherwise unchanged. The
+original bullet read that insert planning and trim scoring compute distances
+before acquiring the graph write lock. That was incomplete: planning runs under
+`insert_mutex` and the graph read guard, apply takes and releases the write
+guard, trim scoring runs after apply with `insert_mutex` still held, and commit
+takes the write guard again.
+
+### Clarification (2026-11-19)
 
 The Context bullet that described HNSW insert planning and trim scoring as
 computing distances before the graph write lock was incomplete. It has been

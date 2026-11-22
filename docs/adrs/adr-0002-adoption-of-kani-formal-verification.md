@@ -4,6 +4,9 @@
 
 Accepted
 
+Amended 2026-11-22: a dated entry in the amendment log below records the
+concurrency boundary. The decision is unchanged. See [Amendments](#amendments).
+
 ## Date
 
 2026-11-20
@@ -323,6 +326,13 @@ intended as future formal verification targets:
   to scheduling beyond that critical section must be accompanied by a bounded
   scheduler or lock model plus production-path regressions, not by extending
   these structural harnesses.
+
+## Amendments
+
+- 2026-11-19: recorded that the HNSW harnesses and obligations FV04 and FV08
+  model graph state rather than scheduling, lock acquisition, or lock waits,
+  and that scheduling beyond the insertion critical section needs a bounded
+  scheduler or lock model plus production-path regressions.
 
 ## References
 
