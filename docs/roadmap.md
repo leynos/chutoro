@@ -390,6 +390,21 @@ ______________________________________________________________________
   and that the selector never chooses a backend that is absent at compile time
   or unavailable at runtime. Requires 2.2.3, 2.2.6. (See
   `docs/chutoro-design.md` §6.3)
+- [ ] 2.2.8. Evaluate and, if accepted, adopt a bounded Fearless SIMD port of
+  the dense query-to-points Euclidean kernel.
+  - [ ] Requires 2.2.2, 2.2.3, 2.2.6, and 2.2.7. Retain the packed layout,
+    scalar reference, public feature controls, and pairwise kernels.
+  - [ ] Follow [RFC 0001](rfcs/rfc-0001-fearless-simd-query-to-points.md),
+    [ADR-0007](adrs/adr-0007-fearless-simd-kernel-boundary.md), and
+    [design §6.3](chutoro-design.md#63-simd-utilization).
+  - [ ] Record numerical and downstream parity, tail and dispatch evidence,
+    native execution for each substituted backend, MSRV compatibility, and
+    complete-batch benchmarks including packing.
+  - [ ] Success: adopt the replacement only with a demonstrated maintenance
+    reduction and no material performance regression under RFC 0001's
+    preregistered decision rule. Otherwise retain the established path and
+    record a measured or explicitly inconclusive null result. This task is
+    independent of 2.3.2's pipeline-share gates.
 
 ### 2.3. Hot-path optimizations
 
@@ -399,7 +414,11 @@ ______________________________________________________________________
   deferred to 2.3.3-2.3.5. (See §6.3 and ADR-003)
 - [ ] 2.3.2. Vectorize edge-weight transforms and candidate filtering
   before union-find in parallel Kruskal; keep union-find cache-friendly. (See
-  §6.3)
+  §6.3.) Prefer Fearless SIMD only after the existing measurement gates pass;
+  preserve numerical, validation, and ordering contracts under
+  [ADR-0007](adrs/adr-0007-fearless-simd-kernel-boundary.md). Reconcile the
+  plan with current source using the
+  [planning-agent prompt](planning/2-3-2-fearless-simd-agent-prompt.md).
 - [ ] 2.3.3. Prototype cross-node HNSW beam scoring that aggregates candidate
   evaluations across insertion or search jobs only if a dedicated benchmark
   shows a clear cycle-count win without changing deterministic neighbour

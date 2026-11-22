@@ -59,6 +59,23 @@ open each document.
   mutex](adrs/adr-0006-sequential-trim-scoring.md): accepted guidance for
   scoring trim jobs on the thread that holds `insert_mutex` instead of
   dispatching them to the Rayon pool.
+- [ADR 0007: Fearless SIMD kernel
+  boundary](adrs/adr-0007-fearless-simd-kernel-boundary.md): proposed private
+  kernel ownership, authorized dependencies, and separate adoption gates for
+  dense consolidation and MST preparation.
+
+## Requests for comments
+
+- [RFC 0001: bounded Fearless SIMD query-to-points
+  port](rfcs/rfc-0001-fearless-simd-query-to-points.md): requirements,
+  compatibility, verification, and the adoption decision for roadmap 2.2.8.
+
+## Planning briefs
+
+- [2.3.2 Fearless SIMD planning-agent
+  prompt](planning/2-3-2-fearless-simd-agent-prompt.md): dependency
+  authorization and instructions for revising the existing MST execution plan
+  against current source and measurement gates.
 
 ## Execution plans
 
