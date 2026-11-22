@@ -189,7 +189,7 @@ def join_continuations(script: str) -> str:
 
 def _is_command_word(word: str) -> bool:
     """Report whether *word* can stand in for an executable name."""
-    if not word or "\n" in word:
+    if not word or any(character.isspace() for character in word):
         return False
     return not any(character in ";&|<>" for character in word)
 
@@ -311,14 +311,16 @@ def _scan_state(
     return False, _quote_after(character, quote)
 
 
-def _here_document_delimiters(line: str) -> list[tuple[str, bool]]:
-    """Return each unquoted here-document delimiter and its tab rule.
+def _here_document_delimiters(
+    line: str, quote: str | None
+) -> tuple[list[tuple[str, bool]], str | None]:
+    """Return unquoted here-document delimiters and the quote state after.
 
     The scan tracks quotes, escapes, and comments, so a printed operator such
-    as `echo "<<EOF"` or one inside a comment is not a redirection.
+    as `echo "<<EOF"`, one inside a comment, or one inside a multi-line
+    quoted string is not a redirection.
     """
     delimiters = []
-    quote: str | None = None
     escaped = False
     previous = " "
     index = 0
@@ -337,7 +339,7 @@ def _here_document_delimiters(line: str) -> list[tuple[str, bool]]:
         escaped, quote = _scan_state(character, quote, escaped)
         previous = character
         index += 1
-    return delimiters
+    return delimiters, quote
 
 
 def mask_here_documents(script: str) -> str:
@@ -348,6 +350,7 @@ def mask_here_documents(script: str) -> str:
     real command after it is left untouched.
     """
     pending: list[tuple[str, bool]] = []
+    quote: str | None = None
     masked = []
     for line in script.splitlines():
         if pending:
@@ -358,7 +361,8 @@ def mask_here_documents(script: str) -> str:
             masked.append(" " * len(line))
             continue
         masked.append(line)
-        pending.extend(_here_document_delimiters(line))
+        delimiters, quote = _here_document_delimiters(line, quote)
+        pending.extend(delimiters)
     return "\n".join(masked)
 
 

@@ -291,6 +291,23 @@ def _nightly_workflow(installer: str | None) -> dict[str, typ.Any]:
             True,
             id="here-document-body-does-not-change-quote-state",
         ),
+        pytest.param(
+            _nightly_workflow(
+                'LABEL="nightly setup" rustup toolchain install nightly '
+                "--profile minimal --component clippy --component rustfmt"
+            ),
+            True,
+            id="quoted-assignment-value-with-space",
+        ),
+        pytest.param(
+            _nightly_workflow(
+                'printf "%s" "setup\n<<EOF\n"\n'
+                "rustup toolchain install nightly --profile minimal "
+                "--component clippy --component rustfmt"
+            ),
+            True,
+            id="quoted-multiline-here-document-operator",
+        ),
         pytest.param(_nightly_workflow(None), False, id="no-installer"),
         pytest.param(
             _nightly_workflow(
@@ -507,6 +524,18 @@ def test_portable_simd_feature_forwards_to_the_dense_provider() -> None:
                 "--component clippy,rustfmt "
             ],
             id="here-document-body-does-not-change-quote-state",
+        ),
+        pytest.param(
+            'LABEL="nightly setup" rustup toolchain install nightly '
+            "--profile minimal",
+            ["rustup toolchain install nightly --profile minimal"],
+            id="quoted-assignment-value-with-space",
+        ),
+        pytest.param(
+            'printf "%s" "setup\n<<EOF\n"\n'
+            "rustup toolchain install nightly --profile minimal",
+            ["rustup toolchain install nightly --profile minimal"],
+            id="quoted-multiline-here-document-operator",
         ),
         pytest.param(
             "rustup toolchain install nightly \\ \n  --component clippy",
