@@ -40,7 +40,7 @@ CARGO_COMMANDS = ("$(CARGO)", "cargo")
 #: invocation is then no longer the whole command the line claims to be, and
 #: the one-invocation-per-regression count reads each line as the command it
 #: runs.
-SHELL_SEPARATORS = frozenset({";", ";;", "&&", "||", "|", "&"})
+SHELL_SEPARATORS = frozenset({";", ";;", "&&", "||", "|", "|&", "&"})
 
 #: Flags that compile without running. `--no-run` builds the tests and executes
 #: none of them, so an invocation carrying it produces no runtime evidence even
@@ -166,6 +166,8 @@ def is_nextest_invocation(command: str) -> bool:
     >>> is_nextest_invocation("$(CARGO) nextest run -p chutoro-core 2>&1")
     True
     >>> is_nextest_invocation("$(CARGO) nextest run -p chutoro-core --help")
+    False
+    >>> is_nextest_invocation("$(CARGO) nextest run -p chutoro-core |& true")
     False
     >>> is_nextest_invocation(
     ...     "$(CARGO) nextest run -p chutoro-core > 'scheduling>' & true"

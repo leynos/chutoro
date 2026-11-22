@@ -313,6 +313,55 @@ def _enables_lastpipe(lines: list[list[Segment]]) -> bool:
     )
 
 
+def _sets_an_err_trap(lines: list[list[Segment]]) -> bool:
+    """Return whether any command installs an ``ERR`` trap.
+
+    Bash runs the handler when a command fails, so ``trap 'exit 0' ERR`` can
+    turn an installer failure into a successful exit. The reading cannot tell
+    whether a handler preserves the failure, so a script that installs one is
+    refused.
+
+    Examples
+    --------
+    >>> _sets_an_err_trap(read_lines("trap 'exit 0' ERR"))
+    True
+    >>> _sets_an_err_trap(read_lines("trap - ERR"))
+    False
+    >>> _sets_an_err_trap(read_lines("trap 'echo x' INT"))
+    False
+    """
+    return any(
+        segment.words[:1] == ["trap"]
+        and segment.words[1:2] != ["-"]
+        and "ERR" in segment.words
+        for line in lines
+        for segment in line
+    )
+
+
+def _cannot_place(lines: list[list[Segment]]) -> bool:
+    """Return whether this reading cannot place the script's commands.
+
+    A compound command, a ``lastpipe`` change or an ``ERR`` trap each makes a
+    command's reachability depend on Bash semantics the reading does not
+    model, so the script yields no evidence at all.
+
+    Examples
+    --------
+    >>> _cannot_place(read_lines("if false; then" + chr(10) + "fi"))
+    True
+    >>> _cannot_place(read_lines("shopt -s lastpipe"))
+    True
+    >>> _cannot_place(read_lines("trap 'exit 0' ERR"))
+    True
+    >>> _cannot_place(read_lines("installer"))
+    False
+    """
+    if has_a_compound_command(lines) or _enables_lastpipe(lines):
+        return True
+    return _sets_an_err_trap(lines)
+
+
 def installs_nextest(script: str) -> bool:
     """Return whether `script` executes the nextest installer, blocking.
 
@@ -364,7 +413,7 @@ def installs_nextest(script: str) -> bool:
     False
     """
     lines = read_lines(script)
-    if has_a_compound_command(lines) or _enables_lastpipe(lines):
+    if _cannot_place(lines):
         return False
     states = errexit_states(lines)
     stop = _stops_the_script(lines)

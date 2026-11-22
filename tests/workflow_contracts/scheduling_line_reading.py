@@ -64,6 +64,26 @@ def _ends_with_operator(line: str) -> bool:
     return any(text.endswith(operator) for operator in _LIST_OPERATORS)
 
 
+def _escape_continuation(line: str) -> tuple[str, bool]:
+    """Return `line` with a final escaped newline deleted, and that verdict.
+
+    Here-document text is not parsed for quotes, so only a backslash that
+    escapes the newline joins the next physical line.
+
+    Examples
+    --------
+    >>> _escape_continuation("x " + chr(92))
+    ('x ', True)
+    >>> text, continues = _escape_continuation("x" + chr(92) * 2)
+    >>> continues, len(text)
+    (False, 3)
+    """
+    run = len(line) - len(line.rstrip("\\"))
+    if run % 2 == 0:
+        return line, False
+    return f"{line[: len(line) - run]}{chr(92) * (run - 1)}", True
+
+
 def _in_single_quotes(text: str) -> bool:
     """Return whether `text` ends inside an ordinary single-quoted string.
 
@@ -94,20 +114,20 @@ def _in_single_quotes(text: str) -> bool:
 def _quote_step(text: str, index: int, quote: str) -> tuple[str, int]:
     """Return the character that decides quoting, and the index after it.
 
-    Inside a double-quoted string a backslash escapes the character after it,
-    so the pair is consumed whole; anywhere else a backslash is returned and
-    the caller reads the character after it on its own.
+    A backslash escapes the character after it wherever it is read, so the
+    pair is consumed whole and the escaped character is not returned as quote
+    syntax.
 
     Examples
     --------
     >>> _quote_step('a"b', 0, "")
     ('a', 1)
     >>> escaped = chr(92) + '"'
-    >>> _quote_step(escaped, 0, '"')[1]
-    2
+    >>> _quote_step(escaped, 0, '"')
+    ('', 2)
     """
     if quote != "'" and text[index : index + 1] == "\\":
-        return text[index + 1 : index + 2], index + 2
+        return "", index + 2
     return text[index : index + 1], index + 1
 
 
@@ -146,14 +166,15 @@ def _continuation(line: str) -> tuple[str, bool]:
     True
     >>> text == "a" + chr(92) * 2
     True
-    >>> quoted = "'scripts/install-" + chr(92)
+    >>> quoted = "'scripts/install-"
     >>> _continuation(quoted)[1]
     True
-    >>> _continuation(quoted)[0] == quoted
+    >>> _continuation(quoted)[0] == quoted + chr(10)
     True
     """
     if _in_single_quotes(line):
-        return line, True
+        # The shell keeps the newline inside the quoted string.
+        return f"{line}{chr(10)}", True
     run = len(line) - len(line.rstrip("\\"))
     if run % 2 == 0:
         return line, False
@@ -197,7 +218,7 @@ def _body_step(
         if ends_document(document, line):
             documents.pop(0)
         return ""
-    text, continues = _continuation(line)
+    text, continues = _escape_continuation(line)
     joined = f"{pending}{text}"
     if continues:
         return joined
@@ -321,8 +342,13 @@ def _absorb_or_wait(
     >>> len(lines)
     1
     """
-    text, continues = _continuation(physical)
+    combined = f"{joined}{physical}"
+    if _in_single_quotes(combined):
+        return f"{combined}{chr(10)}", pending, []
+    text, continues = _escape_continuation(physical)
     candidate = f"{joined}{text}" + ("" if continues else chr(10))
+    if continues:
+        return candidate, pending, []
     try:
         pending, documents = _absorb(pending, candidate, lines)
     except ValueError:

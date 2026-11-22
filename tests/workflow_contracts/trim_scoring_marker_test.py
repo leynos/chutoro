@@ -180,6 +180,11 @@ from trim_scoring_reading import SCORER, dispatch_marker
             id="unit-type-join",
         ),
         pytest.param("join(", "join(left, right)", id="join"),
+        pytest.param(
+            "ParallelSliceMut::par_sort",
+            "ParallelSliceMut::par_sort(&mut weights[..])",
+            id="a-trait-qualified-par-sort",
+        ),
         pytest.param("join_context(", "join_context(left, right)", id="join-context"),
         pytest.param("broadcast(", "broadcast(|ctx| run(ctx))", id="broadcast"),
         pytest.param(

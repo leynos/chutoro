@@ -310,6 +310,7 @@ def free_call(name: str) -> _Predicate:
 #: pattern allows `\s*` after the dot: `jobs . par_chunks(2)` dispatches just
 #: as `jobs.par_chunks(2)` does.
 DISPATCH_MARKERS: typ.Final[tuple[tuple[str, _Predicate], ...]] = (
+    ("ParallelSliceMut::par_sort", _matches(r"\bParallelSliceMut\s*::\s*par_sort\b")),
     ("into_par_iter", _matches(r"\binto_par_iter\b")),
     ("par_iter_mut", _matches(r"\bpar_iter_mut\b")),
     ("par_iter", _matches(r"\bpar_iter\b")),

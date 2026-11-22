@@ -403,4 +403,24 @@ SELECTOR_CASES: typ.Final[tuple[tuple[str, bool, str], ...]] = (
         False,
         "a-backslash-newline-inside-single-quotes",
     ),
+    (
+        f"command -p set +e\n{NEXTEST_INSTALLER}\ntrue",
+        False,
+        "an-errexit-change-through-command-p",
+    ),
+    (
+        f"trap 'exit 0' ERR\n{NEXTEST_INSTALLER}",
+        False,
+        "an-err-trap-before-the-installer",
+    ),
+    (
+        f"{NEXTEST_INSTALLER} >| install.log",
+        True,
+        "a-noclobber-redirection-after-the-installer",
+    ),
+    (
+        "printf %s " + chr(92) + chr(39) + "\n" + NEXTEST_INSTALLER,
+        True,
+        "an-escaped-apostrophe-before-the-installer",
+    ),
 )

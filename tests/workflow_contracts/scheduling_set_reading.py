@@ -31,6 +31,36 @@ ERREXIT_OPTION = "errexit"
 LASTPIPE_OPTION = "lastpipe"
 
 
+def _after_wrapper(arguments: list[str]) -> list[str]:
+    """Return the words a ``builtin`` or ``command`` wrapper runs.
+
+    ``command -p`` runs the builtin it names, while ``command -v`` and
+    ``command -V`` only report where the name is found, so a lookup yields no
+    words at all.
+
+    Examples
+    --------
+    >>> _after_wrapper(["builtin", "set", "+e"])
+    ['set', '+e']
+    >>> _after_wrapper(["command", "-p", "set", "+e"])
+    ['set', '+e']
+    >>> _after_wrapper(["command", "-v", "set"])
+    []
+    >>> _after_wrapper(["set", "+e"])
+    ['set', '+e']
+    """
+    if arguments[:1] == ["builtin"]:
+        return arguments[1:]
+    if arguments[:1] != ["command"]:
+        return arguments
+    arguments = arguments[1:]
+    while arguments[:1] in (["-p"], ["-v"], ["-V"]):
+        if arguments[0] in {"-v", "-V"}:
+            return []
+        arguments = arguments[1:]
+    return arguments
+
+
 def builtin_arguments(words: cabc.Sequence[str]) -> list[str]:
     """Return `words` without a ``builtin`` wrapper or a redirection.
 
@@ -51,11 +81,12 @@ def builtin_arguments(words: cabc.Sequence[str]) -> list[str]:
     ['set', '+e']
     >>> builtin_arguments([">", "/dev/null", "builtin", "set", "+e"])
     ['set', '+e']
+    >>> builtin_arguments(["command", "-p", "set", "+e"])
+    ['set', '+e']
+    >>> builtin_arguments(["command", "-v", "set"])
+    []
     """
-    arguments = argument_words(list(words))
-    if arguments[:1] in (["builtin"], ["command"]):
-        arguments = arguments[1:]
-    return arguments
+    return _after_wrapper(argument_words(list(words)))
 
 
 def _names_an_option(flag: str) -> bool:

@@ -20,6 +20,8 @@ masked syntax belongs here with the reason it must be hidden stated beside it.
 
 from __future__ import annotations
 
+import re
+
 import typing as typ
 
 from scheduling_command_reading import closing_quote
@@ -259,6 +261,10 @@ def mask_quotes(line: str) -> MaskedLine:
     return MaskedLine("".join(masked), quoted)
 
 
+#: One quoted-text marker, holding the index of its text in the line's list.
+_MARKER = re.compile(chr(1) + r"(\d+)" + chr(2))
+
+
 def restore_quotes(token: str, quoted: list[str]) -> str:
     """Return `token` with each quoted marker replaced by its text.
 
@@ -267,6 +273,4 @@ def restore_quotes(token: str, quoted: list[str]) -> str:
     >>> restore_quotes("a\\x010\\x02", ["b c"])
     'ab c'
     """
-    for position, text in enumerate(quoted):
-        token = token.replace(_QUOTED.format(position), text)
-    return token
+    return _MARKER.sub(lambda found: quoted[int(found.group(1))], token)

@@ -98,6 +98,24 @@ def _flush_segment(
     return []
 
 
+def _joins_pipeline(words: list[str], token: str) -> bool:
+    """Return whether `token` completes a ``>|`` redirection.
+
+    ``shlex`` splits ``>|`` into ``>`` and ``|``; the pair is one clobbering
+    redirection, not a pipeline.
+
+    Examples
+    --------
+    >>> _joins_pipeline([">"], "|")
+    True
+    >>> _joins_pipeline([], "|")
+    False
+    >>> _joins_pipeline(["a"], "|")
+    False
+    """
+    return token == "|" and words[-1:] == [">"]
+
+
 def _word(token: str, quoted: list[str]) -> str:
     """Return a token's shell word, keeping a quoted redirection as data.
 
@@ -141,6 +159,8 @@ def read_segments(tokens: list[str], quoted: list[str]) -> list[Segment]:
     [Segment(words=['('], follows='')]
     >>> read_segments(["set", "\x010\x02", "ignored", "-e"], [">"])
     [Segment(words=['set', "'>'", 'ignored', '-e'], follows='')]
+    >>> read_segments(["installer", ">", "|", "log"], [])
+    [Segment(words=['installer', '>|', 'log'], follows='')]
     >>> read_segments(["installer", "2>", "&", "1"], [])
     [Segment(words=['installer', '2>', '&', '1'], follows='')]
     """
@@ -152,6 +172,10 @@ def read_segments(tokens: list[str], quoted: list[str]) -> list[Segment]:
     for token in tokens:
         if _joins_descriptors(previous, token):
             words.append("&")
+            previous = token
+            continue
+        if _joins_pipeline(words, token):
+            words[-1] = ">|"
             previous = token
             continue
         if set(token) <= _OPERATOR_CHARS:

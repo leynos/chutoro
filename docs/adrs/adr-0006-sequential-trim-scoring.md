@@ -182,8 +182,9 @@ section may block on, or dispatch work to, the Rayon pool.
   `join(match <Paths<A, B> as HasPath>::path() { p => p })` pass one argument.
   A turbofish may put whitespace between `::` and `<`, as in
   `pool.install:: <_, ()>(...)`, and a qualified type path such as
-  `<ThreadPool>::scope(pool, |_| ())` names the same entry points. The
-  synthetic sources these readings are checked against live in
+  `<ThreadPool>::scope(pool, |_| ())` or a trait call such as
+  `ParallelSliceMut::par_sort(&mut weights[..])` names the parallel operation
+  it is. The synthetic sources these readings are checked against live in
   `fixtures/trim_scoring`, loaded by `trim_scoring_samples.py`. Dispatch in a
   listed helper is therefore caught; dispatch it cannot see still evades it: an
   unlisted helper called by one of the five, an aliased import such as
@@ -322,55 +323,61 @@ trailing backslash continues a comment, so a doubled backslash ends it and the
 next line declares as usual. A `define` body is not declaration text, so a
 `.PHONY` written between `define` and `endef` declares nothing, a nested
 definition is tracked to its own `endef` rather than ending the outer one, a
-`private`/`override`/`export` modifier may precede `define`, and a tab-prefixed
-`endef` is body text rather than a directive. `.PHONY:= gate` is a variable
-assignment rather than a declaration, so is `.PHONY: gate = value`, and a rule
-header written `build ::=` assigns rather than declaring; `.PHONY : gate` with
-a space before the colon declares as usual, an assignment before the colon is a
-variable rather than a rule, an inline recipe after `;` is not part of the
-declaration header, and a recipe continues across comment lines, which are
-skipped as make skips them; a tab-prefixed `.PHONY` is recipe text and declares
-nothing. A `.PHONY` inside a conditional block declares only when that
-condition holds, the reading does not evaluate conditions, so the block
-declares nothing either, a definition opened inside the block hides its body
-from the conditional, and a continued line is joined before any directive is
-read, so an `endif` after a continuation is part of the line it continues.
-Comments are removed with shell word boundaries, so a `#` inside a word, as in
-a redirect to `scheduling#log`, is part of that word and the mask after it
-stays visible; an escaped operator ends no word either, so `>scheduling\;#log`
-keeps its mask too. Quoted text is data, so `echo '&&' installer` prints the
-path rather than running it; an escaped operator is data for the same reason, so
-`echo \&\& installer` prints both ampersands, and a Bash ANSI-C string
-(`$'...'`) honours its backslash escapes, so an escaped `'` does not end it. A
-`#` after a completed expansion, as in `>$(LOG)#1`, is part of that word rather
-than a comment. Commands are tokenized with shell separators rather than
-whitespace alone, so an unspaced `||true` reads as the operator it is. Finally,
-it checks that each named regression is still declared under `cpu/trim_tests`
-with a test attribute, since an undiscovered function cannot trip
-`--no-tests=fail`, and that a declaration quoted inside a string literal does
-not stand in for one. A physical line whose quote is still open continues
-physically: a trailing backslash is resolved, and otherwise the newline is part
-of the quoted text. The step's effective shell is resolved through the
-workflow, job, and step scopes, and a custom `bash` or `sh` template must
-execute the script under `errexit`: `bash {0}` runs the script without it and
-is rejected, as is any template that only syntax-checks the script, whether as
-`bash -n {0}`, in a combined cluster such as `bash -en {0}`, or as
-`bash -o noexec {0}` or `bash -eo noexec {0}`; `-D`, `--dump-strings` and
-`--dump-po-strings` are syntax-only modes too, since `-D` implies `-n` while
-dumping translated strings. A long option's value is not an option, so
-`bash --rcfile -e {0}` names a file called `-e` and enables nothing. `errexit`
-can also be turned off inside the script, so `set +e` and `set +o errexit` —
-and a cluster such as `+xo errexit` — before the installer stop its failure
-from failing the step and `set -e` restores it, whether they are written
-directly or through `builtin` or `command`; a lone `-` ends option processing as
-`--` does, and `-eo noexec` names noexec through its cluster's final `o`.
-`builtin exit` ends the script as `exit` does, `exec` with a command replaces
-the shell, `exec` with only a redirection does not, and a `set` in a pipeline
-element changes only that element's subshell. Redirections are removed before
-an option or a `builtin` wrapper is read, so `set > /dev/null +e` and
-`> /dev/null builtin set +e` still disable errexit, while a quoted `>` stays an
-argument, and a negated pipeline is refused rather than read as if the `!` were
-not there. The reading skips an option operand (`set -o pipefail -e`), stops at
+`private`/`override`/`export` modifier may precede `define`, a tab-prefixed
+`endef` is body text rather than a directive, and an escaped space belongs to
+one target name. `.PHONY:= gate` is a variable assignment rather than a
+declaration, so is `.PHONY: gate = value`, and a rule header written
+`build ::=` assigns rather than declaring; `.PHONY : gate` with a space before
+the colon declares as usual, an assignment before the colon is a variable
+rather than a rule, an inline recipe after `;` is not part of the declaration
+header, a recipe prefix is one tab rather than the line's indentation, and a
+recipe continues across comment lines, which are skipped as make skips them; a
+tab-prefixed `.PHONY` is recipe text and declares nothing. A `.PHONY` inside a
+conditional block declares only when that condition holds, the reading does not
+evaluate conditions, so the block declares nothing either, a definition opened
+inside the block hides its body from the conditional, and a continued line is
+joined before any directive is read, so an `endif` after a continuation is part
+of the line it continues. Comments are removed with shell word boundaries, so a
+`#` inside a word, as in a redirect to `scheduling#log`, is part of that word
+and the mask after it stays visible; an escaped operator ends no word either, so
+`>scheduling\;#log` keeps its mask too. Quoted text is data, so
+`echo '&&' installer` prints the path rather than running it; an escaped
+operator is data for the same reason, so `echo \&\& installer` prints both
+ampersands, and a Bash ANSI-C string (`$'...'`) honours its backslash escapes,
+so an escaped `'` does not end it. A `#` after a completed expansion, as in
+`>$(LOG)#1`, is part of that word rather than a comment. Commands are tokenized
+with shell separators rather than whitespace alone, so an unspaced `||true`
+reads as the operator it is, `|&` is refused as the pipeline it is, and feature
+flags are read from an invocation's arguments rather than its text, so a file
+named `nextest-F.log` is not a flag. Finally, it checks that each named
+regression is still declared under `cpu/trim_tests` with a test attribute,
+since an undiscovered function cannot trip `--no-tests=fail`, and that a
+declaration quoted inside a string literal does not stand in for one. A
+physical line whose quote is still open continues physically: a trailing
+backslash is resolved, and otherwise the newline is part of the quoted text.
+The step's effective shell is resolved through the workflow, job, and step
+scopes, and a custom `bash` or `sh` template must execute the script under
+`errexit`: `bash {0}` runs the script without it and is rejected, as is any
+template that only syntax-checks the script, whether as `bash -n {0}`, in a
+combined cluster such as `bash -en {0}`, or as `bash -o noexec {0}` or
+`bash -eo noexec {0}`; `-D`, `--dump-strings` and `--dump-po-strings` are
+syntax-only modes too, since `-D` implies `-n` while dumping translated
+strings. A long option's value is not an option, so `bash --rcfile -e {0}`
+names a file called `-e` and enables nothing. `errexit` can also be turned off
+inside the script, so `set +e` and `set +o errexit` — and a cluster such as
+`+xo errexit` — before the installer stop its failure from failing the step and
+`set -e` restores it, whether they are written directly or through `builtin` or
+`command`; a lone `-` ends option processing as `--` does, and `-eo noexec`
+names noexec through its cluster's final `o`. `builtin exit` ends the script as
+`exit` does, `exec` with a command replaces the shell, `exec` with only a
+redirection does not, and a `set` in a pipeline element changes only that
+element's subshell. Redirections are removed before an option or a `builtin`
+wrapper is read, so `set > /dev/null +e` and `> /dev/null builtin set +e` still
+disable errexit, while a quoted `>` stays an argument, a `command -p` wrapper
+is read through to its builtin, and a negated pipeline is refused rather than
+read as if the `!` were not there. A script that installs an `ERR` trap is
+refused for the same reason: the handler can turn an installer failure into
+success. The reading skips an option operand (`set -o pipefail -e`), stops at
 `--` and at the first positional parameter (`set -- -e` sets `$1`), treats an
 option change after `&&` or `||` as uncertain rather than applied, ignores one
 written in a pipeline element or a backgrounded list because that list runs in
@@ -379,29 +386,31 @@ a subshell of its own, and takes either an `exit` or a `set` that enables
 classified on the line as a continuation leaves it, so `#; installer` after a
 handled backslash is text and its `;` starts a command. A backslash-newline
 pair inside ordinary single quotes is preserved, because the shell preserves
-every character there. A short Unicode escape is decoded as Bash decodes it, so
-`$'-\u6e'` is `-n`. A here-document's body is stdin for the command that opened
-it, so a path written there installs nothing; the body starts at the newline
-that ends the opening line even when a list operator continues past it, and its
-closing word repeats the delimiter exactly for `<<`, so a closing line indented
-with a space or a tab is body text, while a `<<-` document ignores leading tabs
-on both body and closing line. A quoted delimiter makes the body literal, so a
-trailing backslash there is a character, while an unquoted body deletes
-backslash-newline pairs before its closing word is compared, and a backslash
-that escapes a character of the delimiter is removed before the closing line is
-compared. A script holding a compound command — a branch, loop, case, brace
-group or parenthesized group — is refused whole, because the reading tracks no
-block structure and cannot say which body ran; a group written without spaces,
-as `(true`, is refused too; a script that enables `lastpipe` is refused as
-well, because a pipeline element then changes the parent's state. A quoted word
-is read as the shell reads it, so a command substitution inside a double-quoted
-word keeps its own quotes and a `#` in the substituted text opens nothing,
-while an ANSI-C string is data throughout, a `$(` inside one opens no
-substitution, and adjacent fragments such as `'a''b'` are one word. A shell
-template may not select `-t` or `-o onecmd`, which runs one command and exits,
-so a script of several commands would stop after the first; a quoted operand
-such as `bash -e "{0}"` is accepted, because the runner substitutes the path
-inside the quotes before the shell parses the template.
+every character there, and a literal newline inside one is kept rather than
+joined away; an escaped apostrophe opens no quote, and a line still continued
+after its quote closes waits for the next physical line. A short Unicode escape
+is decoded as Bash decodes it, so `$'-\u6e'` is `-n`. A here-document's body is
+stdin for the command that opened it, so a path written there installs nothing;
+the body starts at the newline that ends the opening line even when a list
+operator continues past it, and its closing word repeats the delimiter exactly
+for `<<`, so a closing line indented with a space or a tab is body text, while a
+`<<-` document ignores leading tabs on both body and closing line. A quoted
+delimiter makes the body literal, so a trailing backslash there is a character,
+while an unquoted body deletes backslash-newline pairs before its closing word
+is compared, and a backslash that escapes a character of the delimiter is
+removed before the closing line is compared. A script holding a compound
+command — a branch, loop, case, brace group or parenthesized group — is refused
+whole, because the reading tracks no block structure and cannot say which body
+ran; a group written without spaces, as `(true`, is refused too; a script that
+enables `lastpipe` is refused as well, because a pipeline element then changes
+the parent's state. A quoted word is read as the shell reads it, so a command
+substitution inside a double-quoted word keeps its own quotes and a `#` in the
+substituted text opens nothing, while an ANSI-C string is data throughout, a
+`$(` inside one opens no substitution, and adjacent fragments such as `'a''b'`
+are one word. A shell template may not select `-t` or `-o onecmd`, which runs
+one command and exits, so a script of several commands would stop after the
+first; a quoted operand such as `bash -e "{0}"` is accepted, because the runner
+substitutes the path inside the quotes before the shell parses the template.
 
 Positive evidence, on commit `5cb3929` on 2026-11-22: `make check-fmt`,
 `make markdownlint` including spelling, `make interrogate` (at 100% documented

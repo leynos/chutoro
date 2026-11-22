@@ -107,6 +107,9 @@ def recipe_commands(text: str, target: str) -> list[str]:
     >>> joined = "build:" + chr(10) + chr(9) + "run " + chr(92) + chr(10)
     >>> recipe_commands(joined + chr(9) + "--release" + chr(10), "build")
     ['run --release']
+    >>> spaced = "build:" + chr(10) + chr(9) + "run --no-test=" + chr(92)
+    >>> recipe_commands(spaced + chr(10) + chr(9) + "    fail" + chr(10), "build")
+    ['run --no-test= fail']
     """
     pattern = re.compile(
         rf"^{re.escape(target)}:[^\n]*\n"
@@ -120,7 +123,9 @@ def recipe_commands(text: str, target: str) -> list[str]:
     commands: list[str] = []
     pending = ""
     for raw in match.group("recipe").splitlines():
-        command = strip_shell_comment(raw.strip())
+        command = strip_shell_comment(raw[1:] if raw.startswith("\t") else raw)
+        if not command.strip():
+            continue
         if not command:
             continue
         if command.endswith("\\"):
@@ -189,8 +194,20 @@ def feature_flags(recipe: str) -> list[str]:
     ['--all-features']
     >>> feature_flags("nextest run --features=metrics")
     ['--features']
+    >>> feature_flags("nextest run > /tmp/nextest-F.log")
+    []
     """
-    return [flag for flag in FEATURE_FLAGS if flag in recipe]
+    arguments = command_arguments(recipe)
+    return [
+        flag
+        for flag in FEATURE_FLAGS
+        if any(
+            argument == flag
+            or argument.startswith(f"{flag}=")
+            or (flag == "-F" and argument.startswith("-F") and argument != "-F")
+            for argument in arguments
+        )
+    ]
 
 
 def invocations_missing_flag(invocations: list[str]) -> list[int]:

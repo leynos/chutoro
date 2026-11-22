@@ -24,6 +24,57 @@ from makefile_structure_reading import (
     make_comment_start,
 )
 
+def _target_names(text: str) -> list[str]:
+    """Return the target names `text` lists, with escapes resolved.
+
+    A backslash escapes the character after it, so ``other\\ gate`` is one
+    target name with a space in it rather than two names. An unescaped
+    whitespace character separates names.
+
+    Examples
+    --------
+    >>> _target_names("clean gate")
+    ['clean', 'gate']
+    >>> _target_names("other" + chr(92) + " gate")
+    ['other gate']
+    >>> _target_names("a" + chr(92) + "#1")
+    ['a#1']
+    """
+    names: list[str] = []
+    current = ""
+    index = 0
+    while index < len(text):
+        char, index, escaped = _name_step(text, index)
+        if escaped or char not in " \t":
+            current += char
+            continue
+        if current:
+            names.append(current)
+            current = ""
+    if current:
+        names.append(current)
+    return names
+
+
+def _name_step(text: str, index: int) -> tuple[str, int, bool]:
+    """Return the character at `index`, the index after it and its escape.
+
+    A backslash escapes the character after it, so the pair contributes that
+    character alone, and an escaped space belongs to the name rather than
+    separating names.
+
+    Examples
+    --------
+    >>> _name_step("a", 0)
+    ('a', 1, False)
+    >>> _name_step(chr(92) + " ", 0)
+    (' ', 2, True)
+    """
+    if text[index] == "\\" and index + 1 < len(text):
+        return text[index + 1], index + 2, True
+    return text[index], index + 1, False
+
+
 def _declared_names(line: str) -> list[str]:
     """Return the target names one declaration line adds.
 
@@ -39,10 +90,12 @@ def _declared_names(line: str) -> list[str]:
     ['clean#1']
     >>> _declared_names(" clean # tidy up")
     ['clean']
+    >>> _declared_names(" other" + chr(92) + " gate")
+    ['other gate']
     """
     comment = make_comment_start(line)
     uncommented = line if comment is None else line[:comment]
-    return uncommented.rstrip().removesuffix("\\").replace("\\#", "#").split()
+    return _target_names(uncommented.rstrip().removesuffix("\\"))
 
 
 def _declared_targets(declaration: str) -> list[str]:
@@ -76,7 +129,7 @@ def _declared_targets(declaration: str) -> list[str]:
     if "=" in header:
         return []
     colon = header.find(":")
-    if colon == -1 or header[:colon].split() != [".PHONY"]:
+    if colon == -1 or _target_names(header[:colon]) != [".PHONY"]:
         return []
     return _declared_names(header[colon + 1 :])
 
@@ -163,6 +216,11 @@ def declares_target(line: str, target: str) -> bool:
     False
     >>> declares_target("clean # build:", "build")
     False
+    >>> escaped = "other" + chr(92) + " gate:"
+    >>> declares_target(escaped, "gate")
+    False
+    >>> declares_target(escaped, "other gate")
+    True
     """
     if line[:1] == "\t":
         return False
@@ -173,4 +231,4 @@ def declares_target(line: str, target: str) -> bool:
         return False
     if header[colon:].lstrip(":").startswith("="):
         return False
-    return target in header[:colon].split()
+    return target in _target_names(header[:colon])
