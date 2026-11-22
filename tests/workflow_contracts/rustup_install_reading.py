@@ -189,28 +189,30 @@ def join_continuations(script: str) -> str:
     return "".join(joined)
 
 
-def _blank_match(match: re.Match[str]) -> str:
-    """Return spaces of the same length as a masked span."""
-    return " " * len(match.group(0))
+def _mask_match(match: re.Match[str]) -> str:
+    """Return a word placeholder of the same length as a masked span."""
+    return "x" * len(match.group(0))
 
 
 def mask_quoted(script: str) -> str:
-    """Return *script* with quoted text blanked, preserving length.
+    """Return *script* with quoted text masked, preserving length.
 
-    Blanking the span keeps the offsets usable against the unblanked script,
-    while a command boundary inside a multi-line quoted string disappears.
+    Keeping the length keeps the offsets usable against the unmasked script.
+    The placeholder is a word character rather than whitespace, so a quoted
+    command word still occupies its position and `"echo" rustup ...` cannot
+    read as an executable `rustup`.
     """
-    return QUOTED_TEXT.sub(_blank_match, script)
+    return QUOTED_TEXT.sub(_mask_match, script)
 
 
 def mask_escaped(script: str) -> str:
-    """Return *script* with escaped characters blanked, preserving length.
+    """Return *script* with escaped characters masked, preserving length.
 
     A backslash makes the next character literal, so an escaped `;` or `|`
-    does not end a command. Blanking both characters keeps the offsets
-    usable while removing the false boundary.
+    does not end a command. Masking both characters keeps the offsets usable
+    while removing the false boundary.
     """
-    return ESCAPED_CHARACTER.sub(_blank_match, script)
+    return ESCAPED_CHARACTER.sub(_mask_match, script)
 
 
 def rustup_installs(script: str) -> list[str]:
@@ -240,6 +242,28 @@ def rustup_installs(script: str) -> list[str]:
         joined[match.start("command") : match.end("command")]
         for match in RUSTUP_INVOCATION.finditer(boundaries)
     ]
+
+
+def runs_command(script: str, command: str) -> bool:
+    """Report whether *command* starts an executable command in *script*.
+
+    Comments, continuations, quoted text, and escapes are handled as they are
+    for the rustup reading, so a printed path such as
+    `echo scripts/install-mold.sh` is not an execution.
+
+    Examples
+    --------
+    >>> runs_command("echo scripts/install-mold.sh", "scripts/install-mold.sh")
+    False
+    >>> runs_command("scripts/install-mold.sh", "scripts/install-mold.sh")
+    True
+    """
+    joined = join_continuations(strip_shell_comments(script))
+    boundaries = mask_escaped(mask_quoted(joined))
+    pattern = re.compile(
+        rf"(?m)(?:^|[;&|])[ \t]*{re.escape(command)}(?![^\s;&|])"
+    )
+    return pattern.search(boundaries) is not None
 
 
 def component_values(invocation: str) -> list[list[str]]:

@@ -17,7 +17,7 @@ import collections.abc as cabc
 import typing as typ
 
 import pytest
-from rustup_install_reading import rustup_installs
+from rustup_install_reading import runs_command, rustup_installs
 from workflow_support import job, run_script, steps
 
 #: The lane under contract.
@@ -70,8 +70,12 @@ def _is_nightly_installer(step: dict[str, typ.Any]) -> bool:
 
 
 def _is_mold_installer(step: dict[str, typ.Any]) -> bool:
-    """Report whether a step installs the linker the Cargo steps name."""
-    return "scripts/install-mold.sh" in run_script(step)
+    """Report whether a step installs the linker the Cargo steps name.
+
+    The shared reader requires the path to start an executable command, so a
+    step that only prints it does not count.
+    """
+    return runs_command(run_script(step), "scripts/install-mold.sh")
 
 
 def _is_dense_test(step: dict[str, typ.Any]) -> bool:
@@ -170,6 +174,13 @@ def test_a_split_installer_is_still_selected() -> None:
     step = {"run": "rustup toolchain \\\n  install nightly --profile minimal"}
 
     assert _is_nightly_installer(step)
+
+
+def test_a_printed_installer_is_not_an_installer() -> None:
+    """A step that prints the script path must not count as installing mold."""
+    step = {"run": "echo scripts/install-mold.sh"}
+
+    assert not _is_mold_installer(step)
 
 
 def test_the_gate_records_its_decision_in_the_job_summary() -> None:
