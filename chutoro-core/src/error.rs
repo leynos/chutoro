@@ -17,8 +17,10 @@ use crate::builder::ExecutionStrategy;
 ///
 /// Every generated code enum is `#[non_exhaustive]` and implements `Display`,
 /// so routine growth of an error taxonomy does not break downstream exhaustive
-/// matches. The expansion names `::core::fmt` by absolute path, so call sites
-/// do not need to import `fmt`.
+/// matches. Each also carries an `ALL` slice listing its variants in
+/// declaration order, so tests and documentation checks can enumerate the
+/// taxonomy without a hand-maintained list. The expansion names `::core::fmt`
+/// by absolute path, so call sites do not need to import `fmt`.
 macro_rules! define_error_codes {
     (
         $(#[$enum_meta:meta])*
@@ -43,6 +45,9 @@ macro_rules! define_error_codes {
         }
 
         impl $CodeTy {
+            /// Every variant of this code enum, in declaration order.
+            pub const ALL: &'static [Self] = &[$(Self::$CodeVariant,)+];
+
             /// Return the stable machine-readable representation of this error code.
             #[must_use]
             pub const fn as_str(self) -> &'static str {
