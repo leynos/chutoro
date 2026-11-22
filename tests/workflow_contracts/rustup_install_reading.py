@@ -189,8 +189,33 @@ def join_continuations(script: str) -> str:
     return "".join(joined)
 
 
-def _mask_match(match: re.Match[str]) -> str:
-    """Return a word placeholder of the same length as a masked span."""
+def _mask_quoted_match(match: re.Match[str]) -> str:
+    """Keep a single quoted command word, or mask the whole span.
+
+    A quoted executable name such as `"rustup"` runs the same command as the
+    bare word, so the decoded word stays at the same offset. Quoted text that
+    is not one command-like word is masked, so a quoted sentence cannot
+    expose a command inside it and a quoted separator cannot become one.
+    """
+    text = match.group(0)
+    try:
+        words = shlex.split(text, comments=False, posix=True)
+    except ValueError:
+        words = []
+    if len(words) == 1 and _is_command_word(words[0]):
+        return words[0] + " " * (len(text) - len(words[0]))
+    return "x" * len(text)
+
+
+def _is_command_word(word: str) -> bool:
+    """Report whether *word* can stand in for an executable name."""
+    if not word or "\n" in word:
+        return False
+    return not any(character in ";&|<>" for character in word)
+
+
+def _mask_escaped_match(match: re.Match[str]) -> str:
+    """Return a word placeholder of the same length as an escaped span."""
     return "x" * len(match.group(0))
 
 
@@ -202,7 +227,7 @@ def mask_quoted(script: str) -> str:
     command word still occupies its position and `"echo" rustup ...` cannot
     read as an executable `rustup`.
     """
-    return QUOTED_TEXT.sub(_mask_match, script)
+    return QUOTED_TEXT.sub(_mask_quoted_match, script)
 
 
 def mask_escaped(script: str) -> str:
@@ -212,19 +237,48 @@ def mask_escaped(script: str) -> str:
     does not end a command. Masking both characters keeps the offsets usable
     while removing the false boundary.
     """
-    return ESCAPED_CHARACTER.sub(_mask_match, script)
+    return ESCAPED_CHARACTER.sub(_mask_escaped_match, script)
+
+
+#: A here-document operator and its delimiter word, quoted or bare.
+HERE_DOCUMENT = re.compile(r"<<-?[ \t]*('[^']*'|\"[^\"]*\"|[^\s;&|]+)")
+
+
+def _here_document_delimiters(line: str) -> list[str]:
+    """Return the here-document delimiter words declared on *line*."""
+    return [match.group(1).strip("'\"") for match in HERE_DOCUMENT.finditer(line)]
+
+
+def mask_here_documents(script: str) -> str:
+    """Return *script* with here-document bodies blanked, line for line.
+
+    The body is data for the command that reads it, so an installer line
+    inside one is not an execution. The closing delimiter is blanked too; a
+    real command after it is left untouched.
+    """
+    pending: list[str] = []
+    masked = []
+    for line in script.splitlines():
+        if pending:
+            if line.strip() == pending[0]:
+                pending.pop(0)
+            masked.append(" " * len(line))
+            continue
+        masked.append(line)
+        pending.extend(_here_document_delimiters(line))
+    return "\n".join(masked)
 
 
 def rustup_installs(script: str) -> list[str]:
     """Return each rustup toolchain install in a step's script.
 
-    Comments are removed first and genuine continuations are deleted, so a
-    command split across lines is one invocation rather than none and a
-    commented-out installer is no invocation at all. Quoted text is blanked
-    before command boundaries are read, so `echo 'rustup ...'` and a rustup
-    line inside a multi-line string install nothing. A backslash the shell
-    would not treat as a continuation is left alone, and the invocation then
-    ends on it, which is what
+    Comments and here-document bodies are removed first, and genuine
+    continuations are deleted, so a command split across lines is one
+    invocation rather than none and a commented-out installer is no
+    invocation at all. A quoted executable name is decoded in place, while
+    `echo 'rustup ...'` and a rustup line inside a multi-line string install
+    nothing. A backslash the shell would not treat as a continuation is left
+    alone, and the invocation then ends on it, which is what
     `test_no_rustup_install_ends_on_a_dangling_backslash` looks for.
 
     Examples
@@ -236,7 +290,8 @@ def rustup_installs(script: str) -> list[str]:
     >>> rustup_installs('echo "# kept"; rustup toolchain install nightly')
     ['rustup toolchain install nightly']
     """
-    joined = join_continuations(strip_shell_comments(script))
+    text = mask_here_documents(strip_shell_comments(script))
+    joined = join_continuations(text)
     boundaries = mask_escaped(mask_quoted(joined))
     return [
         joined[match.start("command") : match.end("command")]
@@ -258,7 +313,8 @@ def runs_command(script: str, command: str) -> bool:
     >>> runs_command("scripts/install-mold.sh", "scripts/install-mold.sh")
     True
     """
-    joined = join_continuations(strip_shell_comments(script))
+    text = mask_here_documents(strip_shell_comments(script))
+    joined = join_continuations(text)
     boundaries = mask_escaped(mask_quoted(joined))
     pattern = re.compile(
         rf"(?m)(?:^|[;&|])[ \t]*{re.escape(command)}(?![^\s;&|])"
