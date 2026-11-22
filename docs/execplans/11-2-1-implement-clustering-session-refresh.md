@@ -70,8 +70,8 @@ This plan authorizes:
   edges it selected as *raw* `CandidateEdge` values (not weighted `MstEdge`),
   so every refresh reweights from raw distances and current core distances.
   This is a small, correctness-critical refinement of design Figure 3 (see
-  Decision Log and ADR-006); without it, reweighting a previously weighted edge
-  ratchets weights upward across refreshes.
+  Decision Log and ADR-0007); without it, reweighting a previously weighted
+  edge ratchets weights upward across refreshes.
 - Promoting `map_cpu_mst_error(&MstError)` and
   `map_cpu_hierarchy_error(&HierarchyError)` from private to `pub(crate)`,
   signatures unchanged, so `refresh` can reuse them.
@@ -121,7 +121,7 @@ Hard invariants. Violation requires escalation, not a workaround.
   path.
 - Add no new production dependency and no **new public** `ChutoroError`
   variant. Degenerate and invalid-input paths reuse the existing `EmptySource`,
-  `InsufficientItems`, and `CpuHnswFailure` variants (see Decision Log). The
+  `InsufficientItems`, and `CpuMstFailure` variants (see Decision Log). The
   approved assertion crates `googletest`, `pretty_assertions`, and `insta`
   enter the workspace as **dev-dependencies only** (see Decision Log); they
   must not appear in any `[dependencies]` table.
@@ -176,26 +176,31 @@ Hard invariants. Violation requires escalation, not a workaround.
   `core_distances.len() == node_count`. `mark_core_distance_dirty` grows
   `core_distances` to the highest appended index plus one, and the HNSW rejects
   duplicate inserts, so the two lengths agree exactly when the appended indices
-  form the prefix `[0, point_count)`. A mismatch returns
-  `HnswError::GraphInvariantViolation` mapped through
-  `HnswError::into_chutoro_error` to `ChutoroError::CpuHnswFailure`
-  (`GRAPH_INVARIANT_VIOLATION`), the variant the batch path already uses for an
-  edge endpoint with no core distance. No panic. Because the check runs before
-  Kruskal, the reported error is deterministic, unlike Kruskal's own selection
-  among several invalid edges (issue #206). Document the contiguity requirement
-  on `append` and `refresh` and in ADR-006.
+  form the prefix `[0, point_count)`; otherwise the length is strictly greater,
+  and the highest appended id, `core_distances.len() - 1`, is at or above
+  `node_count`. A mismatch returns
+  `MstError::InvalidNodeId { node: core_distances.len() - 1, node_count }`
+  mapped through `map_cpu_mst_error` to `ChutoroError::CpuMstFailure`
+  (`INVALID_NODE_ID`), which the users' guide error table classifies as caller
+  input. That is the code Kruskal itself would report for the same endpoint,
+  and since #206 (#428) Kruskal reports the lowest-index invalid edge
+  deterministically; the guard adds no new error behaviour, it only fails
+  before the reweight and Kruskal work and names the offending id exactly. No
+  panic. Document the contiguity requirement on `append` and `refresh` and in
+  ADR-0007.
 
 - Risk: **Cross-refresh weight drift (mitigated by raw retention).** If the
   MST backbone were retained as weighted `MstEdge` and reweighted again, the
   mutual-reachability `max` would ratchet weights upward whenever a core
-  distance later fell (core distances are monotonically non-increasing after a
-  point saturates its neighbourhood). This plan retains the backbone as **raw**
-  `CandidateEdge`, so every refresh recomputes `max(raw, core_u, core_v)` from
-  scratch and the result is independent of refresh count. Severity: was high;
-  reduced to low by raw retention. Likelihood: low. Mitigation: raw-backbone
-  retention plus a multi-refresh differential property test (append, refresh,
-  append, refresh) asserting the incremental partition still matches batch
-  within ARI ≥ 0.95.
+  distance later fell. Falls are expected as closer points arrive, and #395
+  records that approximate HNSW recomputation guarantees no monotonic direction
+  at all, so the design must be correct whichever way a core distance moves.
+  This plan retains the backbone as **raw** `CandidateEdge`, so every refresh
+  recomputes `max(raw, core_u, core_v)` from scratch and the result is
+  independent of refresh count. Severity: was high; reduced to low by raw
+  retention. Likelihood: low. Mitigation: raw-backbone retention plus a
+  multi-refresh differential property test (append, refresh, append, refresh)
+  asserting the incremental partition still matches batch within ARI ≥ 0.95.
 
 - Risk: **Approximate-MST candidate coverage.** Even with raw retention, the
   merged candidate set (`mst_backbone` + `historical_edges` + `pending_edges`)
@@ -219,6 +224,18 @@ Hard invariants. Violation requires escalation, not a workaround.
   because a streaming session must make progress during warm-up; see Decision
   Log.
 
+- Risk: **Upstream issue state (verified against `051d395`, 2026-11-22).**
+  No open issue blocks this plan. Closed since drafting and now relied on: #206
+  (deterministic MST error selection), #203 (non-exhaustive error codes), #207
+  (users' guide error tables), #378 (HNSW trim-scoring deadlock), #389
+  (parallel batch core distances). Open and accommodated rather than blocking:
+  #390 (float `Eq`/`Ord` inconsistency in `CandidateEdge` and `MstEdge`; the
+  backbone recovery keys on integer `(source, target, sequence)`, never on edge
+  equality), #391 (see AXM-1), #395 (see the drift risk), #396 (see OBL-8),
+  #399 (see AXM-2), and #430 (serial session core-distance searches; a latency
+  cost, not a correctness one). Severity: low. Mitigation: re-check this list
+  at each milestone and before marking the plan `COMPLETE`.
+
 - Risk: **Label-length contract.** Verified: `extract_flat_labels` returns
   `vec![_; node_count]` (`chutoro-core/src/hierarchy/single_linkage/mod.rs`);
   noise adds a label *value*, not an entry. Severity: low. Mitigation: a direct
@@ -238,7 +255,7 @@ Hard invariants. Violation requires escalation, not a workaround.
 - [ ] EP-M4: Formal verification — Verus lemmas OBL-1 and OBL-2; optional
   bounded Kani harness (go/no-go).
 - [ ] EP-M5: Documentation — design §12.5, users' guide, developers' guide,
-  ADR-006; mark roadmap `11.2.1` done.
+  ADR-0007; mark roadmap `11.2.1` done.
 
 ## Surprises & discoveries
 
@@ -306,11 +323,10 @@ Hard invariants. Violation requires escalation, not a workaround.
 
 - Decision: Reuse existing `ChutoroError` variants; add none.
   Rationale: `EmptySource`/`InsufficientItems` cover degenerate sizes (if a
-  future decision reverts to erroring), and `CpuHnswFailure`
-  (`GRAPH_INVARIANT_VIOLATION`) covers a contiguity violation, matching the
-  batch path's missing-core-distance error (see the 2026-11-12 entry below).
-  This keeps the interface tolerance intact. Date/Author: 2026-07-22, planning
-  (post expert review).
+  future decision reverts to erroring), and `CpuMstFailure` (`INVALID_NODE_ID`)
+  covers a contiguity violation (see the 2026-11-22 entry below). This keeps
+  the interface tolerance intact. Date/Author: 2026-07-22, planning (post
+  expert review).
 
 - Decision: Expose a minimal `ClusteringSession::labels` accessor (returning
   `Arc<Vec<usize>>`) in this plan, ahead of roadmap `11.2.2`. Rationale: the
@@ -325,9 +341,9 @@ Hard invariants. Violation requires escalation, not a workaround.
   appended indices to form a contiguous prefix `[0, point_count)`. Rationale:
   HNSW node id equals the source index, and both `core_distances` and
   `extract_labels_from_mst` are indexed by that id; this matches the batch
-  pipeline's assumption. The pure rebuild guards it and returns
-  `CpuHnswFailure` rather than panicking (see Risks). Date/Author: 2026-07-22,
-  planning.
+  pipeline's assumption. The pure rebuild guards it and returns `CpuMstFailure`
+  (`INVALID_NODE_ID`) rather than panicking (see Risks). Date/Author:
+  2026-07-22, planning.
 
 - Decision: `historical_edges` is read into the merge but not populated here.
   Rationale: population, the `2×` cap, and heaviest-first eviction are roadmap
@@ -365,12 +381,27 @@ Hard invariants. Violation requires escalation, not a workaround.
   avoids a second copy of the formula. Only the scalar
   `distance.max(core_source).max(core_target)` is factored out as a private
   `mutual_reachability_weight`, so OBL-1 and the OBL-6 mutation check have a
-  small, named target. The contiguity guard follows the same error path
-  (`CpuHnswFailure`, `GRAPH_INVARIANT_VIOLATION`) instead of the earlier
-  `CpuMstFailure`, so a non-contiguous session fails the same way in both
-  pipelines and is detected deterministically before Kruskal. The rebuild takes
-  a `source_name: &str` because the helpers need it for the error; it stays
-  pure. Date/Author: 2026-11-12, planning (post-rebase drift review).
+  small, named target. The rebuild takes a `source_name: &str` because the
+  helpers need it for their error; it stays pure. (This entry originally also
+  routed the contiguity guard through `CpuHnswFailure`; the 2026-11-22 entry
+  below supersedes that part.) Date/Author: 2026-11-12, planning (post-rebase
+  drift review).
+
+- Decision: Report a non-contiguous session as `CpuMstFailure`
+  (`INVALID_NODE_ID`), not `CpuHnswFailure` (`GRAPH_INVARIANT_VIOLATION`).
+  Rationale: #207 (#434) published per-code error tables in the users' guide.
+  They classify `GRAPH_INVARIANT_VIOLATION` as an internal fault and
+  `INVALID_NODE_ID` ("an edge endpoint is greater than or equal to
+  `node_count`") as caller input. A non-contiguous `append` is a caller
+  mistake, and when it happens the highest appended id is exactly such an
+  endpoint, so
+  `MstError::InvalidNodeId { node: core_distances.len() - 1, node_count }` is
+  the accurate, already-documented report. It is also what Kruskal would return
+  unaided, deterministically since #206 (#428). The per-endpoint
+  missing-core-distance check inside the reused `mutual_reachability_edge`
+  keeps reporting `GRAPH_INVARIANT_VIOLATION`; after the guard it is
+  unreachable, so it now genuinely signals an internal fault. Date/Author:
+  2026-11-22, planning (post-rebase drift review against `051d395`).
 
 - Decision: Dedup of the merged candidate set relies on
   `mst::prepare_edge_list`, not on any pre-merge filtering. Rationale: the
@@ -406,11 +437,12 @@ Hard invariants. Violation requires escalation, not a workaround.
 To be completed at delivery. Note: each refresh rebuilds and re-sorts the whole
 combined candidate set (O(E log E)) even for a no-op refresh; the cut-based
 incremental update sketched in design §12.5 is the future optimization target
-(out of scope here). Compare the shipped `refresh` against the three observable
-success criteria in Purpose. Before marking this plan `COMPLETE`, reconcile
-every discovery with the Conformance Basis artefacts: the DES-FIG3 raw-backbone
-refinement and the §12.4 auto-recompute wording must have landed in
-`docs/chutoro-design.md`, and ADR-006 must exist and be referenced from the
+(out of scope here), and the core-distance recompute that `refresh` triggers
+stays serial until #430. Compare the shipped `refresh` against the three
+observable success criteria in Purpose. Before marking this plan `COMPLETE`,
+reconcile every discovery with the Conformance Basis artefacts: the DES-FIG3
+raw-backbone refinement and the §12.4 auto-recompute wording must have landed in
+`docs/chutoro-design.md`, and ADR-0007 must exist and be referenced from the
 design document.
 
 ## Context and orientation
@@ -428,13 +460,20 @@ The reader needs no prior plans. Relevant facts, with full paths:
     core-distance dirty). Its `map_hnsw_error` wraps the adapter-owned
     `HnswError::into_chutoro_error` (moved there by #224).
   - `core_distance.rs` — `recompute_core_distances` (incremental) and
-    `recompute_core_distances_full` (batch-equivalent), plus pure helpers.
+    `recompute_core_distances_full` (batch-equivalent). The selection rule
+    `core_distance_from_neighbours` now lives in the shared
+    `chutoro-core/src/core_distance.rs`, used by batch and session alike, and
+    `core_updates.rs` holds the per-stage search helpers. Session searches are
+    still serial (#430); the batch stage was parallelized by #389 (#431).
   - `config.rs` — `SessionConfig` (`min_cluster_size() -> NonZeroUsize`,
     `hnsw_params() -> &HnswParams`, `refresh_policy()`).
-  - `tests.rs` registers the child test modules; `tests/common.rs` provides
-    `SessionTestSource`, `#[fixture] session_builder`, `make_session`, and
-    `harvest_expected_edges`; siblings `append.rs`, `core_distance.rs`,
-    `core_distance_errors.rs`, `properties.rs`, `concurrency.rs`.
+  - `tests/mod.rs` registers the child test modules; `tests/common.rs`
+    provides `session_test_source_with_len` (over the shared
+    `NumericTestSource`, consolidated by #141), `#[fixture] session_builder`,
+    `make_session`, and `harvest_expected_edges`; siblings `append.rs`,
+    `builder.rs`, `core_distance.rs`, `core_distance_errors.rs`,
+    `core_distance_support.rs`, `metrics.rs`, `properties.rs`,
+    `concurrency.rs`.
 - The batch pipeline `chutoro-core/src/cpu_pipeline/mod.rs` shows the target
   sequence: build+harvest, per-point core distance, `mutual_reachability_edges`
   (a `par_iter` over `mutual_reachability_edge`),
@@ -501,7 +540,7 @@ The reader needs no prior plans. Relevant facts, with full paths:
   `docs/rust-testing-with-rstest-fixtures.md`, `docs/rust-doctest-dry-guide.md`,
   `docs/complexity-antipatterns-and-refactoring-strategies.md`.
 - Verification: `docs/verus-toolchain.md`,
-  `docs/adr-002-adoption-of-kani-formal-verification.md`.
+  `docs/adrs/adr-0002-adoption-of-kani-formal-verification.md`.
 - Style: `docs/documentation-style-guide.md`.
 - Skills: `execplans` (this document), `rust-router` →
   `rust-unit-testing` / `rust-errors` / `arch-crate-design`, `proptest`,
@@ -514,21 +553,24 @@ No Terms of Reference document exists for this repository; the upstream
 artefacts are the roadmap and the technical design document. Traced items use
 these identifiers:
 
-- **RM-11.2.1** — roadmap item 11.2.1 in `docs/roadmap.md` (revision at
-  branch point: commit `2aafc3e`): implement `ClusteringSession::refresh` with
-  the stated acceptance criteria (label length equals total points;
-  `snapshot_version` increments by exactly one per refresh).
-- **DES-12.5** — `docs/chutoro-design.md` §12.5 (same revision): the
-  nine-step incremental MST refresh strategy (merge, reweight, Kruskal,
-  extract, publish).
+- **RM-11.2.1** — roadmap item 11.2.1 in `docs/roadmap.md` (drafted against
+  commit `2aafc3e`; re-verified unchanged at `051d395` on 2026-11-22): implement
+  `ClusteringSession::refresh` with the stated acceptance criteria (label
+  length equals total points; `snapshot_version` increments by exactly one per
+  refresh).
+- **DES-12.5** — `docs/chutoro-design.md` §12.5 (all of §12 re-verified
+  byte-identical between `14f1829` and `051d395`): the nine-step incremental
+  MST refresh strategy (merge, reweight, Kruskal, extract, publish).
 - **DES-12.3 / DES-12.4 / DES-12.6 / DES-12.7** — design §12.3 (session
   architecture and lifecycle), §12.4 (core distances and mutual-reachability),
   §12.6 (single-writer/multi-reader model), §12.7 (differential testing
   thresholds).
 - **DES-FIG3** — design Figure 3, the `ClusteringSession` state sketch
   (`mst_edges: Vec<MstEdge>`).
-- ADRs: ADR-002 (Kani adoption) and ADR-003 (adapter boundaries) govern
-  verification and layering conventions. ADR-006 is authored by this plan.
+- ADRs (in `docs/adrs/`): ADR-0002 (Kani adoption) and ADR-0003 (adapter
+  boundaries) govern verification and layering conventions; ADR-0006
+  (sequential trim scoring) records the HNSW single-writer critical section that
+  `append` relies on. ADR-0007 is authored by this plan.
 
 Trace links (upstream → milestone → acceptance evidence):
 
@@ -551,7 +593,7 @@ requiring the plan approver's acceptance at the approval gate):
 
 - **DES-FIG3 deviation**: `mst_edges: Vec<MstEdge>` becomes
   `mst_backbone: Vec<CandidateEdge>` (raw retention). Upstream impact: Figure 3
-  and §12.5 step 8 wording must be updated in EP-M5; ADR-006 records the
+  and §12.5 step 8 wording must be updated in EP-M5; ADR-0007 records the
   rationale. Downstream impact: roadmap `11.2.5` retains raw non-MST edges
   against the same representation.
 - **RM-11.2.1 literal-wording deviation**: "construct a fresh `EdgeHarvest`"
@@ -577,11 +619,21 @@ obligation below testable or provable without HNSW, clocks, or input/output.
 Non-trivial axioms this plan relies on (not re-verified here):
 
 - **AXM-1 Kruskal correctness.** `parallel_kruskal_from_edges` produces the
-  MST/forest of its input edge set. Already verified upstream by the Kani
-  harnesses and the parallel-Kruskal property suite (roadmap 1.5.1, 1.6.5).
+  MST/forest of its input edge set. The evidence of record is the
+  parallel-Kruskal property suite, which compares against an independent oracle
+  (`chutoro-core/src/mst/property/oracle.rs`; roadmap 1.5.1). The Kani
+  harnesses (roadmap 1.6.5) check structure only: #391 records that they do not
+  independently prove input/output spanning, so this plan does not cite them
+  for spanning or minimality.
 - **AXM-2 Label extraction contract.** `extract_labels_from_mst` returns a
   `node_count`-length vector of contiguous labels (verified by reading
   `extract_flat_labels`; re-asserted cheaply by OBL-3 at the session level).
+  Partition semantics are trusted, not re-verified: #399 records that
+  zero-weight merges drive the stability arithmetic through NaN and that no
+  independent hierarchy oracle exists. Zero mutual-reachability weights need
+  coincident points (zero raw distance and zero core distance), so refresh
+  fixtures and proptest strategies use distinct coordinates; label length is
+  unaffected either way.
 - **AXM-3 `f32::max` semantics.** IEEE-754 `max` on finite inputs is
   commutative, associative, and idempotent; core distances and raw distances
   entering the reweight are finite (HNSW rejects non-finite distances;
@@ -727,16 +779,17 @@ non-vacuity argument recorded beside it.
   optional because heap-`Vec` harnesses hit a combinatorial cliff and MST
   structural safety is already covered upstream (AXM-1). Domain:
   `node_count ≤ 3`, symbolic edge endpoints and finite weights. Artefact:
-  harness in `chutoro-core/src/session/refresh.rs` behind `#[cfg(kani)]`; run
-  manually via `cargo kani`, not added to `make test` or the default
-  `make kani` tier without a follow-up decision. Evidence:
-  `cargo kani --harness verify_rebuild_bounded` completes with all checks
-  passed within a few minutes; otherwise record the cost in the Decision Log
-  and drop the harness (Verus plus the test suites remain the verification of
-  record). Non-vacuity: the symbolic endpoint domain includes values
-  `>= node_count`, so the error branch is reachable; a `kani::cover!` on the
-  `Ok` branch with a non-empty edge set proves the success path is exercised
-  too.
+  harness in `chutoro-core/src/session/kani_harness.rs` behind `#[cfg(kani)]`
+  (named `kani_*.rs` so the workflow-contract inventory, which discovers
+  harnesses by filename, finds it; see #396); run manually via `cargo kani`,
+  not added to `make test` or the default `make kani` tier without a follow-up
+  decision. Evidence: `cargo kani --harness verify_rebuild_bounded` completes
+  with all checks passed within a few minutes; otherwise record the cost in the
+  Decision Log and drop the harness (Verus plus the test suites remain the
+  verification of record). Non-vacuity: the symbolic endpoint domain includes
+  values `>= node_count`, so the error branch is reachable; a `kani::cover!` on
+  the `Ok` branch with a non-empty edge set proves the success path is
+  exercised too.
 
 No other non-trivial invariants are introduced: the metrics emission and
 `tracing` instrumentation are observability side channels with no behavioural
@@ -767,8 +820,8 @@ and Conformance Basis. No edits.
      lists are compared, so failures render a readable diff.
    - `googletest` matchers (`assert_that!` with `len`, `each`, `eq`,
      `matches_pattern!`) for structural claims — "every label is below the
-     cluster-count bound", "the error is `CpuHnswFailure` with code
-     `GRAPH_INVARIANT_VIOLATION`".
+     cluster-count bound", "the error is `CpuMstFailure` with code
+     `INVALID_NODE_ID`".
    - `insta::assert_debug_snapshot!` for the deterministic single-refresh
      label vector of the fixed fixture (OBL-6); review with
      `cargo insta review`; commit the `.snap` file.
@@ -810,8 +863,8 @@ and Conformance Basis. No edits.
 
    `rebuild_mst_labels`:
    - Checks `core_distances.len() == node_count` first, returning
-     `CpuHnswFailure` (`GRAPH_INVARIANT_VIOLATION`) on mismatch (no panic;
-     see Risks).
+     `MstError::InvalidNodeId { node: core_distances.len() - 1, node_count }`
+     through `map_cpu_mst_error` on mismatch (no panic; see Risks).
    - Short-circuits `node_count == 0` to an empty `RefreshOutcome`.
    - Short-circuits `node_count < min_cluster_size` to all-noise labels
      (`vec![0; node_count]`) and an empty backbone (a warm-up session keeps
@@ -840,8 +893,8 @@ and Conformance Basis. No edits.
 ### EP-M2 — session wiring
 
 1. Red: unit tests in a new `chutoro-core/src/session/tests/refresh.rs`
-   (registered from `session/tests.rs`), using the `session_builder` fixture and
-   `make_session`; every test expecting real clusters builds with
+   (registered from `session/tests/mod.rs`), using the `session_builder`
+   fixture and `make_session`; every test expecting real clusters builds with
    `with_min_cluster_size(2)` (or smaller) and enough points:
    - `refresh_publishes_labels_of_point_count_length` — build with
      `with_min_cluster_size(2)`; append `&[0,1,2,3]`; `refresh()`; assert
@@ -929,9 +982,10 @@ and Conformance Basis. No edits.
      (distinct-label histogram), each `describe_*`-registered in
      construction.
    - Document errors: `ChutoroError::DataSource`/`CpuHnswFailure` from the
-     core-distance recompute; from the pure rebuild, `CpuHnswFailure`
-     (`GRAPH_INVARIANT_VIOLATION`) for a non-contiguous session, and
-     `CpuMstFailure`/`CpuHierarchyFailure` for internal faults.
+     core-distance recompute; from the pure rebuild, `CpuMstFailure`
+     (`INVALID_NODE_ID`) for a non-contiguous session, and the remaining
+     `CpuMstFailure`/`CpuHierarchyFailure` codes as internal or runtime
+     faults, each cross-referenced to the users' guide error tables.
 3. Refactor and validate: unit, error, and BDD suites green; milestone
    gates; record the EP-M2 conformance check.
 
@@ -965,17 +1019,22 @@ harness); apply its go/no-go rule and record the outcome either way.
   `run`, the auto-recompute behaviour (update §12.4's dirty-set note), and the
   early minimal `labels()`.
 - `docs/users-guide.md`: document the `append -> refresh -> labels` workflow
-  and the two new public methods, with a runnable doctest that sets
-  `with_min_cluster_size` explicitly; state the warm-up (all-noise) behaviour.
+  and the two new public methods in "Incremental clustering sessions", with a
+  runnable doctest that sets `with_min_cluster_size` explicitly; state the
+  warm-up (all-noise) behaviour. Extend the "Error handling" section added by
+  #207 (#434) rather than restating codes: say which `ChutoroError` wrappers
+  `refresh` returns, and add the non-contiguous session to the
+  `INVALID_NODE_ID` context paragraph under "MST errors" as a caller-input case
+  that `refresh` reports before Kruskal runs.
 - `docs/developers-guide.md`: document the hexagonal split (pure
   `rebuild_mst_labels` vs the HNSW-backed core-distance adapter), the shared
   lower-layer mutual-reachability helpers, the raw-backbone retention
   rationale, the dedup-in-`prepare_edge_list` fact, and the contiguity
-  invariant with its `CpuHnswFailure` guard.
-- `docs/adr-006-incremental-refresh-domain-boundary.md`: a Y-Statement ADR
+  invariant with its `CpuMstFailure` (`INVALID_NODE_ID`) guard.
+- `docs/adrs/adr-0007-incremental-refresh-domain-boundary.md`: a Y-Statement ADR
   capturing (a) the pure-domain refresh boundary, (b) raw-backbone retention
   and why weighted retention is unsound across refreshes, (c) the contiguous
-  point-id invariant and its `CpuHnswFailure` guard, (d) graceful degenerate
+  point-id invariant and its `CpuMstFailure` guard, (d) graceful degenerate
   handling diverging from batch `run`, and (e) exposing `labels()` ahead of
   `11.2.2`. Reference it from the design doc.
 - `docs/roadmap.md`: tick `11.2.1` to `[x]` once all gates pass.
@@ -1025,7 +1084,7 @@ format exists yet — session checkpointing arrives in §13).
 
 - **EP-M4 — formal verification.**
   Outcome: OBL-1 and OBL-2 discharged in Verus; OBL-8 attempted with its
-  go/no-go recorded. Requirements: verification-plan obligations; ADR-002's
+  go/no-go recorded. Requirements: verification-plan obligations; ADR-0002's
   tiering (Kani out of `make test`). Acceptance evidence: `make verus` green
   with the new proof file listed in its run set; Decision Log entry if OBL-8 is
   dropped. Conformance check: no `assume` in shipped proofs; proof spec mirrors
@@ -1034,7 +1093,7 @@ format exists yet — session checkpointing arrives in §13).
 
 - **EP-M5 — documentation.**
   Outcome: design §12.4/§12.5/Figure 3 updated; users' and developers' guides
-  updated; ADR-006 authored and referenced; roadmap ticked. Requirements:
+  updated; ADR-0007 authored and referenced; roadmap ticked. Requirements:
   closes the DES-FIG3 and degenerate-behaviour deviations by landing their
   upstream edits; completes RM-11.2.1. Acceptance evidence: `make markdownlint`
   and `make nixie` green; roadmap shows `[x] 11.2.1`. Conformance check: every
@@ -1250,7 +1309,25 @@ for their errors; (4) the contiguity guard becomes an O(1)
 error and staying deterministic ahead of Kruskal (#206); (5) the
 `parallel_kruskal_from_edges` decision now cites #276, which moved the batch
 path onto the same entry point, and records its `&[CandidateEdge]` signature;
-(6) the plan's ADR is renumbered ADR-006
-(`docs/adr-006-incremental-refresh-domain-boundary.md`), because #289 took
-ADR-005 for the Cranelift development route. No scope change; the plan still
-awaits approval.
+(6) the plan's ADR is renumbered ADR-0007
+(`docs/adrs/adr-0007-incremental-refresh-domain-boundary.md`), because #289
+took ADR-005 for the Cranelift development route. No scope change; the plan
+still awaits approval.
+
+Revised 2026-11-22 after rebasing onto main `051d395`, to bring observations,
+references, and blockers up to date. Changes: (1) the contiguity guard now
+reports `CpuMstFailure` (`INVALID_NODE_ID`, caller input) instead of
+`CpuHnswFailure` (`GRAPH_INVARIANT_VIOLATION`, internal fault), following the
+error taxonomy #207 published in the users' guide, and the users'-guide work in
+EP-M5 now extends those tables; (2) ADRs moved to `docs/adrs/` with four-digit
+numbers and #378 took ADR-0006, so this plan's ADR becomes
+`docs/adrs/adr-0007-incremental-refresh-domain-boundary.md`; (3) session
+orientation reflects #141 (`NumericTestSource` via
+`session_test_source_with_len`, `tests/mod.rs`) and #389 (the shared
+`crate::core_distance` selection rule and `core_updates.rs`); (4) AXM-1 no
+longer cites Kani for spanning (#391), AXM-2 records the NaN stability boundary
+for coincident points (#399), the drift risk no longer assumes core-distance
+monotonicity (#395), and the optional Kani harness moves to a `kani_*.rs` file
+(#396); (5) a new Risks entry records the verified upstream issue state:
+nothing blocks implementation. Design §12 and roadmap 11.2.1 are unchanged
+since the last revision. No scope change; the plan still awaits approval.
