@@ -396,12 +396,15 @@ one command and exits, so a script of several commands would stop after the
 first; a quoted operand such as `bash -e "{0}"` is accepted, because the runner
 substitutes the path inside the quotes before the shell parses the template.
 
-Positive evidence, on commit `e696ffa` on 2026-11-22: `make check-fmt`,
+Positive evidence, on commit `55c648d` on 2026-11-22: `make check-fmt`,
 `make markdownlint` including spelling, `make interrogate` (at 100% documented
-over 923 definitions), `make nixie`, `cs delta origin/main`, and
-`make test-workflow-contracts` (1213 passed, 1 skipped, including its CV005
-contracts check) all pass on this head. Both runtime regressions pass, one
-nextest invocation each with `--no-tests=fail`, 1 passed with 674 skipped
+over 921 definitions), `make nixie`, `cs delta origin/main`, and
+`make test-workflow-contracts` (1212 passed and 5 deselected, with the
+deselected module run separately at 4 passed and 1 skipped; 1 skipped in the
+main run; including its CV005 contracts check) all pass on this head. The
+module that compiles a probe crate was run apart from the rest only to fit a
+background time limit; nothing else was changed. Both runtime regressions pass,
+one nextest invocation each with `--no-tests=fail`, 1 passed with 674 skipped
 apiece, observed directly on `435a0a0` and re-run by the `build-test` job on
 every pushed head. `make lint` (rustdoc, Clippy and Whitaker), `make typecheck`,
 `make nixie`, and `make test` passed on earlier heads: 1481 nextest tests with
