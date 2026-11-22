@@ -183,6 +183,20 @@ def test_a_printed_installer_is_not_an_installer() -> None:
     assert not _is_mold_installer(step)
 
 
+def test_an_assignment_prefixed_installer_is_selected() -> None:
+    """An environment assignment before the command must not hide it."""
+    step = {"run": "RUSTUP_TOOLCHAIN=stable rustup toolchain install nightly"}
+
+    assert _is_nightly_installer(step)
+
+
+def test_an_assignment_prefixed_mold_installer_is_selected() -> None:
+    """The same prefix rule applies to the linker installer."""
+    step = {"run": "MOLD_INSTALL_PREFIX=/tmp scripts/install-mold.sh"}
+
+    assert _is_mold_installer(step)
+
+
 def test_the_gate_records_its_decision_in_the_job_summary() -> None:
     """A skipped green run must say so rather than leave no evidence.
 

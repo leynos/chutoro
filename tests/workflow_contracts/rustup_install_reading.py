@@ -28,8 +28,11 @@ from workflow_support import jobs, load_workflow, run_script, steps
 #: so a command split across lines is one match and a rustup phrase inside
 #: `echo` or a multi-line string is none. `echo 'rustup ...'` prints a
 #: sentence; it does not resolve a toolchain.
+#: A shell variable assignment that may prefix a command.
+ASSIGNMENT = r"[A-Za-z_][A-Za-z0-9_]*=(?:'[^']*'|\"[^\"]*\"|[^\s;&|]*)"
+
 RUSTUP_INVOCATION = re.compile(
-    r"(?m)(?:^|[;&|])[ \t]*"
+    rf"(?m)(?:^|[;&|])[ \t]*(?:{ASSIGNMENT}[ \t]+)*"
     r"(?P<command>rustup[ \t]+toolchain[ \t]+install(?![^\s;&|])[^\n;&|]*)"
 )
 
@@ -240,8 +243,11 @@ def mask_escaped(script: str) -> str:
     return ESCAPED_CHARACTER.sub(_mask_escaped_match, script)
 
 
-#: A here-document operator and its delimiter word, quoted or bare.
-HERE_DOCUMENT = re.compile(r"<<-?[ \t]*('[^']*'|\"[^\"]*\"|[^\s;&|]+)")
+#: A here-document operator and its delimiter word, quoted or bare. A
+#: here-string, `<<<`, is not a here-document and is excluded.
+HERE_DOCUMENT = re.compile(
+    r"(?<!<)<<-?(?![<])[ \t]*('[^']*'|\"[^\"]*\"|[^\s;&|]+)"
+)
 
 
 def _here_document_delimiters(line: str) -> list[str]:
@@ -317,7 +323,8 @@ def runs_command(script: str, command: str) -> bool:
     joined = join_continuations(text)
     boundaries = mask_escaped(mask_quoted(joined))
     pattern = re.compile(
-        rf"(?m)(?:^|[;&|])[ \t]*{re.escape(command)}(?![^\s;&|])"
+        rf"(?m)(?:^|[;&|])[ \t]*(?:{ASSIGNMENT}[ \t]+)*"
+        rf"{re.escape(command)}(?![^\s;&|])"
     )
     return pattern.search(boundaries) is not None
 
