@@ -1739,8 +1739,8 @@ commit with its timestamp, or no `main` commit in the last 24 hours — and tees
 the same line to the step log, so a skipped green run is visible in both places.
 
 A forced dispatch from this branch proves the lane now does the work it was
-written for. Commit `de36080`, run
-[44908616030](https://github.com/leynos/chutoro/actions/runs/44908616030),
+written for. Commit `244682b`, run
+[44988365606](https://github.com/leynos/chutoro/actions/runs/44988365606),
 `force_run=true`: every step succeeded — the gate, `Install nightly Rust`,
 `Install mold`, `Test dense portable SIMD backend` (141 tests),
 `Test portable SIMD compile contract without feature`
