@@ -423,10 +423,10 @@ would stop after the first; a quoted operand such as `bash -e "{0}"` is
 accepted, because the runner substitutes the path inside the quotes before the
 shell parses the template.
 
-Positive evidence, on commit `c8952f3` on 2026-11-22: `make check-fmt`,
+Positive evidence, on commit `cf29fb9` on 2026-11-22: `make check-fmt`,
 `make markdownlint` including spelling, `make interrogate` (at 100% documented
-over 931 definitions), `make nixie`, `cs delta origin/main`, and
-`make test-workflow-contracts` (1232 passed and 5 deselected, the deselected
+over 933 definitions), `make nixie`, `cs delta origin/main`, and
+`make test-workflow-contracts` (1241 passed and 5 deselected, the deselected
 module passing separately at 4 passed and 1 skipped, including its CV005
 contracts check) all pass on this head. The module that compiles a probe crate
 was run apart from the rest only to fit a background time limit; nothing else
