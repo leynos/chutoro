@@ -198,6 +198,22 @@ def _nightly_workflow(installer: str | None) -> dict[str, typ.Any]:
             False,
             id="escaped-backslash-is-not-a-continuation",
         ),
+        pytest.param(
+            _nightly_workflow(
+                "echo \\; rustup toolchain install nightly --profile minimal "
+                "--component clippy --component rustfmt"
+            ),
+            False,
+            id="escaped-semicolon-is-not-a-boundary",
+        ),
+        pytest.param(
+            _nightly_workflow(
+                "rustup toolchain\ninstall nightly --profile minimal "
+                "--component clippy --component rustfmt"
+            ),
+            False,
+            id="unescaped-newline-between-command-words",
+        ),
         pytest.param(_nightly_workflow(None), False, id="no-installer"),
         pytest.param(
             _nightly_workflow(
@@ -335,6 +351,16 @@ def test_portable_simd_feature_forwards_to_the_dense_provider() -> None:
             "  --component clippy",
             ["rustup toolchain install nightly --profile minimal \\\\"],
             id="escaped-backslash-ends-the-command",
+        ),
+        pytest.param(
+            "echo \\; rustup toolchain install nightly",
+            [],
+            id="escaped-semicolon-is-not-a-boundary",
+        ),
+        pytest.param(
+            "rustup toolchain\ninstall nightly --profile minimal",
+            [],
+            id="unescaped-newline-between-command-words",
         ),
         pytest.param(
             "rustup toolchain install nightly \\ \n  --component clippy",

@@ -29,7 +29,8 @@ from workflow_support import jobs, load_workflow, run_script, steps
 #: `echo` or a multi-line string is none. `echo 'rustup ...'` prints a
 #: sentence; it does not resolve a toolchain.
 RUSTUP_INVOCATION = re.compile(
-    r"(?m)(?:^|[;&|])\s*(?P<command>rustup\s+toolchain\s+install\b[^\n;&|]*)"
+    r"(?m)(?:^|[;&|])[ \t]*"
+    r"(?P<command>rustup[ \t]+toolchain[ \t]+install\b[^\n;&|]*)"
 )
 
 #: The flag whose repeated form is the whole point of this module.
@@ -42,6 +43,11 @@ WORD_BOUNDARIES = frozenset(" \t;&|()<>")
 #: does not begin an executable command, so quoted spans are blanked before
 #: command boundaries are read.
 QUOTED_TEXT = re.compile(r"'[^']*'|\"(?:\\.|[^\"\\])*\"", re.DOTALL)
+
+#: An escaped character. A backslash makes the next character literal, so an
+#: escaped separator cannot end a command and is blanked in the copy the
+#: boundary pattern reads.
+ESCAPED_CHARACTER = re.compile(r"\\.?", re.DOTALL)
 
 #: The lane whose nightly installer this module holds to its purpose.
 NIGHTLY_WORKFLOW = "nightly-portable-simd.yml"
@@ -183,8 +189,8 @@ def join_continuations(script: str) -> str:
     return "".join(joined)
 
 
-def _blank_quoted(match: re.Match[str]) -> str:
-    """Return spaces of the same length as a quoted span."""
+def _blank_match(match: re.Match[str]) -> str:
+    """Return spaces of the same length as a masked span."""
     return " " * len(match.group(0))
 
 
@@ -194,7 +200,17 @@ def mask_quoted(script: str) -> str:
     Blanking the span keeps the offsets usable against the unblanked script,
     while a command boundary inside a multi-line quoted string disappears.
     """
-    return QUOTED_TEXT.sub(_blank_quoted, script)
+    return QUOTED_TEXT.sub(_blank_match, script)
+
+
+def mask_escaped(script: str) -> str:
+    """Return *script* with escaped characters blanked, preserving length.
+
+    A backslash makes the next character literal, so an escaped `;` or `|`
+    does not end a command. Blanking both characters keeps the offsets
+    usable while removing the false boundary.
+    """
+    return ESCAPED_CHARACTER.sub(_blank_match, script)
 
 
 def rustup_installs(script: str) -> list[str]:
@@ -219,7 +235,7 @@ def rustup_installs(script: str) -> list[str]:
     ['rustup toolchain install nightly']
     """
     joined = join_continuations(strip_shell_comments(script))
-    boundaries = mask_quoted(joined)
+    boundaries = mask_escaped(mask_quoted(joined))
     return [
         joined[match.start("command") : match.end("command")]
         for match in RUSTUP_INVOCATION.finditer(boundaries)
