@@ -4,1104 +4,1225 @@ This ExecPlan (execution plan) is a living document. The sections `Constraints`,
 `Tolerances`, `Risks`, `Progress`, `Surprises & discoveries`, `Decision log`,
 and `Outcomes & retrospective` must be kept up to date as work proceeds.
 
-Status: DRAFT (revision 2, after community-of-experts design review)
+Status: DRAFT (revision 4, 2026-11-22). Documentation only; no production
+change is authorized by this revision.
 
-Roadmap item: 2.3.2 (Phase 2, "Hot-path optimizations"). See `docs/roadmap.md`
-lines 400-402 and `docs/chutoro-design.md` §6.3 "SIMD utilization", lines
-904-908.
+Roadmap item: 2.3.2 (Phase 2, "Hot-path optimizations"), `docs/roadmap.md`
+lines 400-402. Design: `docs/chutoro-design.md` §6.3 "SIMD utilization".
+Tracking issue: [#388](https://github.com/leynos/chutoro/issues/388). Draft
+pull request: [#198](https://github.com/leynos/chutoro/pull/198).
+
+## Source baseline for this revision
+
+| Item                                | Value                                                                                                                        |
+| ----------------------------------- | ---------------------------------------------------------------------------------------------------------------------------- |
+| Working branch                      | `2-3-2-vectorize-edge-weight-transforms-and-candidate-filtering`                                                             |
+| Branch head before this revision    | `6f2f0c9` (three plan commits rebased onto `main`; not yet pushed)                                                           |
+| Uncommitted work found at start     | Revision 3 of this file only; superseded by this revision                                                                    |
+| Reviewed `main`                     | `051d395c87366628b03c451a0157933ed870f1ba` (2026-11-22)                                                                      |
+| Reference `main` named by the brief | `5f13f07e10688ddb0b33e3fb2ef5afbc0e285013`, the parent of `051d395`                                                          |
+| Proposed design inspected           | PR #453 head `16042ce0bbc4e9e0bd88ebdea9c2a9d7286a2238`, branch `docs/fearless-simd-adoption-2026-11-22`, based on `5f13f07` |
+| Library contract inspected          | Fearless SIMD 1.2.0 changelog and `SimdBase` documentation                                                                   |
+
+_Table 1: Commits and documents this revision was reconciled against._
+
+The only commit between `5f13f07` and `051d395` is PR #432, which changes the
+HNSW critical section and touches no file this plan edits. All source
+references below are to `051d395` unless stated otherwise.
 
 ## Purpose / big picture
 
-Chutoro clusters data by building an approximate nearest-neighbour graph, then
-converting the harvested candidate edges into a mutual-reachability minimum
-spanning forest (MSF) with a parallel Kruskal implementation, then extracting a
-cluster hierarchy from that forest. Roadmap item 2.3.2 targets the work between
-harvesting candidate edges and feeding them to the union-find.
+Chutoro builds an approximate nearest-neighbour graph, converts the harvested
+candidate edges into mutual-reachability weights, builds a minimum spanning
+forest (MSF) with a parallel Kruskal implementation, and extracts a cluster
+hierarchy. Roadmap item 2.3.2 targets the work between harvesting and the
+union-find: the weighting transform and the validation, filtering and
+compaction that prepare edges for Kruskal.
 
-**Read the measured baseline below before doing anything else.** A design
-review of this plan's first revision measured the stage this item targets and
-found it very small relative to the pipeline. That measurement changes what
-this plan should deliver, and it is stated first so nobody spends effort on the
-strength of the roadmap wording alone.
+This plan decides that work by measurement. It has three possible outcomes, all
+of which are successful completions:
 
-### Measured baseline
+1. **Null result.** The current pipeline gives the targeted stages less than 5%
+   of pipeline time. The expensive milestones are declined with the number that
+   declined them, the remaining correctness guards land, and the roadmap item
+   closes with a recorded null result. The historical evidence suggests this is
+   the likeliest outcome, but it has not been measured on the current tree.
+2. **Scalar improvement.** The gate passes and a scalar change, such as a packed
+   sort record, achieves the measured win. No SIMD dependency is added.
+3. **Fearless SIMD kernel.** Both gates pass, assembly inspection shows the
+   scalar loop is not already effectively vectorized, and a private Fearless
+   SIMD kernel produces a resolvable improvement with exact semantic parity.
 
-On the development machine (AMD Ryzen 9 3900, twelve physical cores,
-twenty-four threads, AVX2 but **no AVX-512**), with seed 42, sixteen dimensions,
-`M = 16`:
+After this plan completes, a developer can observe:
 
-| Stage                       | n = 1000                   | Source                |
-| --------------------------- | -------------------------- | --------------------- |
-| `CpuHnsw::build_with_edges` | 853.60 ms                  | measured, review      |
-| `parallel_kruskal`          | 1.8781 ms [1.8448, 1.9128] | measured, this branch |
-| MST share of HNSW build     | ≈ 0.22%                    | derived               |
+- A recorded, reproducible Gate A measurement on the current tree, with its
+  noise band, in `Outcomes & retrospective` and `docs/chutoro-design.md` §6.3.
+- `cargo nextest run -p chutoro-core -E 'test(/mst::/)'` passes, including a
+  property comparing the parallel forest's **exact edge list** with the
+  sequential oracle's.
+- `chutoro-core/tests/features/mst_edge_preparation.feature` passes under
+  `rstest-bdd`.
+- The mutual-reachability transform reports its lowest-index lookup error at
+  any thread count.
+- Either roadmap item 2.3.2 is ticked with a recorded null result, or the gated
+  milestone that shipped is documented with its evidence.
 
-_Table 1: Measured stage costs at one thousand points. The MST stage is roughly
-one five-hundredth of the HNSW build that precedes it._
+### Relationship to roadmap task 2.2.8
 
-The share falls as `n` grows, because HNSW build is superlinear and Kruskal is
-near-linear. Extrapolating the measured `parallel_kruskal` points (n = 100:
-424.82 µs; n = 500: 1.0941 ms; n = 1000: 1.8781 ms) gives roughly 13-17 ms at n
-= 10 000, against the 20.208-second ten-thousand-point HNSW build recorded in
-`docs/chutoro-design.md` §6.3 for roadmap item 2.3.1 — about 0.07%. At one
-hundred thousand points the same source records a 781.631-second build, against
-an extrapolated 150-200 ms of MST: about 0.025%.
+PR #453 proposes roadmap task 2.2.8: a bounded Fearless SIMD port of the dense
+provider's existing query-to-points kernel. The two tasks share a dependency
+and an architectural boundary and nothing else:
 
-**Therefore: deleting the entire MST stage would buy under a quarter of one
-percent end to end, and less as datasets grow.** Any plan for 2.3.2 that
-proposes a structure-of-arrays staging layer, a backend dispatch table, three
-sets of handwritten intrinsics, a parity suite, a Verus proof and an
-architecture decision record is spending thousands of lines per hundredth of a
-percent. The first revision of this plan proposed exactly that. It was wrong to.
+|                     | 2.2.8 dense port                                                 | 2.3.2 MST preparation                                          |
+| ------------------- | ---------------------------------------------------------------- | -------------------------------------------------------------- |
+| Justification       | Less duplication and unsafe code, without an end-to-end speed-up | A measured performance opportunity                             |
+| Entry gate          | RFC 0001 regression tolerance and net maintenance reduction      | Gate A (5% of pipeline) and, for SIMD, Gate B (10% of Kruskal) |
+| Crate               | `chutoro-providers-dense`                                        | `chutoro-core`, behind `cpu`                                   |
+| Completes the other | No                                                               | No                                                             |
 
-### What this plan therefore delivers
+_Table 2: The two Fearless SIMD tasks are independent._
 
-1. **An instrument that settles the question**, including an end-to-end
-   pipeline group so the denominator is measured rather than assumed, and a
-   benchmarking configuration that can actually resolve the effects being
-   claimed. See Milestone 1.
-2. **The structural work that is worth doing on its own merits** — deleting a
-   full redundant sort of the whole edge list, deleting a whole-list
-   intermediate allocation, parallelizing a serial transform, hoisting a
-   per-weight-group allocation, and making error reporting deterministic. This
-   is roughly 150 net lines across two production files, needs no new
-   abstraction, and is where the achievable win actually lives. See Milestone 2.
-3. **Pre-registered, individually gated milestones** for everything expensive —
-   the packed sort record, the SIMD kernels, and the candidate pre-filter —
-   each with its own threshold and each with a documented null-result path,
-   following the precedent ADR-003 set for roadmap items 2.3.3 to 2.3.5.
-   Several of these are expected to end as null results, and that is a
-   successful outcome, not a failure.
+Neither task is a prerequisite for the other. This plan does not create a
+shared application-level SIMD framework, wrapper crate or public port, and it
+does not mark 2.2.8 complete or in progress.
 
-After Milestone 2 a developer can observe:
+## Inventory
 
-- `cargo bench -p chutoro-benches --bench mst` reports lower times for the
-  `parallel_kruskal` group at n = 500 and n = 1000, outside the measured noise
-  band, and a new `cpu_pipeline` group reports the end-to-end cost so the MST
-  share is a number rather than a guess.
-- `scripts/bench-mst-pipeline.sh` corroborates end to end through `hyperfine`
-  on the command-line interface, where the effect size is large enough for
-  whole-binary wall-clock timing to resolve it.
-- Clustering output is unchanged, now guarded by a property that compares the
-  **exact edge list** against the sequential oracle. The present suite compares
-  only total weight, edge count and component count, so a reordering regression
-  would pass today.
-- Error reporting is deterministic: with several invalid edges, the reported
-  `MstError` is always the one at the lowest input index, at any thread count.
+| Area                                                              | State                                  | Evidence or next action                                                        |
+| ----------------------------------------------------------------- | -------------------------------------- | ------------------------------------------------------------------------------ |
+| Parallel mutual-reachability transform                            | Done                                   | `cpu_pipeline/mod.rs:125-135`, PR #276 (#204)                                  |
+| Redundant `EdgeHarvest::new` sort removed                         | Done                                   | `cpu_pipeline/mod.rs:103-111` passes the transformed `Vec` directly; PR #276   |
+| Slice entry point `parallel_kruskal_from_edges(&[CandidateEdge])` | Done                                   | `mst/mod.rs:324-327`; `EdgeHarvest::as_slice` at `hnsw/types.rs:340`           |
+| Ordered validation buffer, lowest-index MST error                 | Done                                   | `mst/mod.rs:296-321`, PR #428 (#206)                                           |
+| Allocation-free weight-group extension                            | Done                                   | `extend_with_accepted_edges`, `mst/mod.rs:255-267`, PR #279 (#205)             |
+| Parallel core-distance searches                                   | Done                                   | `compute_core_distances`, `cpu_pipeline/mod.rs:221-239`, PR #431 (#389)        |
+| Two-pool determinism and concurrent union-find tests              | Done                                   | `mst/property/concurrency.rs:101`, `mst/union_find.rs:225-260`, PR #225 (#201) |
+| Non-exhaustive error-code enums                                   | Done                                   | `define_error_codes!` in `mst/error.rs:52-66`, PR #427 (#203)                  |
+| Users' guide MST error codes                                      | Done                                   | `docs/users-guide.md:531-564`, PR #434 (#207)                                  |
+| Pipeline benchmark and stage profile                              | Done                                   | `chutoro-benches/benches/pipeline.rs`, `pipeline-profile` feature, PR #431     |
+| Gate A on the current tree                                        | **Outstanding measurement**            | Milestone 1                                                                    |
+| Assembly inspection of scalar loops                               | **Outstanding measurement**            | Milestone 1                                                                    |
+| Exact-edge-list oracle property                                   | **Remaining**                          | Milestone 2                                                                    |
+| BDD scenarios for edge preparation                                | **Remaining**                          | Milestone 2                                                                    |
+| Deterministic transform lookup errors                             | **Remaining** (found in this revision) | Milestone 2                                                                    |
+| Dedup-before-sort                                                 | **Remaining, exactness-gated**         | Milestone 2                                                                    |
+| Gate B sub-stage instrument                                       | **Gated** on Gate A                    | Milestone 3                                                                    |
+| Packed sort record                                                | **Gated** on Gate A                    | Milestone 4                                                                    |
+| Candidate pre-filter (Filter-Kruskal)                             | **Gated** on Gate A and its own case   | Milestone 5                                                                    |
+| Fearless SIMD kernel                                              | **Gated** on Gates A and B             | Milestone 6                                                                    |
+| `fearless_simd = "1.2"`, `fearless_simd_macros = "0.1"`           | Authorized, **not added**              | Added only inside Milestone 6, after its gates pass                            |
+| Null-result record and roadmap closure                            | **Remaining**                          | Milestone 7                                                                    |
 
-## Relevant documentation and skills
+_Table 3: Completed, outstanding, gated and remaining work. Paths are relative
+to `chutoro-core/src/` unless shown otherwise._
 
-- `AGENTS.md` — commit discipline, quality gates, the 400-line file cap, the
-  abstraction/port/helper sweep policy, en-GB Oxford spelling for comments, the
-  ban on environment mutation inside tests, and the `tee`-to-`/tmp` logging
-  convention.
-- `docs/roadmap.md` §2.3 — the roadmap item being delivered.
-- `docs/chutoro-design.md` §3.2, §6.2 (parallel Kruskal sketch, lines 804-886),
-  §6.3 (SIMD utilization, lines 887-938 and the implementation-update log).
-- `docs/adr-003-soa-prefetch-adapter-boundary.md` — the precedent for gating
-  structural change on measurement and recording null results in place.
-- `docs/developers-guide.md` — "Benchmarks", especially "Benchmark regression
-  workflow" and its standing policy that Criterion is the primary signal and
-  `hyperfine` is corroboration.
-- `docs/property-testing-design.md`,
-  `docs/rust-testing-with-rstest-fixtures.md`,
-  `docs/rust-doctest-dry-guide.md`,
-  `docs/complexity-antipatterns-and-refactoring-strategies.md`,
-  `docs/documentation-style-guide.md`, `docs/contents.md`.
+## Governing references
 
-Skills: `leta` first (add the worktree as a workspace), then `rust-router` and
-`rust-performance-and-layout`, `rust-unit-testing`, `proptest`, `nextest`,
-`execplans`, `commit-message`, `pr-creation`, `en-gb-oxendict`. Load `kani`,
-`verus` and `hexagonal-architecture` only if the gated milestones proceed.
+Read these before editing anything:
+
+- `AGENTS.md`, `docs/contents.md`, `docs/documentation-style-guide.md`.
+- `docs/chutoro-design.md` §6.2 (parallel Kruskal sketch) and §6.3 (SIMD
+  utilization, with its dated implementation updates).
+- `docs/adrs/adr-0003-soa-prefetch-adapter-boundary.md`, the precedent for
+  gating structural change on measurement and recording null results in place.
+- `docs/adrs/adr-0006-sequential-trim-scoring.md`, the HNSW callback contract
+  behind Constraint 10.
+- `docs/developers-guide.md` "Whole-pipeline and stage-profile benchmarks"
+  (line 2725) and "Benchmark regression workflow" (line 2684).
+- `docs/users-guide.md` line 150 (the fixed `stage` label set) and "MST
+  errors" (line 531).
+
+Proposed, under review in PR #453 (read from `16042ce` until merged):
+
+- ADR 0007, "Fearless SIMD kernel boundary"
+  (`docs/adrs/adr-0007-fearless-simd-kernel-boundary.md`). Status: **Proposed**.
+- RFC 0001, "Fearless SIMD query-to-points"
+  (`docs/rfcs/rfc-0001-fearless-simd-query-to-points.md`), which governs 2.2.8
+  and is cited here only for its token, dispatch and MSRV findings.
+- The PR's §6.3 changes, including the new §6.3.1 "Fearless SIMD kernel
+  boundary", and its roadmap entries for 2.2.8 and 2.3.2.
+
+The architecture in ADR 0007 is a proposal under review. The **dependency
+authorization is already effective**: the maintainer gave it directly, and it
+does not depend on PR #453 merging. See the decision log.
+
+Library contract: Fearless SIMD 1.2.0 (released 2026-10-25, MSRV 1.89). The
+facts this plan relies on, from its changelog and API documentation:
+
+- 1.1.0 added the classification masks `is_nan`, `is_infinite`, `is_finite`,
+  `is_sign_positive` and `is_sign_negative`; order-preserving `compress`; and
+  `MaskWiden`/`MaskNarrow`.
+- 1.2.0 added `SimdFloat::to_bits` and `from_bits`.
+- `max` is implementation-defined when either operand is NaN, and for mixed
+  signed zeros.
+- `max_precise` returns the non-NaN operand when exactly one operand is a
+  quiet NaN. Its mixed signed-zero result is implementation-defined. With a
+  signalling NaN operand it is **fully non-deterministic**.
+- `from_slice` and `store_slice` require a slice of exactly the vector length.
+- The `Avx2` token denotes the x86-64-v3 feature bundle, and `Avx512` an Ice
+  Lake bundle. `Level::baseline()` returns `Sse2` on x86-64, so a baseline
+  token is already SIMD.
+- `assume_supported()` is the renamed unchecked constructor. This plan forbids
+  it.
+
+Skills: `leta` first, then `rust-router`, `rust-unit-testing`, `proptest`,
+`nextest`, `execplans`, `commit-message`, `pr-creation`, `en-gb-oxendict`. Load
+`rust-performance-and-layout` for Milestones 1, 4 and 6. Load `kani` for
+Milestone 6. Load `verus` and `hexagonal-architecture` only if Milestone 5
+proceeds.
 
 ## Constraints
 
-Hard invariants. Violation requires escalation, not a workaround.
+These are hard invariants. Violating one requires escalation, not a workaround.
 
 1. **Output equivalence.** For every input on which `parallel_kruskal` returns
    `Ok` today, it must return an identical `MinimumSpanningForest`: the same
-   edge sequence, including each edge's `sequence` value, and the same
-   `component_count`. "Accepts" means "returns `Ok`".
-2. **Two deliberate, documented divergences, and no others.** Error selection
-   narrows from unspecified to lowest-input-index. The dedup and weight-group
-   predicates may move from IEEE `==` to an order-consistent rule, which
-   differs only when `-0.0` and `+0.0` carry identical endpoints; Milestone 2
-   must demonstrate the final forest is unchanged in that case, or keep IEEE
-   `==`. Any third divergence is an escalation.
-3. **Determinism.** Identical input must produce byte-identical output at any
-   Rayon thread count. This is currently untested — see Surprises — and
-   Milestone 2 must add the test that makes it real.
-4. **No `unsafe`** anywhere in committed scope. Only a gated SIMD milestone may
-   introduce it, confined to its adapter module with a documented invariant
-   list and parity coverage.
-5. **Public API: additions only.** `parallel_kruskal`, `MstEdge`,
-   `MinimumSpanningForest`, `CandidateEdge` and `EdgeHarvest` keep their
-   signatures. `MstEdge` must not gain a field: it derives `PartialEq` and
-   `Debug`, both public and both observable. `MstErrorCode` is **not**
-   `#[non_exhaustive]`, so adding a variant to it is breaking and requires the
-   preparatory step in Milestone 2.
-6. **Minimum supported Rust version stays 1.89.0.** No nightly requirement in
-   the default build.
-7. **No new dependency** in any crate.
-8. **File-size cap:** no source file over 400 lines.
-   `chutoro-core/src/mst/mod.rs`
-   is at 344 and is being edited; split it if the work crosses the cap.
+   edge sequence, each edge's `sequence`, and the same `component_count`.
+   Weight identity means `f32::to_bits` equality, not `==`.
+2. **No behavioural divergence**, with one sanctioned exception. Error
+   selection in the mutual-reachability transform may narrow from scheduling
+   dependent to lowest input index (Milestone 2). That is a strengthening of an
+   unspecified behaviour. Any other divergence is an escalation.
+3. **Determinism.** Identical input produces identical output at any Rayon
+   thread count. This is enforced on `main` by
+   `run_thread_pool_determinism_property` (`mst/property/concurrency.rs:101`),
+   the error-selection tests in `mst/tests/error_selection.rs`, and
+   `concurrent_unions_match_sequential_partition` (`mst/union_find.rs:225`).
+   Nothing in this plan may weaken them.
+4. **No `unsafe`.** A Fearless SIMD kernel must use safe tokens and safe vector
+   operations only: no `assume_supported`, no `kernel!` intrinsic wrappers, and
+   no `core::arch` intrinsics.
+5. **Public API: no changes.** `parallel_kruskal`, `MstEdge`,
+   `MinimumSpanningForest`, `CandidateEdge`, `EdgeHarvest` and the `cpu`,
+   `metrics`, `skeleton` and `gpu` features keep their signatures and
+   semantics. No Fearless token, vector or mask appears in any public signature.
+   `MstEdge` must not gain a field.
+6. **MSRV 1.89.0** (`Cargo.toml:19`, `chutoro-core/Cargo.toml:5`). The
+   resolved dependency graph of any change must build on Rust 1.89. The
+   development toolchain is 1.99.1 (`rust-toolchain.toml`).
+7. **No new dependency, with one narrow exemption.** Milestone 6 may add
+   `fearless_simd = "1.2"` and, if used, `fearless_simd_macros = "0.1"`, as
+   caret requirements declared in `[workspace.dependencies]` and consumed only
+   by `chutoro-core` as optional dependencies activated by `cpu`. No other
+   dependency, in any crate, is authorized.
+8. **File-size cap:** no source file may exceed 400 lines.
+   `chutoro-core/src/mst/mod.rs` has 379 lines and
+   `chutoro-core/src/cpu_pipeline/mod.rs` has 307.
+   `chutoro-core/src/mst/union_find.rs` has exactly 400; any edit there must
+   first move its test module (from line 206) out.
 9. **Dependency direction:** `chutoro-core` must not depend on
-   `chutoro-providers-dense`.
+   `chutoro-providers-dense`, and must not adopt `DensePointView` or any other
+   dense packing type.
 10. **Do not modify** `chutoro-core/src/hnsw/**`,
-    `chutoro-core/src/hierarchy/**`,
-    or `chutoro-providers/dense/**`.
+    `chutoro-core/src/hierarchy/**` or `chutoro-providers/dense/**`. The HNSW
+    critical section carries ADR-0006's scheduling contract (PRs #386, #429 and
+    #432), and the dense provider is 2.2.8's territory.
+11. **Union-find stays scalar.** Its atomic access, lock ordering and dependent
+    traversals (`mst/union_find.rs`) are outside every kernel. Portable vectors
+    do not justify concurrent non-atomic reads.
 
 ## Tolerances (exception triggers)
 
-1. **Scope.** Milestone 2 exceeding 8 changed files or 250 net lines. Any gated
+1. **Scope.** Milestone 2 exceeding 8 changed files or 400 net lines. Any gated
    milestone exceeding 12 files or 600 net lines.
-2. **Interface.** Any change to an existing public signature; any new public
-   item beyond `EdgeHarvest::as_slice`.
-3. **Dependencies.** Any new manifest entry.
+2. **Interface.** Any change to an existing public signature, or any new public
+   item.
+3. **Dependencies.** Any manifest entry other than the two authorized in
+   Constraint 7, or either authorized entry added outside Milestone 6, or added
+   before its gates pass.
 4. **Iterations.** A gate failing after four consecutive fix attempts.
-5. **Evidence.** Any gated milestone failing its pre-registered threshold. Stop,
-   record the null result beside the roadmap item, and move on. This is the
-   expected outcome for at least one milestone.
+5. **Evidence.** A gated milestone failing its pre-registered threshold: stop,
+   record the null result beside the roadmap item, and continue with the
+   applicable remaining work. An inconclusive measurement counts as not passing.
 6. **Ambiguity.** Any place where this plan and the code disagree about current
-   behaviour. Revision 1 tripped this five times; see Surprises.
-7. **Verification cost.** A Kani harness over fifteen minutes, or a Verus proof
-   over five minutes.
+   behaviour. Revision 1 tripped this five times, and revisions 2 and 3 were
+   stale in more than ten places. See Surprises.
+7. **Verification cost.** A Kani harness over fifteen minutes, or a Verus
+   proof over five minutes.
 8. **Time.** More than four hours on a single milestone.
+
+## Measurement gates
+
+Both gates are pre-registered and must not be weakened. Their definitions here
+resolve the ambiguities that revisions 2 and 3 left open.
+
+### Gate A: current-pipeline opportunity (≥ 5%)
+
+```plaintext
+Gate A ratio = (T_mutual_reachability + T_kruskal) / T_whole_run
+```
+
+- `T_mutual_reachability` is the `mutual_reachability` stage
+  (`cpu_pipeline/mod.rs:103-108`): the parallel transform, including the
+  indexed core-distance reads, output allocation and error collection.
+- `T_kruskal` is the `kruskal` stage (`cpu_pipeline/mod.rs:110-113`): one whole
+  `parallel_kruskal_from_edges` call. That includes `prepare_edge_list` (its
+  validation, compaction, sort and dedup), the union-find walk and the final
+  forest sort. Preparation is nested inside it and must not be added again.
+- `T_whole_run` is the `whole_run` row the profile writes: one `Chutoro::run`
+  call on the decision workload.
+- `harvest_resort` is **removed** from the numerator. The redundant sort it
+  timed no longer exists: `build_mutual_reachability_forest` passes the
+  transformed `Vec` straight to `parallel_kruskal_from_edges`
+  (`cpu_pipeline/mod.rs:103-111`), and no `EdgeHarvest::new` call remains in
+  `cpu_pipeline/`. Do not reintroduce the sort to benchmark it.
+- **Passes** only if the lowest ratio across the repeated runs is at least 5%.
+  **Fails** if the highest ratio is below 5%. Anything else is inconclusive and
+  does not pass.
+
+### Gate B: classification and compaction share of Kruskal (≥ 10%)
+
+```plaintext
+Gate B ratio = T_classify_compact / T_kruskal
+```
+
+- `T_classify_compact` runs from entry to `prepare_edge_list` up to, but not
+  including, `edge_list.par_sort_unstable()` (`mst/mod.rs:296-311`; the sort is
+  at line 312). It covers the parallel `validate_and_canonicalize_edge` map
+  into the ordered `validated` buffer, both `Vec` allocations, and the
+  sequential scan that emits accepted `MstEdge` records and stops at the first
+  error.
+- Gate B excludes the sort, the dedup, `ConcurrentUnionFind::new`, the
+  weight-group walk, the final `forest_edges.sort_unstable()` and the
+  `EmptyGraph` check. It excludes the mutual-reachability transform, which sits
+  outside Kruskal.
+- It is measured on the tree as it stands after Milestones 2 and 4 (if 4
+  shipped), on the Gate A decision workload, using the same pass/fail rule.
+
+### Decision workload and method
+
+| Parameter            | Value                                                                                                                       |
+| -------------------- | --------------------------------------------------------------------------------------------------------------------------- |
+| Decision size        | `n = 10_000`; `n = 1_000` reported separately and never substituted                                                         |
+| Source               | `SyntheticSource::generate`, uniform `[0, 1)` coordinates                                                                   |
+| Dimensions, seed     | 16, 42 (`pipeline.rs` `DIMENSIONS`, `SEED`)                                                                                 |
+| HNSW                 | `M = 16`, `ef_construction = 32`, RNG seed 42                                                                               |
+| Clustering           | `min_cluster_size = 5`, `ExecutionStrategy::CpuOnly`                                                                        |
+| Harvested edge count | Record it: it is unmeasured. Revision 2's "about `16n`" is an estimate                                                      |
+| Build                | Cargo `bench` profile; `RUSTFLAGS` from `.cargo/config.toml` only, so no `target-cpu` and an x86-64 baseline (SSE2) codegen |
+| Toolchain            | 1.99.1 for measurement; 1.89 for MSRV checks                                                                                |
+| Hardware             | AMD Ryzen 9 3900 (Zen 2), 12 cores, 24 threads, AVX2 and FMA, no AVX-512                                                    |
+| Threads              | Decision: `RAYON_NUM_THREADS=4` under `taskset -c 0-3`. Supplementary: 1 thread (matches CI) and 8                          |
+| Backend              | Scalar (no SIMD kernel exists yet); every later run records the selected backend                                            |
+| Baseline commit      | `051d395` plus this branch's documentation commits, recorded by SHA at run time                                             |
+
+_Table 4: The pre-registered decision workload._
+
+The #389 ExecPlan records its profile host as "6-core Linux". That does not
+match the host described above. Treat its numbers as host-unverified history.
+
+Method:
+
+- Gate A uses the existing instrument unchanged: the `pipeline` Criterion
+  target with `--features pipeline-profile`. The profile performs one untimed
+  run per size. Repeat the profiled invocation five times, writing each run to
+  its own `CHUTORO_BENCH_PIPELINE_PROFILE_PATH`, and report the minimum, median
+  and maximum Gate A ratio at each size.
+- The noise band is the spread across those runs, together with the Criterion
+  interval for `pipeline/n=10000`. Report both. Revision 2 found that the `mst`
+  micro-benchmark's `local-reference` comparison reports ±12-17% "regressions"
+  on unchanged code, so stored-baseline comparisons are not evidence.
+- Candidate comparisons in Milestones 4 and 6 are **interleaved**: build both
+  candidate and baseline, alternate them in one session with
+  `--save-baseline`/`--baseline` pairs, run at least three alternations, and
+  use at least 100 samples and a 10-second measurement window for any group
+  where a win is claimed.
+- Criterion is the primary signal. `hyperfine` over `chutoro-cli` is
+  corroboration only, and only where the expected effect is larger than the
+  whole-binary noise. At the historical shares it is not, and the report must
+  say so rather than run it for show.
+- Union-find state is reinitialized for every timed trial. The pipeline and
+  `parallel_kruskal` paths already construct a fresh `ConcurrentUnionFind` per
+  call, inside the measured region. Any new micro-benchmark of the walk must use
+  `iter_batched` with fresh state and state whether its setup is timed.
 
 ## Risks
 
-- Risk: the whole roadmap item is not worth its cost. Measured evidence puts
-  `parallel_kruskal` at ≈ 0.22% of the HNSW build at n = 1000 and falling.
-  Severity: high. Likelihood: high. Mitigation: this is the plan's central
-  assumption, not a footnote. Milestone 1 measures the pipeline-relative share
-  directly. Milestone 2 is scoped to work that is cheap and correct regardless.
-  Everything else is individually gated and expected, in part, to be declined.
+- Risk: the targeted stages are too small to matter. Severity: high.
+  Likelihood: high on historical evidence, but unmeasured on the current tree.
+  Mitigation: Gate A decides it before any expensive work. Use the history
+  below to set expectations, not to make the decision.
 
-- Risk: the benchmark cannot resolve the effects being claimed.
-  Severity: high. Likelihood: **confirmed, not hypothetical**. Evidence: running
-  `cargo bench -p chutoro-benches --bench mst` twice on identical code produced
-  `change: [+9.4250% +11.801% +14.223%] (p = 0.00)` at n = 1000 and
-  `[+10.059% +16.669% +26.638%] (p = 0.00)` at n = 500, both reported as
-  "Performance has regressed", with three outliers among twenty samples.
-  Revision 1's acceptance criterion of "no group regressing by more than 3%"
-  would fire spuriously on every run. Mitigation: Milestone 1 fixes the
-  methodology before any production edit — larger sample sizes, longer
-  measurement windows, pinned cores and thread counts, interleaved A/B rather
-  than stored baselines, and n = 100 demoted to a tripwire.
+- Risk: the scalar loops are already effectively autovectorized, or would be
+  with a target-specialized build. Severity: medium. Likelihood: unknown.
+  Mitigation: Milestone 1 inspects the assembly before any kernel is proposed.
 
-- Risk: a SIMD `max` does not match `f32::max`. `_mm256_max_ps(a, b)` returns
-  `b` when either operand is NaN, so `max(5.0, NaN)` is `NaN` under the
-  intrinsic and `5.0` under `f32::max`. Through the mutual-reachability
-  transform that turns an accepted edge into a `NonFiniteWeight` error.
-  Severity: high. Likelihood: high if a SIMD milestone proceeds. Mitigation:
-  the transform's NaN and signed-zero semantics must be stated normatively and
-  differentially tested before any intrinsic is written.
+- Risk: a SIMD `max` silently changes accepted output. Severity: high.
+  Likelihood: high without explicit handling. `max_precise` is fully
+  non-deterministic on signalling NaNs and implementation-defined on mixed
+  signed zeros, while the scalar reference treats every NaN alike. Mitigation:
+  the exceptional-lane rule in "Semantic oracle".
 
-- Risk: narrowing node ids to `u32` silently accepts out-of-range edges.
-  `CandidateEdge::source()` is public `usize`;
-  `CandidateEdge::new(1 << 33, 1, 0.5, 0)` with `node_count = 10` correctly
-  errors today, but truncates to a valid id `0` if narrowed before validation.
-  Severity: high. Likelihood: medium. Mitigation: validate endpoints against
-  `node_count` in `usize` space, before any narrowing. Note that the workspace
-  Clippy table is **not** active in `chutoro-core` (see Surprises), so
-  `cast_possible_truncation` provides no automated guard here.
+- Risk: SIMD masks let a later error win, or let a padding lane create an error
+  or an edge. Severity: high. Likelihood: medium. Mitigation: scalar ordered
+  emission, no padding, and the tail and lane-boundary tests in Milestone 6.
 
-- Risk: padding lanes poison classification. Sentinels of `u32::MAX` and
-  `f32::INFINITY` are exactly the two values the validator rejects, so a
-  branch-free kernel classifying `padded_len()` lanes reports a padding index
-  as the first rejection on every input. Severity: high. Likelihood: high if a
-  SIMD milestone proceeds. Mitigation: pad index arrays with `0` and weights
-  with `0.0` (an inert self-loop, which the policy drops), mirroring the
-  zero-padding precedent in `chutoro-providers/dense/src/simd/point_view.rs`;
-  and restrict any min-rejection reduction to `[0, len)`.
+- Risk: endpoint narrowing silently accepts out-of-range edges.
+  `CandidateEdge::new(1 << 33, 1, 0.5, 0)` truncates to `0` under a `u32` cast.
+  Severity: high. Likelihood: medium if narrowing is attempted. Mitigation:
+  compare full-width 64-bit identifiers, and fall back to scalar on targets
+  where `usize` is not 64-bit.
 
-- Risk: pre-merge formal-verification signal is nil. `make kani` appears in no
-  workflow; `make kani-full` runs post-merge on `main` only, and
-  `docs/kani-full-hnsw-hypothesis-testing.md` records it as currently blocked.
-  Severity: medium. Likelihood: high. Mitigation: do not rest any acceptance
-  criterion on Kani. `make verus` **is** a pull-request gate (`ci.yml`), so a
-  Verus obligation — if one is introduced at all — is the only formal signal
-  that blocks a merge.
+- Risk: a later compatible 1.x release of Fearless SIMD raises its MSRV.
+  Severity: medium. Likelihood: medium over time. Mitigation: Milestone 6
+  checks the _resolved_ graph with Rust 1.89. The caret requirement alone
+  guarantees nothing.
 
-- Risk: the coverage ratchet (`ci.yml`, `with-ratchet: 'true'`) fails on added
-  code that the runner cannot execute, consuming the iteration tolerance for
-  reasons unrelated to correctness. Severity: medium. Likelihood: medium if a
-  SIMD milestone proceeds. Mitigation: keep committed scope small; treat a
-  ratchet failure on hardware-gated code as a Tolerance 5 evidence event, not a
-  bug to fight.
+- Risk: multiversioning increases compile time and binary size. Severity: low
+  to medium. Mitigation: Milestone 6 records both, and the macro crate is added
+  only if needed.
 
-- Risk: `googletest`, `pretty_assertions` and `insta` are named in `AGENTS.md`
-  but absent from this workspace entirely. Severity: low. Likelihood: high.
-  Mitigation: see the decision log. House style is plain assertions plus named
-  helpers, and this plan follows it.
+- Risk: no hardware here executes AVX-512 or AArch64 NEON. Severity: medium.
+  Likelihood: certain. Mitigation: those backends stay disabled until executed
+  differential evidence exists; see "Backend enablement".
+
+- Risk: new private items fail lint. `chutoro-core` inherits the workspace
+  table, including `missing_docs_in_private_items = "deny"` and
+  `cast_possible_truncation = "deny"` (`Cargo.toml:75`, `:91`). Mitigation:
+  document every item and lint workspace-wide. Running `cargo clippy -p` on a
+  subset can report false `missing_const_for_fn` failures.
 
 ## Progress
 
-Timestamps are mandatory: Tolerance 8 is a time tolerance and cannot be
-enforced without them. Split any partially completed item into "done" and
-"remaining" rather than leaving one checkbox ambiguous.
+Timestamps are mandatory (Tolerance 8).
 
-- [x] (2026-08-16) Revision 1 drafted.
-- [x] (2026-08-16) Six-lens community-of-experts design review completed;
-      findings recorded in `Surprises & discoveries` and `Decision log`.
-- [x] (2026-08-16) Measured `parallel_kruskal` on this branch at n = 100, 500
-      and 1000; recorded the noise band in `Artefacts and notes`.
-- [x] (2026-08-16) Verified `weight_key` against `f32::total_cmp` over 14 400
-      ordered pairs; zero mismatches.
+- [x] (2026-08-16) Revision 1 drafted; six-lens design review completed.
+- [x] (2026-08-16) Measured `parallel_kruskal` at n = 100, 500 and 1000;
+      verified `weight_key` against `f32::total_cmp` over 14 400 pairs.
 - [x] (2026-08-16) Revision 2 rewritten against the review.
-- [ ] Milestone 0: orientation and baseline gates.
-  - [ ] Record the baseline `make test` count (expected: 1058 passed,
-        1 skipped, per the 2.3.1 plan's recorded baseline — confirm and
-        correct if it has moved).
-  - [ ] `make check-fmt`, `make lint`, `make typecheck`, `make test` all green.
-- [ ] Milestone 1: measurement instrument and pipeline-relative go/no-go.
-  - [ ] Extract the union-find loop as a behaviour-preserving refactor.
-  - [ ] Add `chutoro-benches/benches/mst_prepare.rs` with five groups.
-  - [ ] Add and `shellcheck` `scripts/bench-mst-pipeline.sh`.
-  - [ ] Record the pipeline-relative ratio and the go/no-go outcome.
-- [ ] Milestone 2: committed structural work, with red tests first.
-  - [ ] Red: exact-edge-list oracle property.
-  - [ ] Red: two-thread-pool determinism test.
-  - [ ] Red: lowest-index error-selection test (record the failing output).
-  - [ ] Red: BDD feature and step glue, with fixtures fully specified.
-  - [ ] Green: the six production edits, one commit each.
-- [ ] Milestone 3 (gated): packed sort record and integer key.
-- [ ] Milestone 4 (gated): candidate pre-filter, only as real Filter-Kruskal.
-- [ ] Milestone 5 (gated): SIMD kernels.
-- [ ] Milestone 6: documentation, roadmap update, and final gates.
-  - [ ] CodeRabbit review round, run to convergence.
+- [x] (2026-08-16 to 2026-11-22) Revision 2 findings raised as issues #200 to
+      #207, tracked in #388 with #378 and #389.
+- [x] (2026-11-22) Rebased onto `main` at `051d395` with no conflicts.
+- [x] (2026-11-22) Revision 3 drafted (uncommitted); superseded by revision 4.
+- [x] (2026-11-22) Revision 4: reconciled against `051d395`, PR #453 at
+      `16042ce` and Fearless SIMD 1.2.0; recorded the dependency authorization.
+- [x] Delivered on `main` by other pull requests (see Table 3).
+- [ ] Milestone 0: baseline gates; record the `make test` count.
+- [ ] Milestone 1: Gate A measurement and assembly inspection.
+- [ ] Milestone 2: remaining guards.
+  - [ ] Exact-edge-list oracle property.
+  - [ ] BDD feature and step glue, with pinned fixtures.
+  - [ ] Lowest-index lookup errors in the transform.
+  - [ ] Dedup-before-sort, or a recorded reason for declining it.
+- [ ] Milestone 3 (gated on A): Gate B instrument and measurement.
+- [ ] Milestone 4 (gated on A): packed sort record.
+- [ ] Milestone 5 (gated on A and its own case): Filter-Kruskal.
+- [ ] Milestone 6 (gated on A and B): Fearless SIMD kernel.
+- [ ] Milestone 7: design-document update, roadmap and final gates.
 
 ## Surprises & discoveries
 
-Revision 1 of this plan asserted several things about the code that are false.
-They are recorded here because each one changed a design decision, and because
-Tolerance 6 makes plan-versus-code disagreement an escalation trigger.
+### Found in revision 4 (2026-11-22)
 
-- Observation: **`try_union` takes no lock on the cycle-rejection path.**
-  Evidence: `chutoro-core/src/mst/union_find.rs:49-56` calls `find` twice and
-  returns `Ok(false)` at the `left_root == right_root` check, before
-  `lock_order` or `lock_root` are reached. Impact: revision 1 justified the
-  entire candidate pre-filter on rejected edges paying "two path-compressing
-  `find` walks … inside a mutex-protected `try_union`". They pay two
-  path-halved walks and no mutex at all. The filter's justification collapses;
-  it is demoted to a gated milestone that must earn its place by measurement.
+- Observation: **the transform's lookup-error selection is nondeterministic.**
+  Evidence: `mutual_reachability_edges` (`cpu_pipeline/mod.rs:125-135`) collects
+  `par_iter().map(...)` straight into `Result<Vec<_>>`. The neighbouring
+  `collect_ordered_results` (`cpu_pipeline/mod.rs:249-260`) documents that this
+  "is not deterministic across thread counts". Impact: when several harvested
+  endpoints lack a core distance, which `GraphInvariantViolation` is reported
+  depends on scheduling. That is the same defect class as #206. Milestone 2
+  fixes it by reusing the existing helper.
 
-- Observation: **the workspace Clippy table is not active in `chutoro-core`.**
-  Evidence: `Cargo.toml` lines 25-89 define `[workspace.lints.clippy]`, but only
-  `chutoro-bench-datasets/Cargo.toml` carries `[lints] workspace = true`.
-  `chutoro-core/Cargo.toml:43-44` declares only `[lints.rust] unexpected_cfgs`.
-  Impact: `cast_possible_truncation`, `indexing_slicing`, `float_arithmetic` and
-  `unwrap_used` are inert in this crate. Revision 1's stated defence against
-  silent `usize`-to-`u32` truncation did not exist. The same gap applies to
-  `chutoro-cli`, `chutoro-providers/dense`, `chutoro-providers/text` and
-  `chutoro-test-support`, which carry no `[lints]` section at all. Tracked as
-  issue #200; opting the crates in is out of scope here and would not be quiet.
+- Observation: **the transform does not validate finiteness.** Evidence:
+  `mutual_reachability_edge` (`cpu_pipeline/mod.rs:139-160`) computes
+  `distance.max(left_core).max(right_core)` unconditionally. Finiteness is
+  checked later, by `validate_and_canonicalize_edge` (`mst/mod.rs:196-201`).
+  Impact: a NaN or `-inf` raw distance with a finite core distance yields a
+  finite, accepted weight today. A kernel that rejects non-finite operands
+  early would change which inputs are accepted.
 
-- Observation: **the concurrency property suite does not exercise concurrency.**
-  Evidence: `run_concurrency_safety_property`
-  (`chutoro-core/src/mst/property/concurrency.rs:22-93`) calls
-  `parallel_kruskal` five times sequentially on one thread. No test under
-  `chutoro-core/src/mst/` spawns threads. `ci.yml:24` and
-  `coverage-main.yml:30` both pin `RAYON_NUM_THREADS: '1'`. Impact:
-  `ConcurrentUnionFind`'s lock protocol, retry loop and memory orderings have
-  never been exercised concurrently. Constraint 3 is unenforced today. Revision
-  1 claimed this suite guarded the striped-lock design; it does not. Milestone
-  2 adds the test that makes Constraint 3 real.
+- Observation: **the scalar reference is not bit-deterministic for signed
+  zeros.** Evidence: the Rust 1.99.1 and 1.89 documentation for `f32::max` says
+  that when the inputs compare equal, "such as for the case of `+0.0` and
+  `-0.0`, either input may be returned non-deterministically". With exactly one
+  NaN operand, quiet or signalling, it returns the other. Impact: the semantic
+  oracle can require bit equality only against the scalar reference _as
+  compiled in the same binary_. It must treat mixed-zero ties as exceptional
+  lanes; see "Semantic oracle".
 
-- Observation: **`make kani` runs in no workflow, and `make kani-full` is
-  currently blocked.** Evidence: the only workflow reference is
-  `nightly-kani.yml:39`, running `make kani-full` against `ref: main`
-  post-merge. `docs/kani-full-hnsw-hypothesis-testing.md` §"Current conclusion"
-  records it failing on CBMC budget exhaustion in string-panic unwinding.
-  Impact: no Kani harness can be an acceptance criterion for a merge.
+- Observation: **signed zeros reach ordering.** `MstEdge::Ord` uses
+  `total_cmp` (`mst/mod.rs:64-78`), which orders `-0.0` before `+0.0`. The
+  dedup and the weight-group `chunk_by` use `partial_cmp == Equal`
+  (`mst/mod.rs:313-319`, `:351-356`), which treats them as equal. Impact: a
+  backend that returns a different zero sign can change the order within a
+  group, and therefore which duplicate survives and the order of acceptance.
 
-- Observation: **`MstErrorCode` is public, re-exported, and not
-  `#[non_exhaustive]`**, unlike `MstError`. Evidence:
-  `chutoro-core/src/mst/mod.rs:19` versus `:73-74`; both re-exported at
-  `chutoro-core/src/lib.rs:51`. Note `chutoro-core/src/error.rs:11-59` has a
-  `define_error_codes!` macro that emits `#[non_exhaustive]`; `MstErrorCode`
-  bypasses it. Impact: adding a variant is breaking for downstream exhaustive
-  matches.
+- Observation: **the `stage` label set is documented as fixed.** Evidence:
+  `docs/users-guide.md:150-157`. Impact: a Gate B sub-stage instrument cannot
+  quietly add labels. Milestone 3 records the choice explicitly.
 
-- Observation: **the mutual-reachability transform is not in `mst/`**, and the
-  harvest is sorted twice. Evidence: `chutoro-core/src/cpu_pipeline.rs:79-88`
-  holds the transform; line 89 wraps the result in `EdgeHarvest::new`, which
-  sorts by `(sequence, natural Ord)` at `chutoro-core/src/hnsw/types.rs:270`;
-  and `chutoro-core/src/mst/mod.rs:283` immediately re-sorts by weight. Impact:
-  one full sort of the entire edge list is pure waste and is the single largest
-  item in this plan. A third sort exists inside
-  `EdgeHarvest::from_parallel_inserts`, but Constraint 10 forbids touching
-  `hnsw/**`, so it is not recoverable here.
+- Observation: **`chutoro-core` has no SIMD code, backend selector or SIMD
+  feature.** Its features are `cpu` (default), `metrics`, `skeleton` and `gpu`
+  (`chutoro-core/Cargo.toml`), and nothing in `chutoro-core/src` uses
+  `core::arch` or `target_feature`. Impact: a core kernel needs its own private
+  selector. Reusing the dense selector would violate Constraint 9.
 
-- Observation: **`process_weight_group` allocates once per distinct weight.**
-  Evidence: `chutoro-core/src/mst/mod.rs:248` —
-  `let mut accepted = Vec::new();` inside a function called once per
-  equal-weight group, consumed by `forest_edges.extend(accepted)` at line 321.
-  Mutual-reachability weights are `f32`, so most groups have one member.
-  Impact: tens of thousands of allocation and free pairs at n = 10 000. Not
-  mentioned in revision 1; now part of committed scope.
+- Observation: **default builds target the x86-64 baseline.**
+  `.cargo/config.toml` sets no `target-cpu`, so autovectorization uses SSE2
+  only. Impact: Milestone 1 must inspect both the default build and an
+  `x86-64-v3` build before drawing conclusions.
 
-- Observation: **rayon's `try_reduce` error selection is nondeterministic by
-  construction**, not merely undocumented. It is left-biased only when both
-  sides are `Break`; the first `Break` sets a shared abort flag, other folders
-  return partial `Continue` values, and a later-index error can therefore win.
-  Impact: revision 1 proposed discovering this empirically. A 64-run probe on a
-  small input can pass by luck and record a false conclusion. It is decidable
-  from the source and is recorded here instead.
+- Observation: **revision 3 overstated the evidence.** It treated the #431
+  profile as deciding Gate A and "declined" Milestones 3 to 5. That profile
+  predates `051d395`, comes from a host described differently, and is a single
+  untimed run per size. Revision 4 restores Gate A as an outstanding
+  measurement.
 
-- Observation: **there are three MST properties, not four**
-  (`chutoro-core/src/mst/property/mod.rs`), and
-  `test_cases_count_matches_macro_expectations` guards the eleven-entry case
-  list, not the property count.
+### Found while rebasing (revision 3)
 
-- Observation: **the development machine has no AVX-512.**
-  Evidence: `/proc/cpuinfo` reports no `avx512f` on the Ryzen 9 3900 (Zen 2).
-  Impact: an AVX-512 backend would sit at the top of the dispatch priority,
-  ship to users, and never be executed or parity-tested locally.
+- Most of revision 2's committed structural work landed piecemeal through
+  issue-driven pull requests (Table 3).
+- A third discarded `(sequence, natural Ord)` sort survives in
+  `EdgeHarvest::from_parallel_inserts` (`hnsw/cpu/collectors.rs:72-85`,
+  `hnsw/types.rs:302-303`). It is recorded as future work in
+  `docs/chutoro-design.md` lines 1318-1323 and is unrecoverable here under
+  Constraint 10.
+- The oracle-equivalence property still compares only aggregates
+  (`SequentialMstResult`, `mst/property/oracle.rs:70-77`). A
+  `sequential_kruskal_edges` helper (`oracle.rs:112`) now exists.
+- There are no BDD scenarios for the MST.
+- Verus runs through `VERUS_PROOF_FILES` (`Makefile:129-131`) and
+  `rust-prover-tools`, not `scripts/run-verus.sh`. ADRs live in
+  `docs/adrs/adr-000N-*.md`.
+- The first session-path MST caller will be roadmap item 11.2.1
+  (`ClusteringSession::refresh`). The only production caller today is
+  `cpu_pipeline/mod.rs:111`.
 
-- Observation: **no workflow compiles NEON, and the parity suite passes when
-  no SIMD backend runs.** Evidence: every job in `.github/workflows/` uses
-  `ubuntu-latest` or `ubicloud-standard-8`, both x86_64, while the dense
-  provider's NEON kernels are gated on `target_arch = "arm"`/`"aarch64"` — so
-  they have never been compiled, linted or executed by any gate, despite
-  `simd_neon` being default-on. Separately, `dispatch::enabled_backends()`
-  intersects compiled features with runtime CPUID and the parity suite only
-  asserts the result is non-empty, which `Scalar` alone satisfies. Impact: a
-  SIMD milestone here would add NEON kernels to that void inside the crate
-  every consumer depends on, and its parity suite could pass having exercised
-  nothing. If Milestone 5 proceeds, it must exclude NEON absent an ARM runner,
-  and must assert that the intended backend actually ran.
+### Revision 2 findings, now resolved on `main`
 
-- Observation: **the users' guide has no MST error section at all.** "Error
-  handling" (`docs/users-guide.md`) documents only `ChutoroError` and
-  `DataSourceError`. The surface most users actually see is
-  `ChutoroError::CpuMstFailure { code }`.
+- The workspace lint table was inert in most crates: fixed by #200 (PR #228).
+- The concurrency property did not exercise concurrency: fixed by #201 (PR
+  #225). `ci.yml:47` and `coverage-main.yml:53` still pin
+  `RAYON_NUM_THREADS: '1'`, which is why tests use explicit pools.
+- No Kani harness gated a merge: fixed by #202 (PR #227).
+  `.github/workflows/kani-pr.yml` runs `make kani` for pull requests touching
+  `**/kani_*.rs` and `mst/kani_harness.rs`. `make kani` (`Makefile:292-297`)
+  includes two MST harnesses, and `kani-full` is unblocked per
+  `docs/kani-full-hnsw-hypothesis-testing.md` §"Current conclusion".
+- `MstErrorCode` was exhaustive: fixed by #203 (PR #427).
+- The double sort, the per-group allocation and the nondeterministic MST error
+  selection were fixed by #204, #205 and #206.
+- The users' guide lacked MST errors: fixed by #207 (PR #434).
+- The serial core-distance loop: fixed by #389 (PR #431). The incremental
+  session path remains serial by design (`docs/chutoro-design.md` lines
+  929-933).
+- The parallel-build deadlock: fixed by #378 (PRs #386 and #429, ADR-0006),
+  with the liveness fix completed in PR #432.
 
-- Observation: **`googletest`, `pretty_assertions` and `insta` are absent** from
-  `Cargo.lock` and from every source file.
+### Revision 2 findings, still true
+
+- `try_union` takes no lock on the cycle-rejection path
+  (`mst/union_find.rs:57-62`). That is why a post-sort connectivity sweep earns
+  nothing.
+- The development machine has no AVX-512, and no workflow runs on ARM. Every
+  `runs-on` is `ubuntu-latest` or an x86-64 `ubicloud-standard-*` runner.
+- `googletest`, `pretty_assertions` and `insta` are absent from `Cargo.lock`.
+
+## Historical measurements (dated; not current facts)
+
+**2026-08-16, revision 2, branch tree before PR #276.** `parallel_kruskal` took
+1.8781 ms [1.8448, 1.9128] at n = 1000, against an 853.60 ms
+`CpuHnsw::build_with_edges`, which is about 0.22% of the build. That comparison
+**excluded the mutual-reachability transform and did not measure the whole
+pipeline**, so it cannot set a present-day ceiling. Revision 2's figures of
+13-17 ms at n = 10 000, about 0.07%, and 150-200 ms at n = 100 000 are
+**extrapolations**, not measurements.
+
+**2026-11-17 to 2026-11-19, #389 ExecPlan, a `main` predating `051d395`.**
+These figures come from one untimed profiled run per size at
+`RAYON_NUM_THREADS=4`, after core distances were parallelized:
+
+| Stage                 | n = 1000   | Share  | n = 10 000  | Share  |
+| --------------------- | ---------- | ------ | ----------- | ------ |
+| `whole_run`           | 1.298107 s | 100%   | 29.621945 s | 100%   |
+| `core_distances`      | 0.172432 s | 13.28% | 3.602843 s  | 12.16% |
+| `mutual_reachability` | 0.013450 s | 1.04%  | 0.027135 s  | 0.09%  |
+| `kruskal`             | 0.002713 s | 0.21%  | 0.021009 s  | 0.07%  |
+
+_Table 5: Historical stage profile from the #389 ExecPlan (lines 860-935). Not
+a Gate A result._
+
+On those numbers the Gate A ratio would be about 1.25% at n = 1000 and 0.16% at
+n = 10 000. That is an expectation for Milestone 1, not its outcome.
 
 ## Decision log
 
-- Decision: lead the plan with the measured MST share and scope the work to
-  match, rather than to the roadmap wording. Rationale: `parallel_kruskal` is ≈
-  0.22% of the HNSW build at n = 1000 and falling. ADR-003 exists precisely to
-  stop plausibility-driven structural change; applying it to this item means
-  the expensive parts must be gated and may well be declined. Date/Author:
-  2026-08-16, planning agent.
+- Decision (2026-11-22): record the maintainer's dependency authorization as a
+  narrow exemption to Constraint 7 and Tolerance 3. The authorized entries are
+  `fearless_simd = "1.2"` and, where `#[simd]` is used,
+  `fearless_simd_macros = "0.1"`, for a justified, gated kernel. The exemption
+  is effective now and needs no further permission. It is independent of ADR
+  0007's review status: ADR 0007 is the proposed architecture, and this plan
+  follows it as guidance. If it is amended before merging, re-check Milestone
+  6. The exemption does not authorize unrelated dependencies, an MSRV increase,
+  unconditional vectorization, or changes to public feature semantics. This
+  revision changes no manifest or lockfile.
 
-- Decision: drop the structure-of-arrays staging layer, the policy value
-  object, the kernel function-pointer table and the backend dispatch enum from
-  committed scope. Rationale: five parallel `Vec`s cannot be sorted —
-  `par_sort_unstable` is a slice method — so the design silently required
-  either a permutation sort with five gathers or a round trip back to an
-  array-of-structures record, and the latter is what a packed record gives
-  directly and more cheaply. The policy object could not carry an `MstError`
-  through a lane-oriented kernel, so it would have been decorative at exactly
-  the boundary it existed to protect. This is the "pattern transplant" failure
-  the hexagonal-architecture guidance warns against. Date/Author: 2026-08-16,
-  planning agent, after design review.
+- Decision (2026-11-22): 2.2.8 and 2.3.2 stay independent (Table 2). Sharing a
+  dependency does not justify a shared framework. Core kernels live in
+  `chutoro-core` and never depend on the dense provider.
 
-- Decision: demote the candidate pre-filter to a gated milestone, and require
-  it to be real Filter-Kruskal (partition, then filter) if it proceeds at all.
-  Rationale: its stated justification was factually wrong about `try_union`.
-  Filter-Kruskal's saving is asymptotic in the _sort_ — filtered edges are
-  never sorted. Taking `filter` without `partition` keeps the sweep cost and
-  discards the win. The estimated net effect of the post-sort variant at n = 10
-  000 is a loss of two to three milliseconds. It is also strictly worse on
-  disconnected graphs, the common HDBSCAN case, because `is_mst_complete`
-  (`mst/mod.rs:257-263`) requires `components() == 1` to break early, so the
-  loop must scan every edge while the filter's halving trigger has already
-  stopped firing. Date/Author: 2026-08-16, planning agent, after design review.
+- Decision (2026-11-22): withdraw revision 3's "declined on recorded evidence".
+  Gate A must be measured on the current tree under Table 4. Revision 3's
+  replacement of revision 2's bespoke benchmark with the `pipeline` target and
+  profile stands for Gate A, because that instrument reports exactly the Gate A
+  terms. Gate B needs a sub-stage instrument, which Milestone 3 builds only if
+  Gate A passes.
 
-- Decision: do not add a `key` field to `MstEdge`.
-  Rationale: `MstEdge` derives `PartialEq` and `Debug` and both are public and
-  observable. A key field would make `weight: -0.0` and `weight: 0.0` compare
-  unequal where they compare equal today, and would change `{:?}` output. Any
-  packed record stays internal to the preparation stage and is converted to
-  `MstEdge` at the end. Date/Author: 2026-08-16, planning agent, after design
-  review.
+- Decision (2026-11-22): remove `harvest_resort` from the Gate A numerator,
+  after verifying that the sort is gone (see Gate A).
 
-- Decision: do not narrow the union-find's parent and rank arrays.
-  Rationale: at eight bytes per parent the level-two cache crossover is around
-  n = 65 536, more than six times the largest benchmark point, so the claimed
-  cache benefit is unfalsifiable by this plan's own instrument. It would also
-  have cost a breaking `MstErrorCode` variant and a users'-guide entry to guard
-  a `node_count > u32::MAX` condition that needs roughly 1.5 TB of memory to
-  reach. §6.3 asks for "cache-friendly structure-of-arrays parent and rank
-  arrays"; `union_find.rs:20-22` already stores parents and ranks as separate
-  arrays, so the constraint is satisfied. Milestone 6 documents that rather
-  than churning it. Date/Author: 2026-08-16, planning agent, after design
-  review.
+- Decision (2026-11-22): keep the pre-registered Milestone 6 entry rule exactly
+  as revision 2 wrote it. The whole SIMD milestone, transform kernel included,
+  requires Gate A **and** Gate B. Transform timing stays out of Gate B's
+  numerator, because the transform sits outside Kruskal. This means a
+  transform-only SIMD win cannot proceed while classification and compaction
+  are below 10% of Kruskal. Changing that would weaken a pre-registered gate,
+  so it is **flagged for the maintainer** as open question Q1 rather than
+  decided here.
 
-- Decision: keep `hyperfine` in the plan, but point it at the command-line
-  interface end to end rather than at a Criterion binary. Rationale: the task
-  requires a `hyperfine` validation. At ten runs of whole-binary wall time it
-  has no power to resolve a sub-millisecond effect inside a Criterion harness
-  dominated by setup builds and warm-ups. End to end over the CLI, the effect
-  is measured against something `hyperfine` can see. `docs/developers-guide.md`
-  already states that Criterion is the primary signal and `hyperfine` is
-  corroboration. Date/Author: 2026-08-16, planning agent, after design review.
+- Decision (2026-11-22): resolve the signed-zero and signalling-NaN conflict
+  between `max_precise` and `f32::max` with an exceptional-lane rule (see
+  "Semantic oracle"). Lanes whose operands include any NaN, or whose result is
+  a zero produced from operands of mixed zero sign, are recomputed with the
+  chutoro scalar expression. Nothing is normalized. The kernel defers to the
+  same compiled scalar code the build uses today. Compatibility evidence comes
+  from the differential tests in Milestone 6.
 
-- Decision: follow the repository's actual assertion style rather than adopting
-  `googletest` and `pretty_assertions`; no `insta`. Rationale: none of the
-  three appears anywhere in this workspace. Adding two test-framework
-  dependencies as a side effect of a hot-path optimization is a cross-cutting
-  change with its own review surface and breaches Tolerance 3. `AGENTS.md`
-  scopes `insta` to "multivariant output format consistency"; this work
-  produces a `Vec<MstEdge>`, and exact structural equality is the stronger
-  assertion. If the user wants those crates adopted, that is a separate,
-  workspace-wide change. Date/Author: 2026-08-16, planning agent.
+- Decision (2026-11-22): start any kernel with SIMD classification and scalar
+  ordered emission. Use `compress` only if the measured emission cost after the
+  first kernel justifies it, and then only under the joint-field rules in
+  Milestone 6.
 
-- Decision: add a doctest only to `EdgeHarvest::as_slice`, and to no other new
-  item. Rationale: `AGENTS.md` requires examples in function documentation, but
-  every other item this plan adds is `pub(crate)` or private, and rustdoc does
-  not run doctests on non-public items, so they would be unexecuted prose.
-  `as_slice` is the one genuinely public addition. Recorded rather than
-  silently omitted. Date/Author: 2026-08-16, planning agent, after design
-  review.
+- Decision (2026-11-22): try `Simd::vectorize` before adding
+  `fearless_simd_macros`. Add the macro only if assembly shows the generic body
+  compiled without the token's target features, and record its compile-time
+  cost.
 
-- Decision: register this plan in `docs/contents.md` now, not at Milestone 6.
-  Rationale: the plan explicitly contemplates halting at the Milestone 1
-  go/no-go. Deferring registration means that in the most likely outcome the
-  document is never indexed at all. Date/Author: 2026-08-16, planning agent,
-  after design review.
+- Decision (2026-08-16, still in force): no `key` field on `MstEdge`; do not
+  narrow the union-find arrays, which are already separate
+  (`union_find.rs:20-28`); use plain assertions rather than adding `googletest`,
+  `pretty_assertions` or `insta`; register this plan in `docs/contents.md`,
+  which is done.
 
-- Decision: introduce no Verus obligation unless Milestone 4 proceeds, and if
-  it does, target **root-identity monotonicity** rather than partition
-  coarsening. Rationale: revision 1's proposed lemma had `ensures` as a direct
-  instantiation of its own `requires`, so Verus would discharge it in one step
-  — the restatement that `AGENTS.md` explicitly forbids. It also modelled an
-  abstract partition with no root identifiers, whereas the invariant the filter
-  actually depends on is that `parents[n] == n` is a one-way transition, so a
-  root identifier is never reused for a different component. That is
-  non-trivial and is the load-bearing property. Date/Author: 2026-08-16,
-  planning agent, after design review.
+- Decision (2026-08-16, still in force): any pre-filter must be real
+  Filter-Kruskal (partition, then filter). Its earlier justification rested on
+  a false claim about `try_union` locking.
+
+- Superseded: revision 2's `mst_prepare.rs` five-group benchmark (its
+  `harvest_resort` and `mutual_reachability` groups are obsolete or covered by
+  the profile), its union-find loop extraction (needed only for Milestone 5),
+  `scripts/bench-mst-pipeline.sh`, and `PROOF_FILES` in `scripts/run-verus.sh`.
 
 ## Context and orientation
 
-This section assumes no prior knowledge of the repository.
-
 ### Terms
 
-- **HNSW** — Hierarchical Navigable Small World, the approximate
-  nearest-neighbour index built first (`chutoro-core/src/hnsw/`).
-- **Candidate edge** — a `(source, target, distance, sequence)` record emitted
-  during HNSW insertion (`chutoro-core/src/hnsw/types.rs:146-152`). `sequence`
-  is a monotonic counter used only for deterministic tie-breaking.
-- **Edge harvest** — `EdgeHarvest`, a newtype over `Vec<CandidateEdge>` whose
-  constructors always sort by `(sequence, natural Ord)`.
-- **Core distance** — the distance from a point to its `k`-th nearest
-  neighbour, computed at `chutoro-core/src/cpu_pipeline.rs:65-77`.
-- **Mutual reachability** — the FISHDBC edge weight
-  `max(d(u, v), core(u), core(v))`, computed at `cpu_pipeline.rs:85`.
-- **MSF / MST** — minimum spanning forest, and its connected special case.
-- **Union-find** — the disjoint-set structure answering "already connected?"
-  (`chutoro-core/src/mst/union_find.rs`).
+- **HNSW** (Hierarchical Navigable Small World) is the approximate
+  nearest-neighbour index (`chutoro-core/src/hnsw/`).
+- **Candidate edge** is `CandidateEdge` (`hnsw/types.rs:159`): `source: usize`,
+  `target: usize`, `distance: f32`, `sequence: u64`. It is an
+  array-of-structures record, 32 bytes on 64-bit targets.
+- **Core distance** is the distance to a point's `min_cluster_size`-th nearest
+  non-self neighbour (`compute_core_distances`, `cpu_pipeline/mod.rs:221`).
+- **Mutual reachability** is the weight
+  `distance.max(core[source]).max(core[target])`, evaluated in that order
+  (`cpu_pipeline/mod.rs:154-157`).
+- **Fearless SIMD token** is a zero-sized value proving that a CPU feature
+  bundle is available, obtained safely from `Level::new()`.
 
 ### Current control flow
 
-`run_cpu_pipeline_with_len` (`cpu_pipeline.rs:47-106`) builds the HNSW index
-and harvests edges; computes core distances in a **serial** loop; applies the
-mutual-reachability transform in a **serial** `.iter().map()`; builds the MSF;
-extracts labels.
+`run_cpu_pipeline_with_len` (`cpu_pipeline/mod.rs:30`) runs these steps in
+order:
 
-`parallel_kruskal` (`mst/mod.rs:188-193`) delegates to
-`parallel_kruskal_from_edges` (lines 290-335), which calls `prepare_edge_list`
-(lines 265-288) and then walks the sorted list in equal-weight groups, handing
-each to `process_weight_group` (lines 241-255), which calls `try_union`
-sequentially. `cpu_pipeline.rs:91` is the only production call site;
-`chutoro-core/src/session/` does not yet call the MST at all.
+1. `build_index_and_core_distances` (line 61) builds HNSW, harvests edges, and
+   computes core distances in parallel. This is the `core_distances` stage.
+2. `build_mutual_reachability_forest` (line 97) computes
+   `mutual_reachability_edges` (the `mutual_reachability` stage), then calls
+   `parallel_kruskal_from_edges` (the `kruskal` stage).
+3. Labels are extracted.
 
-## Interfaces and dependencies
+Inside `parallel_kruskal_from_edges` (`mst/mod.rs:324-371`):
 
-Committed scope adds exactly one public item:
+1. It checks `EmptyGraph`.
+2. `prepare_edge_list` (lines 296-321) runs parallel validation into an
+   ordered buffer, then a sequential scan to the first error or the accepted
+   edges. It then calls `par_sort_unstable` by `MstEdge::Ord`, and finally
+   dedups on equal weight and endpoints.
+3. It allocates the union-find.
+4. It walks the `chunk_by` equal-weight groups through
+   `extend_with_accepted_edges`, with an early exit on `is_mst_complete`.
+5. It sorts the forest.
 
-```rust
-impl EdgeHarvest {
-    /// Returns the harvested edges as a contiguous slice.
-    #[must_use]
-    pub fn as_slice(&self) -> &[CandidateEdge] { &self.0 }
-}
-```
+## Semantic oracle
 
-and changes one crate-internal signature, whose only callers are
-`mst/mod.rs:192` and `mst/kani_harness.rs:102,155`:
+Every candidate implementation is compared with these rules. Each is exact.
 
-```rust
-pub(crate) fn parallel_kruskal_from_edges(
-    node_count: usize,
-    edges: &[CandidateEdge],
-) -> Result<MinimumSpanningForest, MstError>;
-```
+**Transform.** For each edge, in input order:
 
-`chutoro-core/src/cpu_pipeline.rs` gains one private helper, keeping the
-density model in the pipeline where it belongs rather than pushing it into the
-MST module:
+1. Look up `core[source]`, then `core[target]`, with checked `get`. A missing
+   entry is `GraphInvariantViolation` naming the endpoint role and node.
+2. Compute `weight = distance.max(core[source]).max(core[target])` with Rust's
+   `f32::max`, in that order.
+3. Keep endpoints and `sequence` unchanged.
+4. Accept every input value, including NaN, ±infinity and ±0. The transform
+   validates nothing else.
+5. With several failing lookups, report the lowest input index. Within one
+   edge, the source lookup comes before the target lookup.
 
-```rust
-/// Applies the mutual-reachability transform to every harvested edge.
-///
-/// Weight is `max(distance, core[source], core[target])`, using `f32::max`
-/// semantics: a NaN operand is ignored unless both are NaN. Signed-zero sign
-/// is unspecified, matching the current implementation.
-fn mutual_reachability_edges(harvest: &EdgeHarvest, core_distances: &[f32]) -> Vec<CandidateEdge>;
-```
+**Exceptional lanes.** A lane is exceptional if either of these holds:
 
-Milestone 3, only if gated in, adds a crate-internal packed record. It is never
-exposed and never stored in `MstEdge`:
+- any of its three operands is NaN, quiet or signalling; or
+- its result is `+0.0` or `-0.0` and its operands include both `+0.0` and
+  `-0.0`.
 
-```rust
-/// Sort-ready edge record: 24 bytes against `MstEdge`'s 32.
-#[derive(Clone, Copy, Debug, Eq, Ord, PartialEq, PartialOrd)]
-struct PreparedEdge {
-    key: u32,      // order-preserving image of the weight
-    source: u32,
-    target: u32,
-    sequence: u64,
-}
+These are exactly the cases where `max_precise` is non-deterministic or
+implementation-defined, or where scalar `f32::max` is itself free to choose.
+Exceptional lanes are recomputed with the step 2 expression in chutoro scalar
+code. Every other lane's vector result must equal the scalar result bit for
+bit. The kernel detects both conditions with `is_nan`, `is_sign_negative` and
+equality to zero, so the check stays vectorized.
 
-/// Maps an `f32` to a `u32` whose unsigned order matches `f32::total_cmp` for
-/// every bit pattern, including both signed zeros and both signs of quiet and
-/// signalling NaN.
-///
-/// The predicate is on the **sign bit**, not on numeric negativity: `-0.0` is
-/// not less than zero and NaN compares false against everything, so a
-/// `weight < 0.0` test produces a silently wrong key.
-const fn weight_key(weight: f32) -> u32 {
-    let bits = weight.to_bits();
-    let sign_mask = 0u32.wrapping_sub(bits >> 31); // all ones iff sign bit set
-    bits ^ (sign_mask | 0x8000_0000)
-}
-```
+**Validation and classification.** For each transformed edge, in input order:
 
-This formula was verified on this branch against `f32::total_cmp` over 14 400
-ordered pairs spanning ±NaN (quiet and signalling), ±infinity, ±0.0, denormals
-and a strided sweep of the exponent and mantissa space, with zero mismatches.
-It uses no signed casts, so it is safe under the workspace lint table should
-`chutoro-core` ever opt in.
+1. If `source >= node_count`, report `InvalidNodeId` with the original source.
+2. Else if `target >= node_count`, report `InvalidNodeId` with the original
+   target.
+3. Else if the weight is not finite, report `NonFiniteWeight` with the
+   original `(source, target)` orientation.
+4. Else if `source == target`, drop the edge silently.
+5. Otherwise emit `MstEdge` with canonical `(min, max)` endpoints, the same
+   weight bits and the same `sequence`.
+
+The first error by input index wins, and checks run in the order above.
+`EmptyGraph` is decided before any edge is inspected.
+
+**Ordering.** Sort, dedup, group, union-find walk and final sort are unchanged,
+so the forest is identical under Constraint 1.
 
 ## Plan of work
 
-### Milestone 0: orientation and baseline gates
+### Milestone 0: baseline gates
 
-No code changes. Confirm the branch, a clean tree, and passing gates, so later
-failures are attributable.
+No code changes.
 
 ```sh
 set -o pipefail
 git branch --show-current
 make check-fmt 2>&1 | tee /tmp/check-fmt-chutoro-2-3-2-baseline.out
-make lint      2>&1 | tee /tmp/lint-chutoro-2-3-2-baseline.out
 make typecheck 2>&1 | tee /tmp/typecheck-chutoro-2-3-2-baseline.out
+make lint      2>&1 | tee /tmp/lint-chutoro-2-3-2-baseline.out
 make test      2>&1 | tee /tmp/test-chutoro-2-3-2-baseline.out
 ```
 
-Expect the last command to end with a summary of the form:
+Record the exact `make test` summary in `Progress`. Revision 2's figure of 1058
+tests is stale. Under compile-slot contention, a nextest global-timeout
+`SIGTERM` is not a test failure: check `FAIL=0` and the timeout's provenance.
 
-```plaintext
-     Summary [  ##.###s] 1058 tests run: 1058 passed, 1 skipped
+### Milestone 1: Gate A and assembly inspection
+
+1. Measure Gate A five times on the Table 4 workload:
+
+   ```sh
+   set -o pipefail
+   for run in 1 2 3 4 5; do
+     CHUTORO_BENCH_PIPELINE_PROFILE_PATH="/tmp/2-3-2-profile-$run.csv" \
+     RAYON_NUM_THREADS=4 taskset -c 0-3 \
+       cargo bench -p chutoro-benches --features pipeline-profile --bench pipeline \
+       2>&1 | tee "/tmp/bench-pipeline-chutoro-2-3-2-$run.out"
+   done
+   ```
+
+   Record the harvested edge count, the per-run ratios at both sizes, their
+   minimum, median and maximum, and the Criterion interval. Repeat once at one
+   thread and once at eight threads, and report those runs separately.
+
+2. Inspect the optimized assembly of the two scalar loops: the transform
+   closure in `mutual_reachability_edges` and the validation map in
+   `prepare_edge_list`. Do this for the default build and for
+   `-C target-cpu=x86-64-v3`:
+
+   ```sh
+   set -o pipefail
+   RUSTFLAGS="--emit=asm -C debuginfo=0" \
+     cargo build --release -p chutoro-core --target-dir target/asm-default \
+     2>&1 | tee /tmp/asm-default-2-3-2.out
+   RUSTFLAGS="--emit=asm -C debuginfo=0 -C target-cpu=x86-64-v3" \
+     cargo build --release -p chutoro-core --target-dir target/asm-v3 \
+     2>&1 | tee /tmp/asm-v3-2-3-2.out
+   ```
+
+   Search the emitted `.s` files for the mangled closure symbols. Record
+   whether the loop bodies contain packed instructions (`maxps`, `vmaxps`,
+   `cmpps`, `vpcmpgtq` and so on) or only scalar ones (`maxss`, `ucomiss`). The
+   array-of-structures layout is expected to defeat autovectorization, but that
+   is an expectation, not a finding. Both builds use their own target
+   directories, because overriding `RUSTFLAGS` would otherwise invalidate the
+   shared `target/` cache. Both still queue for compile admission as normal.
+   `cargo asm` is not installed.
+
+3. Decide and record the outcome. If Gate A fails, Milestones 3 to 6 are
+   declined: record the ratio, then complete Milestones 2 and 7. If it is
+   inconclusive, tighten the method once (more runs, a quieter host window). If
+   it is still inconclusive, treat it as a failure, as Tolerance 5 requires.
+
+### Milestone 2: remaining guards (always executed)
+
+None of these changes accepted output.
+
+1. **Exact-edge-list oracle property.** Strengthen
+   `run_oracle_equivalence_property` (`mst/property/equivalence.rs`) so that it
+   asserts exact edge-list equality with `sequential_kruskal_edges`
+   (`oracle.rs:112`): the same endpoints, `sequence` and `weight.to_bits()`, in
+   the same order, while keeping the aggregate checks for diagnostics. Validate
+   the property by deliberate mutation: reverse the tie-break in
+   `MstEdge::Ord`, confirm the property fails, then revert. Record both
+   outcomes.
+
+2. **BDD scenarios.** Add
+   `chutoro-core/tests/features/mst_edge_preparation.feature` and
+   `chutoro-core/tests/mst_edge_preparation_bdd.rs`, following
+   `tests/session_append_bdd.rs`: a `World` struct, a `#[fixture] fn world()`,
+   steps returning `rstest_bdd::StepResult<(), BddStepError>`, and one
+   `#[scenario]` function per scenario. Use only the public API.
+
+   ```gherkin
+   Feature: Minimum spanning forest edge preparation
+
+     Scenario: Mutual-reachability weights drive forest selection
+       Given a graph with 6 nodes and 9 candidate edges
+       And core distances that raise the weight of edge 3
+       When I build the minimum spanning forest
+       Then the forest has 5 edges
+       And the forest excludes edge 3
+
+     Scenario: Duplicate candidate edges are collapsed
+       Given a graph with 4 nodes and 8 candidate edges
+       And 4 of the candidate edges are exact duplicates
+       When I build the minimum spanning forest
+       Then the forest has 3 edges
+       And every forest edge has source less than target
+
+     Scenario: Self-loops are discarded without failing
+       Given a graph with 5 nodes and 7 candidate edges
+       And 2 of the candidate edges are self-loops
+       When I build the minimum spanning forest
+       Then the forest has 4 edges
+
+     Scenario: The lowest-index invalid edge is reported
+       Given a graph with 4 nodes and 6 candidate edges
+       And candidate edge 1 references node 9
+       And candidate edge 5 has a non-finite weight
+       When I build the minimum spanning forest
+       Then forest construction fails with error code "INVALID_NODE_ID"
+
+     Scenario: An edge that is both out of range and non-finite reports its node
+       Given a graph with 4 nodes and 3 candidate edges
+       And candidate edge 2 references node 9 with a non-finite weight
+       When I build the minimum spanning forest
+       Then forest construction fails with error code "INVALID_NODE_ID"
+
+     Scenario: A disconnected graph yields a forest, not a tree
+       Given a graph with 6 nodes and 4 candidate edges
+       And the candidate edges span only nodes 0 to 3
+       When I build the minimum spanning forest
+       Then the forest reports 3 components
+       And the forest is not a tree
+   ```
+
+   Pin every fixture before writing the step glue: the exact
+   `(source, target, distance, sequence)` tuples and the core-distance vector,
+   as a Gherkin data table or as named constants. Scenario 1 applies weights in
+   the step with `distance.max(core[s]).max(core[t])`, and never reaches into
+   the crate-private transform.
+
+3. **Lowest-index lookup errors in the transform.** Route
+   `mutual_reachability_edges` through the existing `collect_ordered_results`
+   (`cpu_pipeline/mod.rs:249`), the abstraction-policy sweep result. Write the
+   test first: in explicit one-thread and eight-thread pools, give a harvest
+   two endpoints with no core distance, at a low and a high index, and assert
+   that the low-index error is reported. The test may pass by luck before the
+   fix, so record whether it was observed red. Update the helper's doc comment
+   to name its second call site, and record the strengthening in
+   `docs/chutoro-design.md` §6.3.
+
+4. **Dedup-before-sort (exactness-gated).** Keep this only if three things
+   hold: the exact-edge-list and two-pool properties pass unchanged; the dedup
+   key is `(weight bits, source, target)` with `sequence` excluded, so that the
+   lowest `sequence` survives; and the code is no more complex. Update
+   `mst/property/oracle.rs:186-193` in lockstep, or decline the step and record
+   why. Claim no performance win.
+
+### Milestone 3 (gated on A): Gate B instrument and measurement
+
+Enter only if Gate A passed. Build the Gate B instrument with the operations
+defined under Gate B, then measure it on the Table 4 workload.
+
+Recommended instrument: a crate-internal `KruskalTimings` value returned by a
+`pub(crate)` profiled variant of `parallel_kruskal_from_edges`, called only by
+`build_mutual_reachability_forest` under `cfg(feature = "metrics")`. Record two
+additional bounded `stage` labels, `kruskal_classify_compact` and
+`kruskal_rest`, documented as **nested inside** `kruskal` so that consumers do
+not double-count. This adds labels to a set that `docs/users-guide.md:150-157`
+calls fixed. That is a user-visible metrics change. It is permitted here only
+with an update to the users' guide and the developers' guide in the same
+commit; otherwise escalate under Tolerance 6. Record the abstraction-policy
+sweep: no equivalent sub-stage hook exists today.
+
+If Gate B fails, decline Milestone 6 and record the ratio.
+
+### Milestone 4 (gated on A): packed sort record
+
+Enter only if Gate A passed and the sort is measurably the dominant part of
+`kruskal`. The design is a crate-internal 24-byte record with an
+order-preserving key:
+
+```rust
+const fn weight_key(weight: f32) -> u32 {
+    let bits = weight.to_bits();
+    let sign_mask = 0u32.wrapping_sub(bits >> 31);
+    bits ^ (sign_mask | 0x8000_0000)
+}
 ```
 
-Record the exact count in `Progress`. If it differs from 1058, that is fine —
-it is the number every later run is compared against, and a silent drop is what
-this step exists to detect.
+It was verified against `total_cmp` over 14 400 pairs on 2026-08-16. The lever
+is the record's width, not the comparator. Keep the key a sign-bit test, never
+`weight < 0.0`. Compare interleaved, per "Decision workload and method".
 
-### Milestone 1: measurement instrument and go/no-go
+### Milestone 5 (gated on A and its own case): Filter-Kruskal
 
-This milestone must precede every production edit, and revision 1's claim that
-it needs none is wrong: timing the union-find loop separately requires
-extracting it from `parallel_kruskal_from_edges`. Do that extraction first, as
-a pure, behaviour-preserving refactor with its own commit and its own passing
-gates, so the instrument is not confounded with the work it measures.
+Enter only if Gate A passed, the union-find walk is measurably dominant, and a
+written algorithmic case shows partitioning removes sort work. A fast mask or
+`compress` primitive is not evidence that an extra filtering pass helps, and
+`try_union` already rejects cycles without locking.
 
-Add `chutoro-benches/benches/mst_prepare.rs` (`harness = false`), following the
-fallible-`_impl`-plus-thin-wrapper pattern in `docs/developers-guide.md`
-"Adding a new benchmark". Reuse `mst.rs`'s constants and extend point counts to
-`[100, 500, 1_000, 10_000]`. Time five groups:
+If it is entered, implement real Filter-Kruskal and amend §6.3's "Keep the
+global sort in Rayon" through an ADR. Several obligations follow:
 
-1. `cpu_pipeline_end_to_end` — `run_cpu_pipeline`, so the **denominator is
-   measured**. This is the group revision 1 omitted, and its absence is why its
-   gate could not fail.
-2. `mutual_reachability` — the transform alone.
-3. `harvest_resort` — the `EdgeHarvest::new` sort this plan deletes.
-4. `prepare_edge_list` — validation, canonicalization, sort, dedup.
-5. `union_find_loop` — the weight-group walk.
+- Keep the equal-weight tie-breaking of §6.2.
+- Expose thresholds as values on an options struct, so that a property case
+  can force the filter active on small graphs. MST fixtures cap at 64 nodes
+  (`mst/property/strategies.rs:20`).
+- Add a `debug_assert` that cleared endpoints share a root.
+- Prove root-identity monotonicity (`parents[n] == n` is one-way) in Verus by
+  induction over single unions, and register the proof in `VERUS_PROOF_FILES`.
+- Name any Kani harness `kani_*.rs`, so that `kani-pr.yml` runs it.
 
-Group 5 mutates the union-find, so a plain `b.iter()` would re-run it over an
-already-merged structure, reject every edge at `union_find.rs:54`, and report
-it as near-free — which would inflate groups 2 to 4 and push a naive gate
-through. Use `iter_batched` with a fresh `ConcurrentUnionFind` per iteration,
-and state explicitly whether its allocation is inside or outside the measured
-region.
+### Milestone 6 (gated on A and B): private Fearless SIMD kernel
 
-Fix the methodology, which the evidence in Risks shows is currently incapable
-of resolving the claimed effects:
+Enter only if Gate A passed, Gate B passed on the post-Milestone-4 tree, and
+Milestone 1's assembly inspection shows that the scalar loops are not already
+effectively vectorized. Otherwise record the null result, with the deciding
+number or assembly excerpt, and skip to Milestone 7.
 
-- `sample_size` at least 100 and `measurement_time` at least 10 s for any group
-  where a win is claimed.
-- Pin cores and threads: `taskset -c 0-11` and an explicit `RAYON_NUM_THREADS`,
-  since Rayon otherwise starts twenty-four workers on twelve physical cores for
-  a two-millisecond workload.
-- Compare interleaved A/B in one session rather than against a `local-reference`
-  baseline saved at an arbitrary earlier time.
-- Demote n = 100 to a loose tripwire; at ~280 ns per edge it is almost entirely
-  Rayon spawn overhead and its confidence interval is ±5% or worse.
+**Dependencies.**
 
-Add `scripts/bench-mst-pipeline.sh`, modelled on
-`scripts/bench-neighbour-scoring.sh` (same `require_command` guards, same
-`tee`-to-`${TMPDIR:-/tmp}` logging), but running
-`hyperfine --warmup 1 --runs 10` over the `chutoro-cli` binary on a fixed
-synthetic input, where the effect is end-to-end and large enough to resolve.
+- Add `fearless_simd = "1.2"` (and `fearless_simd_macros = "0.1"` only per the
+  decision log) to `[workspace.dependencies]`.
+- In `chutoro-core/Cargo.toml`, add
+  `fearless_simd = { workspace = true, optional = true }` and append
+  `"dep:fearless_simd"` to `cpu`. Add no new public feature.
+- Show that the backend is absent without `cpu`:
+  `cargo tree -p chutoro-core --no-default-features -e normal` lists no
+  `fearless_simd`.
+- Show the MSRV holds:
+  `cargo +1.89 check -p chutoro-core --all-features --locked` and
+  `cargo +1.89 test -p chutoro-core --no-run --locked` on the resolved
+  lockfile. Record the resolved versions. Record development-dependency
+  incompatibilities that already existed separately from new ones.
+- Record clean-build time and `chutoro-cli` release binary size, before and
+  after.
 
-**Go/no-go, pipeline-relative.** Record this ratio at n = 10 000:
+**Input representation.** Edges stay array-of-structures (`CandidateEdge`). The
+kernel never sees `CandidateEdge`, `MstEdge` or errors. For each Rayon chunk,
+scalar code stages plain buffers:
 
-```plaintext
-(parallel_kruskal + mutual_reachability + harvest_resort) / cpu_pipeline_end_to_end
-```
+- For the transform: `distance: Vec<f32>`, plus `left_core: Vec<f32>` and
+  `right_core: Vec<f32>` gathered with the checked lookups of the semantic
+  oracle. A missing entry ends staging for that chunk with the ordered error.
+- For classification: `source: Vec<u64>`, `target: Vec<u64>` and
+  `weight: Vec<f32>`.
 
-Proceed to Milestone 2 in all cases — its work is cheap and
-correct regardless — but **Milestones 3, 4 and 5 require this ratio to be at
-least 5%.** Below that, record the null result in `docs/chutoro-design.md` §6.3
-and beside the roadmap item, complete Milestones 2 and 6, and stop. On the
-present evidence this ratio is expected to be well under 1%, and closing the
-item that way is a successful outcome.
+Staging and gather costs belong inside every measured region. Fearless SIMD
+does not make indexed `core[...]` reads contiguous.
 
-### Milestone 2: red tests, then the committed structural work
+**Identifier width.** Compile the kernels only under
+`cfg(target_pointer_width = "64")`, where `usize as u64` is lossless.
+Elsewhere, use the scalar path. Never narrow identifiers. Compare against
+`node_count as u64` in full 64-bit lanes, and build diagnostics from the
+original `usize` values.
 
-**Red first.** None of these touch production code.
+**Logical batch.** `L = S::f32s::LEN`, with `U = S::u64s::LEN` 64-bit lanes per
+vector. That gives 8 and 4 on `Avx2`, 16 and 8 on `Avx512`, and 4 and 2 on
+`Neon`. Each logical batch of `L` edges uses one `f32` vector and `L / U` `u64`
+vectors per endpoint. Convert masks to integer bitmasks with
+`SimdMask::to_bitmask`. Combine the `u64` sub-masks by shifting each by
+`k * U`, in chutoro-owned integer code. Assert `L % U == 0` when selecting a
+backend; if it fails, use scalar.
 
-1. Strengthen `run_oracle_equivalence_property`
-   (`chutoro-core/src/mst/property/equivalence.rs`) to compare the **exact edge
-   list** against `sequential_kruskal`. This requires `SequentialMstResult`
-   (`property/oracle.rs:16-23`) to gain an edge list, which it does not have
-   today — revision 1 called this a guard that would "pass immediately" without
-   noticing the code it must first write. Expect it to pass once written; it is
-   what makes everything after it safe.
-2. Add a determinism test that builds two explicit
-   `rayon::ThreadPoolBuilder` pools, one and eight threads, runs the same
-   fixture in each via `install`, and asserts exact `MinimumSpanningForest`
-   equality. Do **not** set `RAYON_NUM_THREADS` from the test: `AGENTS.md`
-   forbids environment mutation in tests, and `ci.yml:24` pins it to `1`
-   anyway, so an environment-based test would silently guard nothing. This is
-   the highest-value test in the plan and revision 1 did not contain it.
-3. Add an error-selection test: an edge list with invalid edges at index 0 and
-   at the final index, asserting the index-0 error is reported, run in the
-   eight-thread pool. This is genuinely red today — see the rayon finding in
-   Surprises.
-4. Add `chutoro-core/tests/features/mst_edge_preparation.feature` with step glue
-   in `chutoro-core/tests/mst_edge_preparation_bdd.rs`, following
-   `chutoro-core/tests/session_append_bdd.rs` exactly: a `World` struct, a
-   `#[fixture] fn world()`, steps returning
-   `rstest_bdd::StepResult<(), BddStepError>`, one `#[scenario]` function per
-   scenario.
+**Kernels (private, generic over `S: Simd`).**
 
-```gherkin
-Feature: Minimum spanning forest edge preparation
+- `cpu_pipeline/weight_kernel.rs`: given equal-length `&[f32]` slices `d`,
+  `l` and `r`, write `w[i] = max_precise(max_precise(d, l), r)`. Return one
+  exceptional-lane bitmask per batch, using the rule in "Semantic oracle". The
+  caller recomputes flagged lanes in scalar code.
+- `mst/classify_kernel.rs`: given `source`, `target` and `weight` slices and
+  `node_count`, return per batch four bitmasks: `source_out_of_range`,
+  `target_out_of_range`, `non_finite` (`!is_finite`) and `self_loop`.
 
-  Scenario: Mutual-reachability weights drive forest selection
-    Given a graph with 6 nodes and 9 candidate edges
-    And core distances that raise the weight of edge 3
-    When I build the minimum spanning forest
-    Then the forest has 5 edges
-    And the forest excludes edge 3
+Loop over `chunks_exact(L)` with `from_slice` on exact-length slices, then
+process the remainder with the scalar reference functions. There is **no
+padding**, so no inactive lane exists and none can create an error, an edge, or
+a count. Every load and store covers exactly `L` elements inside a range proven
+by `chunks_exact`. Bitmask bits at or above `L` are masked off before use.
 
-  Scenario: Duplicate candidate edges are collapsed
-    Given a graph with 4 nodes and 8 candidate edges
-    And 4 of the candidate edges are exact duplicates
-    When I build the minimum spanning forest
-    Then the forest has 3 edges
-    And every forest edge has source less than target
+**Ordered emission.** Scalar code walks each batch's lanes in index order. The
+first lane with any error bit builds the error, using the oracle's precedence
+and the original identifiers. A `self_loop` lane is skipped. Every other lane
+emits a canonical `MstEdge`. Chunks are produced with
+`par_chunks(...).map(...)` and `collect_into_vec`, then scanned sequentially,
+so the lowest index wins by construction. Later chunks still run, exactly as
+they do today. Do not use `compress` in the first kernel. A later `compress`
+step must compress every field of the logical edge (source, target, weight,
+original index, sequence) under the same logical mask. That means widening the
+mask to the `u64` lanes with `MaskWiden`, or splitting it, and the step needs
+its own measurement.
 
-  Scenario: Self-loops are discarded without failing
-    Given a graph with 5 nodes and 7 candidate edges
-    And 2 of the candidate edges are self-loops
-    When I build the minimum spanning forest
-    Then the forest has 4 edges
+**Dispatch.** A private `EdgeKernelBackend` enum has the variants `Scalar`,
+`Avx2(Avx2)`, `Avx512(Avx512)` and `Neon(Neon)`. It is chosen once per process
+in a `OnceLock`:
 
-  Scenario: The lowest-index invalid edge is reported
-    Given a graph with 4 nodes and 6 candidate edges
-    And candidate edge 1 references node 9
-    And candidate edge 5 has a non-finite weight
-    When I build the minimum spanning forest
-    Then forest construction fails with error code "INVALID_NODE_ID"
+1. Call `Level::new()`, then the safe `as_avx2()`, `as_avx512()` or
+   `as_neon()` for the enabled variants only. See "Backend enablement".
+2. Any other level, including `Sse2` and `Sse4_2`, selects `Scalar`.
+3. Never fabricate a token. Never call unrestricted `dispatch!`. Never treat
+   `Level::baseline()` as scalar.
 
-  Scenario: An edge that is both out of range and non-finite reports its node
-    Given a graph with 4 nodes and 3 candidate edges
-    And candidate edge 2 references node 9 with a non-finite weight
-    When I build the minimum spanning forest
-    Then forest construction fails with error code "INVALID_NODE_ID"
+Match on the backend once per Rayon chunk, and call the generic kernel inside
+`token.vectorize(...)`, so that the loop is compiled with the token's target
+features. Do not detect or dispatch per edge or per vector. `Scalar` runs the
+existing chutoro code unchanged, never a Fearless fallback token.
 
-  Scenario: A disconnected graph yields a forest, not a tree
-    Given a graph with 6 nodes and 4 candidate edges
-    And the candidate edges span only nodes 0 to 3
-    When I build the minimum spanning forest
-    Then the forest reports 3 components
-    And the forest is not a tree
-```
+**Injected selection for tests.** Add `pub(crate)` variants that take an
+explicit `EdgeKernelBackend`, used by tests and by the profiled path:
+`parallel_kruskal_from_edges_with` and `mutual_reachability_edges_with`.
+Production calls the cached selection. Tests never mutate the environment.
 
-These scenarios are not yet executable specifications, and must not be
-committed until they are. "Core distances that raise the weight of edge 3" and
-"the forest excludes edge 3" do not say which nine candidate edges exist or
-which one is edge 3, and a six-node graph with nine unspecified edges is not
-guaranteed to yield five forest edges. Before writing the step glue, pin every
-fixture — the exact `(source, target, distance, sequence)` tuples and the exact
-core-distance vector — either as a Gherkin data table in the feature file or as
-a named constant in the `World` struct that the `Given` steps index. Two
-implementers must not be able to invent different fixtures and both pass.
+**Backend enablement.**
 
-The fifth scenario pins intra-edge precedence. `validate_and_canonicalize_edge`
-(`mst/mod.rs:195-239`) checks source bound, then target bound, then finiteness,
-and reports the **original**, pre-canonicalization node id. A branch-free
-rewrite that tests finiteness first would flip this silently.
+| Backend                    | Compiled        | Selected in tests    | Executed here     | Enabled in production                                                          |
+| -------------------------- | --------------- | -------------------- | ----------------- | ------------------------------------------------------------------------------ |
+| `Scalar`                   | Yes             | Yes                  | Yes               | Always available                                                               |
+| `Avx2` (x86-64-v3)         | Yes             | Yes                  | Yes, Ryzen 9 3900 | Only after the differential suite passes on this host                          |
+| `Avx512` (Ice Lake bundle) | Yes             | Selection logic only | **No** hardware   | **No**, until executed differential evidence exists on Ice Lake-class hardware |
+| `Neon` (AArch64)           | Not by any gate | No                   | **No** runner     | **No**, until an AArch64 host runs the suite                                   |
 
-**Then the production work**, in this order, each its own commit:
+_Table 6: Report compilation, selection and execution separately; do not
+conflate them._
 
-1. Add `EdgeHarvest::as_slice`, with a doctest.
-2. Change `parallel_kruskal_from_edges` to take `&[CandidateEdge]`, deleting the
-   `Vec<&CandidateEdge>` at `mst/mod.rs:269`.
-3. Replace the `try_fold`/`try_reduce` chain (`mst/mod.rs:270-281`) with a
-   pre-sized parallel map into one buffer, then a sequential first-`Err` scan
-   in index order. This deletes the reduction tree's per-task allocations and
-   copy volume, and makes error selection deterministic **by construction**
-   rather than by a min-reduction bolted on.
-4. Parallelize the mutual-reachability transform (`cpu_pipeline.rs:79-88`) via
-   the new `mutual_reachability_edges` helper, and **delete the
-   `EdgeHarvest::new` round trip at line 89**. This is the largest single item
-   in the plan: a serial `sort_unstable_by` over roughly `16n` thirty-two-byte
-   records with a four-key comparator, whose result is discarded eight lines
-   later.
-5. Hoist `process_weight_group`'s per-group `Vec::new()` (`mst/mod.rs:248`) by
-   passing `&mut forest_edges` and pushing directly. Output order is unchanged
-   because the current code already appends in the same order.
-6. Move `dedup_by` before `par_sort_unstable`, if and only if a
-   dedup-before-sort formulation preserves exact output. HNSW harvest emits both
-   `(u, v)` and `(v, u)`, which collapse exactly after canonicalization, so
-   this plausibly removes a large fraction of the sort input. If exactness
-   cannot be preserved, leave the order alone and record why.
+**Tests.**
 
-Keep the dedup and weight-group predicates IEEE-`==`-equivalent unless
-Milestone 3 proceeds, in which case see Constraint 2. Note that
-`property/oracle.rs:119-123` mirrors the current dedup rule and its doc comment
-says so; update it in lockstep with any change.
+- Differential tests against the scalar oracle, for each backend that executes
+  on the host. Cases cover lengths 0, 1, `L - 1`, `L`, `L + 1`, `2L + 3` and
+  several blocks; masks that reject everything, keep everything, or mix at
+  densities of 1/8, 1/2 and 7/8; and `+0.0`, `-0.0`, quiet NaN, a signalling NaN
+  (`f32::from_bits(0x7F80_0001)` and its negation), `±inf`, `f32::MAX`,
+  `f32::MIN` and the smallest subnormal, in every operand position. Also cover
+  invalid endpoints at the first, middle and last lanes and in the remainder;
+  both endpoints invalid together with a non-finite weight (precedence);
+  duplicates; disconnected graphs; and identifiers `1 << 32` and
+  `(1 << 33) + 1` with `node_count = 10`, which would truncate to valid `u32`
+  values. Compare weights with `to_bits()`, compare accepted records exactly,
+  and compare errors by full `MstError` or `ChutoroError` value.
+- A proptest property comparing whole `parallel_kruskal_from_edges_with`
+  results, scalar against every available backend, in one-thread and
+  eight-thread pools.
+- Selection tests over injected `EdgeKernelBackend` values: scalar-only,
+  restricted, and automatic selection on the host.
+- `cargo check -p chutoro-core --no-default-features`.
+- An end-to-end check: a fixed `chutoro-cli` clustering result identical
+  before and after.
+- A Kani harness, `mst/kani_batch_arithmetic.rs`, for the chutoro-owned
+  arithmetic only. It proves that `chunks_exact(L)` plus the remainder covers
+  `[0, len)` exactly once, and that bitmask combination maps sub-mask bit `j`
+  of part `k` to logical lane `k * U + j`, with no bit at or above `L`. It does
+  not verify the library or the hardware. Its name matches `kani-pr.yml`'s
+  `**/kani_*.rs` filter. Add it to `make kani` only if it runs within Tolerance
+  7.
 
-### Milestone 3 (gated): packed sort record
+**Benchmarks and stop criteria.**
 
-Enter only if Milestone 1's ratio cleared 5% **and** `prepare_edge_list`'s sort
-is measurably the dominant sub-stage.
+- Run interleaved comparisons of the `pipeline` target and the profiled
+  `mutual_reachability`, `kruskal` and Gate B sub-stages on the Table 4
+  workload, for scalar against each production-enabled backend.
+- Keep the kernel only if the stage improvement's confidence interval excludes
+  zero and exceeds the unchanged-code noise band, at n = 10 000.
+- Report n = 1000 separately.
+- Claim no pipeline speed-up unless the `pipeline` interval resolves one.
+- A failed or inconclusive result removes the kernel, the dependency entries
+  and the lockfile changes in the same branch, and records the null result. No
+  unused backend may remain.
 
-Introduce `PreparedEdge` and `weight_key` as specified above. The lever is
-**record width, not comparator**: 32 bytes to 24 in a memory-bound sort.
-Revision 1 targeted the comparator, which is three integer operations plus
-well-predicted branches and is worth a fraction of a millisecond at best —
-below the measured noise floor.
-
-If the `±0.0` divergence in Constraint 2 arises, demonstrate by test that the
-final forest is unchanged: dedup only ever removes edges sharing endpoints, and
-a surviving duplicate is rejected by `try_union` as a cycle, so dedup is work
-reduction rather than a semantic filter. State the dedup key set explicitly as
-`(key, source, target)` — excluding `sequence`, or dedup becomes a no-op and
-the "lowest sequence survives" contract dies silently.
-
-Add `rstest` unit tests for `weight_key` over `-f32::NAN`, `f32::NAN`, a
-signalling pattern (`f32::from_bits(0x7F80_0001)`) and its negation, ±infinity,
-±0.0, and ±1.0. Round-trip assertions must compare `.to_bits()`, since
-`assert_eq!(f32::NAN, f32::NAN)` fails.
-
-A Kani harness over two symbolic `f32` values is the right instrument for the
-ordering property, but per the Risks section it cannot be an acceptance
-criterion, because `make kani` runs in no workflow. Add it, validate it by
-deliberate mutation, and record that its signal is post-merge only.
-
-### Milestone 4 (gated): candidate pre-filter
-
-Enter only if Milestone 1 cleared 5% **and** `union_find_loop` is measurably
-dominant. On present analysis it is not, and this milestone is expected to end
-as a null result.
-
-If entered, implement **real Filter-Kruskal** — recursive partition around a
-pivot weight, filtering between partitions so the heavy tail is never sorted —
-not the post-sort sweep revision 1 proposed. That requires amending
-`docs/chutoro-design.md` §6.3's "Keep the global sort in Rayon" instruction via
-an ADR, and it puts the equal-weight-group tie-breaking mechanism documented in
-§6.2 at risk, so it must land behind Milestone 2's exact-edge-list guard.
-
-Any filter must be testable at the sizes the property suite actually generates.
-MST fixtures cap at 64 nodes (`property/strategies.rs:17-22`), so any
-edge-count threshold expressed as a benchmark-tuned constant would mean the
-filter never fires in any test, and a soundness property would compare
-"disabled" against "disabled" and pass vacuously. Expose the thresholds as
-**values** on an options struct, and add a property case forcing them to their
-most aggressive setting so the filter fires on eight-node graphs. Add a
-`debug_assert` at mask-clear time that the two endpoints really do share a root.
-
-Only here does a Verus obligation arise, and it must target root-identity
-monotonicity as recorded in the decision log, deriving stability by induction
-over single `union` steps rather than assuming a `coarsens` relation. Register
-the new file in `PROOF_FILES` in `scripts/run-verus.sh`; note that
-`edge_harvest_ordering.rs` and `edge_harvest_extract.rs` are checked only
-transitively, as `mod` declarations from a registered file, so a new top-level
-file that nobody registers is checked by nothing.
-
-### Milestone 5 (gated): SIMD kernels
-
-Enter only if Milestones 1 to 3 leave classification and compaction at a
-measurable share, pre-registered at 10% of `parallel_kruskal`.
-
-Before writing any intrinsic, check whether LLVM has already vectorized the
-branch-free scalar code, using `--emit=asm` plus `objdump` (`cargo asm` is not
-installed, not in the `Makefile` and not in CI). If the loop body already
-contains `vpcmpgt`/`vpmovmskb`-class instructions, stop and record it.
-
-If it proceeds: the mutual-reachability transform's NaN semantics must be fixed
-normatively first, because `_mm256_max_ps(a, b)` returns `b` on a NaN operand
-while `f32::max` ignores NaN — a Constraint 1 violation waiting to happen.
-Padding must use inert zeros, not `u32::MAX`/`INFINITY`. Endpoint validation
-must happen in `usize` space before any narrowing. Compaction must be
-order-preserving: AVX-512 `_mm512_mask_compressstoreu_epi32`, or the AVX2
-`_mm256_movemask_ps` plus 256-entry permutation-table approach — noting the
-table is 8 KB competing for 32 KB of L1 data cache against a streaming edge
-list, and that Zen 2 splits 256-bit AVX2 operations into two 128-bit
-micro-operations.
-
-An AVX-512 backend would sit at the top of the dispatch priority, ship to
-users, and never execute on the development machine. Either exclude it, or
-state explicitly that it is unverified locally and rests entirely on the parity
-suite running elsewhere.
-
-### Milestone 6: documentation, roadmap, and final gates
+### Milestone 7: documentation, roadmap and final gates
 
 Append an `_Implementation update (<date>)._` paragraph to
-`docs/chutoro-design.md` §6.3 in the register of the existing 2.2.x and 2.3.1
-entries, recording the measured pipeline share, what shipped, and every gated
-milestone that ended as a null result with its number.
+`docs/chutoro-design.md` §6.3, in the register of the 2026-09-20 and 2026-11-12
+entries, covering:
 
-Record in the same place that §6.3's "cache-friendly structure-of-arrays parent
-and rank arrays" requirement is already satisfied by
-`chutoro-core/src/mst/union_find.rs:20-22`, and that further narrowing was
-declined on the measurement recorded in the decision log.
+- the Gate A result, with its noise band;
+- the Gate B result, if measured;
+- what shipped, and under which issue;
+- every declined milestone, with its deciding number;
+- the transform error-selection strengthening;
+- that the union-find arrays already satisfy §6.3's structure-of-arrays
+  wording.
 
-Update `docs/developers-guide.md` with the corrected benchmark methodology for
-sub-millisecond stages — sample sizes, core pinning, interleaved A/B, and the
-resolution limits of `hyperfine` at this scale. This is reusable beyond this
-item.
+If PR #453 has merged by then, place the paragraph so that it reads alongside
+§6.3.1. Write an ADR only if Milestone 5 or 6 shipped something structural; a
+null result needs only the design-document update, per ADR-0003.
 
-Add an MST error section to `docs/users-guide.md`. It does not exist today, and
-the surface most users see is `ChutoroError::CpuMstFailure { code }` rather than
-`MstError` directly. Document the now-deterministic error selection.
-
-Write an ADR only if Milestone 4 or 5 shipped something structural. A plan that
-ends in measured null results needs a design-document update, not an ADR.
-
-Register any new document in `docs/contents.md`. Mark roadmap item 2.3.2 `[x]`.
-
-If any workflow's `exclude-globs` changed, update
-`tests/workflow_contracts/mutation_testing_test.py::EXPECTED_WITH` in the same
-commit — it asserts an exact string and `make test-workflow-contracts` is a
-pull-request gate.
+Tick roadmap item 2.3.2 with a one-line outcome note. Do not touch 2.2.8. Update
+`docs/users-guide.md` only if Milestone 3's labels shipped, or if error
+wording changed.
 
 ```sh
 set -o pipefail
 make check-fmt    2>&1 | tee /tmp/check-fmt-chutoro-2-3-2-final.out
-make lint         2>&1 | tee /tmp/lint-chutoro-2-3-2-final.out
 make typecheck    2>&1 | tee /tmp/typecheck-chutoro-2-3-2-final.out
+make lint         2>&1 | tee /tmp/lint-chutoro-2-3-2-final.out
 make test         2>&1 | tee /tmp/test-chutoro-2-3-2-final.out
 make markdownlint 2>&1 | tee /tmp/markdownlint-chutoro-2-3-2-final.out
 make nixie        2>&1 | tee /tmp/nixie-chutoro-2-3-2-final.out
-make verus        2>&1 | tee /tmp/verus-chutoro-2-3-2-final.out
-make test-workflow-contracts 2>&1 | tee /tmp/contracts-chutoro-2-3-2-final.out
+make spelling     2>&1 | tee /tmp/spelling-chutoro-2-3-2-final.out
 ```
 
-Finally, request a CodeRabbit review through the `comenq-coderabbit` skill and
-run the response loop to convergence, replying to every thread with an
-`@coderabbitai` mention. The 2.3.1 plan records two rounds producing eight
-valid findings, one of them a `shellcheck` gap in the very script this plan
-copies — so budget for it rather than treating it as optional. Open the pull
-request with the `pr-creation` skill.
+Then run a CodeRabbit round to convergence through `comenq-coderabbit`. The
+GitHub app skips draft pull requests, but the local CLI does not.
 
 ## Concrete steps
 
-Run everything from the repository root. Commit after each numbered item using
-the `commit-message` skill, and follow each functional commit with the
-`AGENTS.md` post-commit review pass, landing any resulting refactor as its own
-atomic commit.
+Commit after each item with the `commit-message` skill, and land any
+post-commit refactor separately.
 
-1. `Extract the Kruskal union-find loop for measurement`
-2. `Add MST pipeline benchmark and hyperfine script`
-3. `Compare exact MST edge lists against the oracle`
-4. `Assert MST determinism across two Rayon pool sizes`
-5. `Specify MST edge preparation behaviour with BDD scenarios`
-6. `Expose harvested candidate edges as a slice`
-7. `Report the lowest-index invalid MST edge deterministically`
-8. `Drop the redundant edge harvest sort before Kruskal`
-9. `Reuse the forest buffer across Kruskal weight groups`
-10. `Record MST edge preparation measurements` (docs, roadmap)
+1. `Record Gate A for MST preparation on the current tree` (plan update)
+2. `Compare exact MST edge lists against the oracle`
+3. `Specify MST edge preparation behaviour with BDD scenarios`
+4. `Report the lowest-index missing core distance deterministically`
+5. `Deduplicate MST candidates before sorting` (conditional), or a plan update
+   recording why it was declined
+6. Gated steps from Milestones 3 to 6, each with its own red/green evidence
+7. `Record the 2.3.2 outcome and close the roadmap item`
 
-Per-commit gate. Docs-only commits may run the Markdown subset alone, but note
-that `spelling-phrase-check` walks `git ls-files`, so it cannot see an
-untracked file — stage before trusting a green run:
-
-```sh
-set -o pipefail
-make check-fmt 2>&1 | tee "/tmp/check-fmt-chutoro-2-3-2-$(git rev-parse --short HEAD).out"
-make lint      2>&1 | tee "/tmp/lint-chutoro-2-3-2-$(git rev-parse --short HEAD).out"
-make typecheck 2>&1 | tee "/tmp/typecheck-chutoro-2-3-2-$(git rev-parse --short HEAD).out"
-make test      2>&1 | tee "/tmp/test-chutoro-2-3-2-$(git rev-parse --short HEAD).out"
-```
-
-Additional gates for the specific artefacts this plan touches, all named in
-`AGENTS.md` and all omitted by revision 1:
-
-```sh
-set -o pipefail
-shellcheck scripts/bench-mst-pipeline.sh         # step 2 adds this script
-mbake validate Makefile                          # only if the Makefile changed
-action-validator .github/workflows/property-tests.yml  # only if a workflow changed
-make test-workflow-contracts                     # if any exclude-globs changed
-```
-
-Expected transcript for the red stage of step 7, before the fix. The exact
-wording of the reported error is what proves the test is red for the intended
-reason rather than for an unrelated failure:
-
-```plaintext
---- STDERR: chutoro-core mst::tests::reports_lowest_index_invalid_edge ---
-thread 'main' panicked at chutoro-core/src/mst/tests/forests.rs:NNN:
-assertion `left == right` failed: expected the index-0 edge to be reported
-  left: InvalidNodeId { node: 97, node_count: 8 }
- right: InvalidNodeId { node: 9, node_count: 8 }
-```
-
-After step 7 the same command must pass in both the one-thread and the
-eight-thread pool. Record both transcripts in `Progress`.
+The per-commit gate is `make check-fmt`, `make typecheck`, `make lint` and
+`make test`, each piped through `tee` into a `/tmp` log named after the short
+SHA. Documentation-only commits run `make markdownlint`, `make nixie` and
+`make spelling`. Stage files first, because `spelling-phrase-check` walks
+`git ls-files`.
 
 ## Validation and acceptance
 
-**Equivalence.** `cargo nextest run -p chutoro-core -E 'test(/mst::/)'` passes,
-including the strengthened exact-edge-list property. Under
-`PROPTEST_CASES=25000` the oracle-equivalence, structural-invariant and
-concurrency-safety properties pass.
+- **Equivalence:** the strengthened oracle property passes and fails under the
+  deliberate mutation. The oracle-equivalence, structural, concurrency-safety,
+  thread-pool-determinism and lowest-index-error properties pass at
+  `PROPTEST_CASES=25000`.
+- **Determinism:** the existing two-pool tests pass unchanged; the new
+  transform test passes in one-thread and eight-thread pools.
+- **Behaviour:** all six BDD scenarios pass.
+- **Gates recorded:** Gate A (and Gate B where reached), with workload, SHA,
+  host, threads, backend, runs and noise band.
+- **Kernel (only if shipped):** every Milestone 6 test and stop criterion is
+  satisfied; Table 6 is filled in from evidence; MSRV, `cpu`-disabled,
+  build-time and binary-size results are recorded.
+- **Gates:** `make check-fmt`, `make typecheck`, `make lint`, `make test`,
+  `make markdownlint`, `make nixie` and `make spelling` pass.
 
-**Determinism.** The two-pool test asserts exact `MinimumSpanningForest`
-equality between one-thread and eight-thread pools. The error-selection test
-reports the lowest-index invalid edge in both pools.
-
-**Behaviour.** All six scenarios in
-`chutoro-core/tests/features/mst_edge_preparation.feature` pass.
-
-**End to end.** Capture `chutoro-cli` cluster assignments for one fixed
-synthetic input before and after; diff them; expect no differences. This is the
-externally observable contract and the reason the end-to-end test exists.
-
-**Performance.** Criterion, run with the corrected methodology from Milestone
-1, shows `parallel_kruskal` improving at n = 500, n = 1000 and n = 10 000 by
-more than the measured noise band for that configuration — **not** by a fixed
-percentage, since the present instrument produces ±12-17% false regressions on
-unmodified code. `scripts/bench-mst-pipeline.sh` corroborates end to end.
-Criterion remains the primary signal per `docs/developers-guide.md`.
-
-**Gates.** `make check-fmt`, `make lint`, `make test`, `make markdownlint`,
-`make nixie` and `make verus` all pass.
-
-Red-Green-Refactor evidence to record in `Progress`: the error-selection test's
-observed pre-change output verbatim; the same command passing after step 7 of
-Milestone 2; and `make lint` plus `make test` after each extraction.
+Claim no speed-up, execution coverage or passing gate without its recorded
+result.
 
 ## Idempotence and recovery
 
-Every step is re-runnable. Criterion baselines under `target/criterion/` may be
-deleted freely. Benchmarks and `make verus` do not modify the source tree.
-
-On a gate failure, read the `tee`d log named in the command rather than
-re-running the gate; re-run only after a fix. Each commit in the sequence above
-is independently revertible. Log names are branch-scoped so they do not collide
-with other agents' runs.
+Every step can be re-run. `target/criterion/`, `target/benchmarks/`,
+`target/asm-default/` and `target/asm-v3/` may be deleted freely. A failed
+gated milestone is reverted in its own commits, dependency entries included. On
+a gate failure, read the `tee`d log rather than re-running the gate.
 
 ## Artefacts and notes
 
-Measured on this branch, unmodified code, two consecutive runs — the evidence
-behind the benchmarking-methodology risk:
+Revision 2's unchanged-code `mst` runs, which show why stored baselines are not
+evidence:
 
 ```plaintext
 parallel_kruskal/n=500   time: [1.0052 ms 1.0941 ms 1.2182 ms]
                          change: [+10.059% +16.669% +26.638%] (p = 0.00 < 0.05)
                          Performance has regressed.
-                         Found 3 outliers among 20 measurements (15.00%)
 parallel_kruskal/n=1000  time: [1.8448 ms 1.8781 ms 1.9128 ms]
                          change: [+9.4250% +11.801% +14.223%] (p = 0.00 < 0.05)
                          Performance has regressed.
 ```
 
-Prior art consulted:
+Prior art:
 
 - Osipov, Sanders and Singler, "The Filter-Kruskal Minimum Spanning Tree
-  Algorithm", ALENEX 2009. Its saving comes from `partition` plus `filter`
-  together; `filter` alone is not the algorithm.
-- Quickwit, "Filtering a Vector with SIMD Instructions (AVX-2 and AVX-512)" — a
-  worked Rust treatment of order-preserving stream compaction.
-- Giesen, "Order-preserving bijections", and the IEEE 754 radix-sort key
-  transform, verified independently on this branch.
-- Published AVX2 gather measurements showing `vgatherdps` matching or losing to
-  scalar loads on memory-bound patterns, which is why gather is excluded.
+  Algorithm", ALENEX 2009: `partition` and `filter` together, not `filter`
+  alone.
+- Fearless SIMD 1.2.0 changelog and `SimdBase` documentation (see "Governing
+  references").
+- Giesen, "Order-preserving bijections", and the IEEE 754 radix-sort key.
 
-## Out of scope, recorded for follow-up
+## Open questions for the maintainer
 
-Two findings from this plan's design review are larger than the item it covers
-and must not be absorbed into it silently.
+- **Q1.** Should a transform-only SIMD kernel be allowed when Gate A passes but
+  Gate B fails? Revision 4 says no, to keep the pre-registered rule. Changing
+  it needs a documented decision that defines its own threshold.
+- **Q2.** Is the Milestone 3 instrument's addition of nested `stage` labels
+  acceptable, given that the users' guide calls the set fixed? This only arises
+  if Gate A passes.
 
-1. **The core-distance loop is serial.**
-   `chutoro-core/src/cpu_pipeline.rs:65-77`
-   runs `n` full HNSW searches at `ef = 32` on one thread, with two `Vec`
-   allocations per point, on a twenty-four-thread machine. Parallelizing it is
-   roughly six lines and is plausibly worth two orders of magnitude more than
-   everything in this plan combined. It belongs in its own roadmap item.
-2. **Almost no crate inherits the workspace lint table.** Tracked as
-   [issue #200](https://github.com/leynos/chutoro/issues/200). Only
-   `chutoro-bench-datasets` carries `[lints] workspace = true`;
-   `chutoro-benches` hand-duplicates the table with a manual-sync caveat; and
-   `chutoro-core`, `chutoro-cli`, `chutoro-providers/dense`,
-   `chutoro-providers/text` and `chutoro-test-support` inherit nothing. Opting
-   every crate in costs a measured 576 findings, and adding
-   `missing_docs_in_private_items = "deny"` on top costs a further 914. Note
-   that `missing_docs` and the rustdoc lints _are_ enforced, but through
-   `.cargo/config.toml` rustflags and the `RUSTDOCFLAGS` override in
-   `make lint-clippy` rather than through the manifest — so editor feedback
-   diverges from CI. This is why revision 1's truncation guard did not exist.
+## Out of scope
+
+- The 2.2.8 dense query-to-points port, and any change under
+  `chutoro-providers/dense/**`.
+- The discarded sort in `EdgeHarvest::from_parallel_inserts` (Constraint 10).
+- The serial incremental session core-distance path.
+- HNSW build performance, which is most of the pipeline, under its own roadmap
+  item.
+- An ARM CI runner.
 
 ## Outcomes & retrospective
 
-To be completed at each milestone and at close. Compare against the purpose:
-the measured pipeline share, what shipped, what was declined and on what
-number. A close consisting largely of null results, with the cheap structural
-work landed and the measurement documented, satisfies this plan.
+Complete this at each milestone and at close: the Gate A and Gate B numbers,
+what shipped and under which issue, what was declined and on what number, and
+whether the scalar loops were already vectorized.
+
+Interim note (2026-11-22): the cheap structural work landed through four
+separate issues rather than through this plan. Whether anything expensive
+remains is now a single pending measurement.
 
 ## Revision note
 
-**Revision 2 (2026-08-16).** Rewritten after a six-lens community-of-experts
-design review. The review measured the target stage at ≈ 0.22% of the HNSW
-build and found five factual errors in revision 1's description of the code,
-the most consequential being that `try_union` takes no lock on the
-cycle-rejection path — which was the sole justification for the candidate
-pre-filter. Revision 1's structure-of-arrays layer, policy object, kernel port,
-dispatch table, SIMD adapters, union-find narrowing and Verus proof are removed
-from committed scope; several were unimplementable as specified (five parallel
-`Vec`s cannot be sorted; `EdgeVerdict` could not derive `Copy`/`Eq` over
-`MstError`; padding sentinels were the values the validator rejects). Committed
-scope is now the cheap structural work plus the tests that make the invariants
-real, with everything expensive individually gated behind a pipeline-relative
-threshold and an explicit null-result path. The determinism and exact-edge-list
-guards, absent or unenforceable in revision 1, are now the plan's core.
+**Revision 4 (2026-11-22).** Revised for the Fearless SIMD direction proposed
+in PR #453. The changes:
 
-Also applied from the review: dated `Progress` entries with per-milestone
-sub-checkboxes, so Tolerance 8 is enforceable; real commands and a red-stage
-transcript in `Concrete steps`; the omitted `make typecheck`, `shellcheck`,
-`mbake`, `action-validator` and workflow-contract gates; a CodeRabbit round and
-pull-request step; a requirement that the BDD fixtures be pinned before the
-feature file is committed; recorded decisions on doctests and on index
-registration; and the finding that no workflow compiles NEON.
+- Recorded the source baseline, the maintainer's dependency authorization as a
+  narrow exemption, and 2.3.2's independence from 2.2.8.
+- Withdrew revision 3's evidence-based decline, because Gate A is unmeasured on
+  the current tree.
+- Defined both gates exactly, including nesting, exclusions, the removed
+  `harvest_resort` term, the decision workload, and the pass, fail and
+  inconclusive rule.
+- Added the semantic oracle, with an exceptional-lane rule for NaN and signed
+  zero.
+- Recorded two new findings: nondeterministic transform lookup errors, and
+  scalar `f32::max`'s own signed-zero non-determinism.
+- Replaced the intrinsic-based Milestone 5 with a private Fearless SIMD
+  Milestone 6 that specifies representation, batch geometry, dispatch, backend
+  enablement, tests and stop criteria.
+- Renumbered the milestones: Gate B instrument (3), packed record (4),
+  Filter-Kruskal (5), kernel (6), close (7).
 
-One deliberate deviation from the house layout remains:
-`Outcomes & retrospective` sits near the end rather than eighth. The plan reads
-better with the measured evidence and the milestone structure ahead of an
-as-yet-empty retrospective, and the section is listed in the living-document
-preamble either way.
+**Revision 3 (2026-11-22, uncommitted).** Rebased onto `051d395` and marked
+delivered work done.
+
+**Revision 2 (2026-08-16).** Rewritten after a six-lens design review that
+measured the target stage and corrected five factual errors in revision 1.
