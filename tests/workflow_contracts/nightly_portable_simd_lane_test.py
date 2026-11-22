@@ -122,7 +122,11 @@ PORTABLE_FEATURE = frozenset({"--features", "nightly_portable_simd"})
 
 def _is_dense_test(step: dict[str, typ.Any]) -> bool:
     """Report whether a step tests the dense provider's portable SIMD backend."""
-    return _has_cargo(step, NIGHTLY_TEST | DENSE_PROVIDER | PORTABLE_FEATURE)
+    return _has_cargo(
+        step,
+        NIGHTLY_TEST | DENSE_PROVIDER | PORTABLE_FEATURE,
+        frozenset({"--no-run"}),
+    )
 
 
 def _is_contract_without_feature(step: dict[str, typ.Any]) -> bool:
@@ -244,6 +248,18 @@ def test_a_printed_cargo_test_is_not_a_test() -> None:
         "run": (
             "echo 'cargo +nightly test -p chutoro-providers-dense "
             "--features nightly_portable_simd'"
+        )
+    }
+
+    assert not _is_dense_test(step)
+
+
+def test_a_compile_only_dense_command_is_not_a_test() -> None:
+    """`--no-run` compiles the tests without executing them."""
+    step = {
+        "run": (
+            "cargo +nightly test -p chutoro-providers-dense "
+            "--features nightly_portable_simd --no-run"
         )
     }
 

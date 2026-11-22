@@ -31,6 +31,12 @@ from workflow_support import jobs, load_workflow, run_script, steps
 #: A shell variable assignment that may prefix a command.
 ASSIGNMENT = r"[A-Za-z_][A-Za-z0-9_]*=(?:'[^']*'|\"[^\"]*\"|[^\s;&|]*)"
 
+#: Shell tokens after which a new command can start.
+COMMAND_SEPARATORS = r"[;&|(){}]"
+
+#: Shell control keywords that may precede a command in a condition or loop.
+CONTROL_KEYWORDS = r"(?:if|then|elif|else|while|until|do|!)"
+
 #: The flag whose repeated form is the whole point of this module.
 COMPONENT_FLAG = "--component"
 
@@ -379,7 +385,8 @@ def commands_starting(script: str, command: str) -> list[str]:
     joined = join_continuations(text)
     boundaries = mask_escaped(mask_quoted(joined))
     pattern = re.compile(
-        rf"(?m)(?:^|[;&|])[ \t]*(?:{ASSIGNMENT}[ \t]+)*"
+        rf"(?m)(?:^|{COMMAND_SEPARATORS})[ \t]*"
+        rf"(?:{ASSIGNMENT}[ \t]+)*(?:{CONTROL_KEYWORDS}[ \t]+)*"
         rf"(?P<command>{re.escape(command)}(?![^\s;&|])[^\n;&|]*)"
     )
     return [

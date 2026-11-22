@@ -316,6 +316,14 @@ def _nightly_workflow(installer: str | None) -> dict[str, typ.Any]:
             True,
             id="escaped-space-does-not-start-a-comment",
         ),
+        pytest.param(
+            _nightly_workflow(
+                "if rustup toolchain install nightly --profile minimal "
+                "--component clippy,rustfmt; then :; fi"
+            ),
+            True,
+            id="installer-in-a-shell-condition",
+        ),
         pytest.param(_nightly_workflow(None), False, id="no-installer"),
         pytest.param(
             _nightly_workflow(
@@ -549,6 +557,15 @@ def test_portable_simd_feature_forwards_to_the_dense_provider() -> None:
             "echo \\ # setup; rustup toolchain install nightly",
             ["rustup toolchain install nightly"],
             id="escaped-space-does-not-start-a-comment",
+        ),
+        pytest.param(
+            "if rustup toolchain install nightly --profile minimal "
+            "--component clippy,rustfmt; then :; fi",
+            [
+                "rustup toolchain install nightly --profile minimal "
+                "--component clippy,rustfmt"
+            ],
+            id="installer-in-a-shell-condition",
         ),
         pytest.param(
             "rustup toolchain install nightly \\ \n  --component clippy",
