@@ -6,9 +6,13 @@ Accepted - 2026-06-25. Keep SoA and prefetch policy private to dense adapters,
 and defer core HNSW structural changes until separate benchmark evidence
 justifies them.
 
+Amended 2026-11-19: the Context's phase order was corrected. The decision, its
+drivers, its measurements, and the deferral of structural work are unchanged.
+See [Amendments](#amendments).
+
 ## Date
 
-2026-06-25
+2026-11-20
 
 ## Context and problem statement
 
@@ -20,8 +24,11 @@ provides the structural boundary needed for most of that request:
 - HNSW candidate scoring calls `DataSource::batch_distances(query, candidates)`.
 - The dense provider keeps `DensePointView<'a>` and SIMD dispatch private to
   the dense adapter.
-- HNSW insert planning and trim scoring compute distances before acquiring the
-  graph write lock; the C1 guard now tests that invariant.
+- HNSW insert planning computes its distances while the graph read guard is
+  held, apply takes and releases the graph write guard, trim scoring computes
+  its distances after apply with `insert_mutex` still held, and commit takes
+  the write guard again. No distance is computed under the write lock, and the
+  C1 guard tests that invariant.
 
 Milestone 0 measurements for this execplan also showed that accumulated batch
 scoring accounted for 8.30% of the 10k-point synthetic build and 3.61% of the
@@ -123,3 +130,36 @@ API justification before implementation.
   The deferred roadmap items intentionally keep that path open.
 - Keeping `batch_distances_into` deferred means allocation improvements remain
   local until profiling proves a shared trait method is needed.
+
+## Amendments
+
+### 2026-11-19: phase order
+
+Clarification for the record: the Context bullet describing the phase order was
+corrected in place, and the accepted decision text is otherwise unchanged. The
+original bullet read that insert planning and trim scoring compute distances
+before acquiring the graph write lock. That was incomplete: planning runs under
+`insert_mutex` and the graph read guard, apply takes and releases the write
+guard, trim scoring runs after apply with `insert_mutex` still held, and commit
+takes the write guard again.
+
+### Clarification (2026-11-19)
+
+The Context bullet that described HNSW insert planning and trim scoring as
+computing distances before the graph write lock was incomplete. It has been
+corrected to the actual phase order:
+
+1. Insert planning computes its distances while `insert_mutex` and the graph
+   read guard are held.
+2. Apply takes the graph write guard, mutates the graph, and releases it.
+3. Trim scoring computes its distances with `insert_mutex` still held and no
+   graph guard, scoring sequentially on the mutex holder.
+4. Commit takes the graph write guard again.
+
+This correction only fixes the sequence; it does not change the SoA/prefetch
+decision or its measurements, and the adapter boundary and the evidence for
+deferring structural work remain as stated.
+[ADR-006](adr-0006-sequential-trim-scoring.md) records the deadlock that a
+parallel scorer invited and the scheduling rule for the whole critical section;
+the per-primitive contract is in the
+[HNSW lock and scheduling contract](../developers-guide.md#hnsw-lock-and-scheduling-contract).

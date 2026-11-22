@@ -192,6 +192,11 @@ jobs:
         run: scripts/install-nextest.sh
       - name: Workflow contract tests
         run: make test-workflow-contracts
+      - name: Scheduling contract
+        # These regressions fail when the filter selects no test, so renaming
+        # one cannot silently retire the insertion critical-section evidence.
+        # They run with default features, independent of the coverage action.
+        run: make test-scheduling-contract
       - name: Test and Measure Coverage
         uses: leynos/shared-actions/.github/actions/generate-coverage@3551a0bf76fe47d0cc5ff632c7796a8ddb23717e
         env:

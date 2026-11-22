@@ -4,9 +4,12 @@
 
 Accepted
 
+Amended 2026-11-22: a dated entry in the amendment log below records the
+concurrency boundary. The decision is unchanged. See [Amendments](#amendments).
+
 ## Date
 
-2026-06-06
+2026-11-20
 
 ## Context
 
@@ -311,6 +314,25 @@ intended as future formal verification targets:
   into pull-request CI with `make kani-full` remaining the nightly tier.
 - 2026-08-24: Documented the MST Kani model boundary and its equivalence-test
   closure in the design document and this ADR.
+- 2026-11-19: Recorded the concurrency boundary explicitly. The HNSW harnesses
+  and the graph-structure obligations FV04 and FV08 model graph state —
+  adjacency, reciprocity, levels, and the commit invariants over them — not
+  scheduling, lock acquisition, or lock waits, so they establish nothing about
+  deadlock freedom or about which thread runs a callback. Liveness obligations
+  stay separate from graph-structure obligations. Kani treats concurrency
+  primitives as sequential, and the insertion critical-section contract
+  therefore stays with the workflow contract and the runtime regressions
+  described in [ADR-006](adr-0006-sequential-trim-scoring.md). A future change
+  to scheduling beyond that critical section must be accompanied by a bounded
+  scheduler or lock model plus production-path regressions, not by extending
+  these structural harnesses.
+
+## Amendments
+
+- 2026-11-19: recorded that the HNSW harnesses and obligations FV04 and FV08
+  model graph state rather than scheduling, lock acquisition, or lock waits,
+  and that scheduling beyond the insertion critical section needs a bounded
+  scheduler or lock model plus production-path regressions.
 
 ## References
 

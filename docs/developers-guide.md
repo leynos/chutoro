@@ -738,12 +738,14 @@ pub fn search<D: DataSource + Sync>(
 `build` and `build_with_edges` seed the entry point from node `0`
 single-threaded, then dispatch the remaining insertions across Rayon workers.
 Each insertion is serialized by the index's insert mutex, so Rayon provides
-worker dispatch rather than concurrent graph mutation. `build_with_edges` is
-the preferred path when the caller needs the `EdgeHarvest` used by the MST
-stage. Harvested edges are sorted into a stable order, but worker scheduling
-can change the insertion order, so the harvested edge set itself can vary
-between builds. `with_capacity` is the entry point for manual or incremental
-index population.
+worker dispatch rather than concurrent graph mutation. That mutex is a
+scheduling boundary as well as a mutual-exclusion one; see
+[the lock and scheduling contract](#hnsw-lock-and-scheduling-contract).
+`build_with_edges` is the preferred path when the caller needs the
+`EdgeHarvest` used by the MST stage. Harvested edges are sorted into a stable
+order, but worker scheduling can change the insertion order, so the harvested
+edge set itself can vary between builds. `with_capacity` is the entry point for
+manual or incremental index population.
 
 `insert` mutates the graph without allocating harvested edge storage.
 `insert_harvesting` performs the same planning and commit sequence, but also
@@ -2567,6 +2569,20 @@ The two minimum-spanning-tree (MST) harnesses are fast-tier proofs and run in
 harness, including the distance and HNSW invariant proofs that are not in the
 fast list.
 
+What the HNSW harnesses prove is bounded. The graph-structure obligations FV04
+and FV08 model graph state — adjacency, reciprocity, level membership, and the
+commit invariants over those — on concrete or two-node configurations. They do
+not model scheduling, lock acquisition, or lock waits, and they therefore say
+nothing about deadlock freedom or about which thread runs a callback. Liveness
+obligations stay separate from graph-structure obligations. The insertion
+critical-section contract in
+[the lock and scheduling contract](#hnsw-lock-and-scheduling-contract) is
+outside what any of them can establish, and a future change to scheduling
+beyond that critical section must come with a bounded scheduler or lock model
+plus production-path regressions rather than an extension of these structural
+harnesses. The reasons Kani is not applied to concurrency-heavy code are
+recorded in [ADR-0002](adrs/adr-0002-adoption-of-kani-formal-verification.md).
+
 Kani harnesses must stay within the tractable CBMC state space. For graph code
 there is a sharp combinatorial cliff between two-node and three-node
 configurations that drive the full commit machinery: three deterministic
@@ -2858,27 +2874,270 @@ write lock. The focused `hnsw::tests::write_lock` module enables a test-only
 write scope. Keep new insertion, trimming, and search code compatible with that
 guard.
 
-Insertion also holds `insert_mutex` across the whole insertion: it is acquired
+### HNSW lock and scheduling contract
+
+Every lock in the CPU index has a stated span and a stated set of operations it
+may cover. The central rule is:
+
+> No code path that holds a lock listed below may block on, dispatch to, or
+> wait for work on the Rayon pool. Independently, no such path may wait for
+> work that needs a lock the holder already owns, whether that work runs on the
+> pool or on another thread.
+
+Insertion holds `insert_mutex` across the whole transaction: it is acquired
 before level sampling and retained through planning, apply, trim scoring, and
 commit. Only one worker therefore plans against or mutates the graph at a time,
-and Rayon supplies worker dispatch without concurrent graph mutation. No code
-path inside that critical section may block on, or dispatch work to, the Rayon
-pool: a worker that is due to run the nested work may already be blocked
-acquiring the same mutex, and the build then never returns.
-`CpuHnsw::score_trim_jobs` therefore scores its jobs in order on the calling
-thread. Two checks cover that, and they are deliberately different in kind. The
-`tests/workflow_contracts/trim_scoring_dispatch_test.py` contract reads the
-scorer's body and rejects every Rayon entry point in it, which is the
-deterministic guard for this regression. `hnsw::cpu::trim_tests` records
-`rayon::current_thread_index()` for every distance call made from inside a
-four-worker pool, which catches a dispatch in practice, including one reached
-through a helper the source reading cannot see.
+and Rayon supplies worker dispatch without concurrent graph mutation. Breaking
+the rule above is not a latency problem; it is a deadlock, because the worker
+that would run the nested work may already be blocked acquiring the same mutex.
 
-[ADR-006](adrs/adr-0006-sequential-trim-scoring.md) records the deadlock cycle,
-the rejected alternatives, and the limits of the fix for arbitrary `DataSource`
-callbacks. In particular, the fix removes nested dispatch owned by the core; a
-source implementation that blocks on, or dispatches to, the same Rayon pool
-while a distance callback runs under `insert_mutex` can still deadlock.
+The two lock-direction columns are read together: `Acquires while held` names a
+lock taken under this one, and `Must already hold` names a lock the caller must
+hold before taking it. Together they give the permitted nesting order:
+`insert_mutex`, then the graph guard it covers, and, where both cache guards
+are held together, the LRU shard before the DashMap entry. Cache access has one
+outer lock per path: an insertion holds `insert_mutex`, while `search` holds
+only the graph read guard.
+
+| Lock or primitive                                    | Span                                                                 | Callbacks permitted                                        | Pool dispatch or wait | Acquires while held                                                                                                  | Must already hold                                                                                        | Prohibitions                                                                                             |
+| ---------------------------------------------------- | -------------------------------------------------------------------- | ---------------------------------------------------------- | --------------------- | -------------------------------------------------------------------------------------------------------------------- | -------------------------------------------------------------------------------------------------------- | -------------------------------------------------------------------------------------------------------- |
+| `insert_mutex` (`Mutex<()>`)                         | From before level sampling until after commit of one insertion       | Yes; distance and metric callbacks, under the prohibitions | No                    | Graph read guard (planning) and write guard (apply, commit); RNG mutex while sampling; cache guards during callbacks | None                                                                                                     | No Rayon dispatch or blocking wait; no `DataSource` call that dispatches, blocks, or re-enters insertion |
+| Worker RNG (`worker_rngs[i]`, `Mutex<SmallRng>`)     | One `sample_level` draw                                              | No                                                         | No                    | None                                                                                                                 | `insert_mutex`                                                                                           | Never held across a graph guard or a distance callback                                                   |
+| Fallback RNG (`rng`, `Mutex<SmallRng>`)              | One `sample_level` draw on a thread outside the pool                 | No                                                         | No                    | None                                                                                                                 | `insert_mutex`                                                                                           | As the worker RNG                                                                                        |
+| Graph read guard (`RwLock::read`)                    | Planning's search; all of `search`, including `ensure_query_present` | Yes; the read phase scores while it is held                | No                    | The LRU shard, and the DashMap entry either directly or under that shard, during a distance-cache lookup             | `insert_mutex` during planning; none in `search`                                                         | No dispatch or blocking wait; no insertion, which needs the write guard                                  |
+| Graph write guard (`RwLock::write`)                  | The apply and commit closures; `reconfigure_for_test`                | No; ADR-003 keeps distance work outside it                 | No                    | None                                                                                                                 | `insert_mutex` during apply and commit; none in `reconfigure_for_test`                                   | No `DataSource` calls, no dispatch, no wait                                                              |
+| DashMap entry (`DistanceCache::entries`)             | One `get`, `insert`, `remove`, or `contains_key`                     | No                                                         | No                    | None                                                                                                                 | The LRU shard guard when an eviction removes or checks an entry; otherwise the calling path's outer lock | Drop the entry guard before `touch`; never take an LRU shard guard while holding one                     |
+| LRU shard (`LruShard::usage`, `Mutex<LruCache<..>>`) | One usage update and the eviction it causes                          | No                                                         | No                    | DashMap entry guard, to remove an evicted key or confirm a restored one                                              | The calling path's `insert_mutex` (insertion) or graph read guard (planning and search)                  | No callbacks, dispatch, or wait; recover poison rather than propagating it                               |
+| Counters (`len`, sequence, `Relaxed` atomics)        | One load or store                                                    | Not applicable                                             | Not applicable        | None                                                                                                                 | None                                                                                                     | Relaxed ordering is sufficient only because `insert_mutex` orders graph and length changes               |
+
+The exceptions are explicit rather than accidental:
+
+- **Bootstrap.** `build_initial` inserts node `0` without `insert_mutex`
+  because no worker has been dispatched yet and no other thread can observe the
+  index. Every later insertion is serialized.
+- **`reconfigure_for_test`.** It takes the graph write guard through
+  `write_graph` before replacing the RNG and distance cache, so a poisoned
+  graph lock leaves the index unchanged rather than half-reconfigured.
+- **Poison recovery.** The graph and insertion mutexes report
+  `HnswError::LockPoisoned`. The LRU usage mutex recovers with
+  `PoisonError::into_inner` because each mutation it performs is atomic under
+  the guard, so a panic cannot leave the usage list half-updated.
+- **Search re-entry.** `search` holds the graph read guard across `DataSource`
+  callbacks. From a callback, a source must not call `insert` (which needs the
+  write guard) or `search` again (which needs a read guard) on the same index.
+  The nested reader can be held behind a writer queued for the outer search and
+  never get the guard, while the outer search waits for the callback.
+- **LRU then DashMap.** That is the only permitted order. The reverse order is
+  what would let a lookup and an eviction deadlock.
+
+### How the scheduling contract is checked
+
+`CpuHnsw::score_trim_jobs` scores its jobs in order on the calling thread. Two
+checks cover that, and they are deliberately different in kind.
+
+`tests/workflow_contracts/trim_scoring_dispatch_test.py` is the deterministic
+guard. Through the pinned list in its companion `trim_scoring_reading.py`, the
+marker set in `trim_scoring_markers.py`, and the call reading in
+`trim_scoring_call_reading.py`, it reads the bodies of the five functions on
+the scoring path — `insert_with_collector` in `cpu/mod.rs`; `score_trim_jobs`,
+`score_trim_jobs_with_metrics`, and `run_trim_job` in `cpu/trim.rs`; and
+`batch_distances_for_trim` in `hnsw/helpers.rs` — and rejects every recognized
+Rayon entry point in them, including the `into_par_iter()`, `par_iter_mut()`,
+and `par_iter()` adapters, the parallel slice and string adapters (the
+`.par_bridge()`, `.par_chunks()`, `.par_rchunks()`, `.par_chunk_by()`,
+`.par_windows()`, `.par_array_windows()`, `.par_split()`, `.par_lines()`,
+`.par_chars()`, `.par_char_indices()`, `.par_bytes()`, `.par_encode_utf16()`,
+`.par_matches()`, `.par_match_indices()`, `.par_drain()`, `.par_sort()`, and
+`.par_extend()` methods, each standing for its mutable and `_exact` forms as
+well) and the `spawn_fifo`, `scope_fifo`, `in_place_scope`,
+`in_place_scope_fifo`, `join_context`, `broadcast`, and `spawn_broadcast`
+calls, together with their `ThreadPool` method forms such as `pool.scope(...)`
+and `scope.spawn(...)`, which run work in the pool as surely as the free
+functions do. Three receiver forms are matched more narrowly. The generic
+`pool.install::<_, _>(...)` and `out.par_extend::<_>(...)` allow the turbofish
+between the name and the argument list, and a type may itself be parenthesized,
+so `pool.install::<_, ()>(...)`, `out.par_extend::<()>(items)` and
+`pool.join::<_, _, (), ()>(...)` are read as the calls they are.
+`pool.join(...)` counts because it takes two arguments where a slice or path
+join takes one. That distinction is read from the argument list, not from the
+first argument's text: a comma at the list's own level with a value after it
+means two arguments, so an inline closure, a bound callable such as
+`pool.join(left, right)`, and a call that builds one such as
+`pool.join(make_job(), || ())` all count. A trailing comma declares a single
+argument, so `names.join(separator,)` stays a slice join, and a comma inside a
+turbofish separates type arguments, so `dir.join(make_path::<A, B>())` stays a
+path join. The turbofish is read by counting its angles, so a nested list such
+as `dir.join(make_path::<Outer<A, B>, C>())` is still one argument and the `>`
+of a function type's arrow, as in `::<fn() -> u8>`, closes nothing. A qualified
+path may be borrowed, as in
+`cache_dir.join(&<Paths<A, B> as HasPath>::path())`, and its type-argument
+commas still pass one value. Each remaining entry is a boundary-aware pattern
+rather than a substring, so a slice `names.join(", ")`, a slice join on a
+variable separator, or a path `dir.join("file")` in the scored body is not
+reported as a Rayon join. Rust permits whitespace and comments between the `.`
+and the method name, so `pool. install(...)` is read as the call it is, and it
+lets an inherent method be called through its type, so
+`ThreadPool::scope(pool, |_| ())` and `ThreadPool::install::<_, ()>(pool, job)`
+are dispatches while `ThreadPool::new()` is not. A free function is recognized
+only without a receiver: the character before the name is read back past any
+spaces, so `cache_dir . join(cache_file)` is the path join it is and not Rayon's
+`join`, while a generic free call
+`join::<_, _, (), ()>(|| left(), || right())` is still recognized by skipping
+the turbofish before the argument list, and a keyword or a loop label before
+the name is not a receiver, so `return join(left, right)` and
+`break 'outer join(left, right)` are read as the dispatches they are, as is a
+call through a grouped operand, `(join)(left, right)`,
+`(join::<_, _, (), ()>)(left, right)` and `((join))(left, right)`, while a
+keyword attached to the preceding expression, as in `fn f(){return join(a)}`,
+is still a keyword. Whitespace between `::` and `<` is allowed, so
+`pool.install:: <_, ()>(...)` is read as the call it is. The receiver forms
+skip a turbofish as well, so `pool.scope::<_, ()>(|_| ())` is the same dispatch
+as `pool.scope(|_| ())`. The synthetic sources these readings are checked
+against live in `fixtures/trim_scoring`, loaded by `trim_scoring_samples.py`.
+The contract also checks a checked-in copy of the former `score_trim_jobs` and
+requires it to read as a dispatch, so the fixture cannot drift into agreement
+with the fixed code. A missing function fails the contract rather than reading
+as clean. `make test-workflow-contracts` runs it.
+
+The scan's limits are part of the contract. It can see a listed helper that
+dispatches, but not an unlisted helper called by one of the five, not an
+aliased Rayon import such as `use rayon::spawn as run`, and not a `DataSource`
+implementation that dispatches on its own account. Those cases are why the
+runtime regressions exist, and why a passing scan is not a proof of the whole
+path.
+
+`make test-scheduling-contract` runs one nextest invocation per regression,
+each pinned to its fully qualified name with an exact-match filter
+(`test(=...)`) and `--no-tests=fail`, so neither a rename, a like-named
+fixture, nor a surviving sibling can retire the evidence silently. The target
+builds the default feature set, and every spelling that would change it is
+rejected: `--all-features`, `--no-default-features`, `--features` including its
+`=` form, and `-F`. An invocation carrying `--no-run` is rejected as well: it
+compiles the selected tests without executing them, so it satisfies every
+selector and count while producing no runtime evidence. The workflow contract —
+`scheduling_contract_test.py`, `scheduling_ci_test.py` and
+`scheduling_shell_test.py`, with their companions `scheduling_reading.py`,
+`makefile_reading.py`, `scheduling_command_reading.py`,
+`scheduling_invocation_reading.py`, `scheduling_script_reading.py`,
+`scheduling_segment_reading.py`, `scheduling_errexit_reading.py`,
+`scheduling_line_reading.py`, `scheduling_here_document_reading.py`,
+`scheduling_shell_reading.py`, `scheduling_selector_cases.py`, and
+`rust_declaration_reading.py` — also requires each invocation's whole filter
+expression to be exactly one selector, so a widened expression such as
+`test(=name) | all()` cannot keep an invocation non-empty after the regression
+is renamed. Every spelling of a nextest filter is read, including
+`--filterset`, the `=` forms and an attached `-Eall()`, and a second filter is
+rejected because nextest unions filtersets; a filter argument with no value
+fails the reading rather than passing unread. The recipe's commands must run
+nextest in executable position and must not carry Make's error-ignoring `-`
+prefix or a failure-masking shell suffix such as `|| true` (spaced or not: the
+commands are tokenized with shell separators, so `||true` is read as the
+operator it is), so a command that merely mentions nextest, or one whose
+failure would be suppressed, cannot stand in for the regression. The zero-test
+flag is matched as a whole token, so a redirection target such as
+`>--no-tests=fail` cannot stand in for it on a command that carries
+`--no-tests=pass`, and the spaced form `> --no-tests=fail`, whose target is a
+separate word, is dropped as the file name it is; a file-descriptor prefix such
+as `2>` is read as a redirection too. Shell comments are removed first, but a
+`#` starts one only at the start of a word, and an escaped operator does not
+end the word before it: the hash in `nextest run >scheduling#log || true` and in
+`>scheduling\;#log || true` is part of the redirection, and cutting there
+would have hidden the mask the command carries. Quoted text is data as well, so
+`echo '&&' installer` only prints the path; a quoted operator is an argument,
+not a command separator, and a Bash ANSI-C string (`$'...'`) honours its
+backslash escapes, so an escaped `'` does not end it and a `$(` inside one
+opens no substitution. Escaped operator text is data for the same reason, so
+`echo \&\& installer` prints both ampersands. The CI step that runs the target
+is pinned unconditional, as is the nextest installation it depends on, and that
+installation has to be a command in its own right: a step that only prints or
+comments the installer path installs nothing, and neither does one whose
+failure is masked (`installer || true`, or a `||` anywhere later in the same
+command line, as in `installer && echo installed || true`), one an earlier `||`
+can skip (`true || installer` installs nothing when `true` succeeds), one an
+earlier `&&` may skip (`false && installer` never runs either, and only `;`
+starts a command list that runs whatever came before it), one sent to the
+background (`installer &` lets the next command start first, and so does a `&`
+that ends a later command in the chain, as in `installer && echo done &`), one
+that only parses the script (`bash -n installer`), or one whose `&&` chain is
+followed by another command. A `;` is not a mask: it ends the installer's own
+list, so its failure is not exempt from `errexit` and the step stops there,
+which is why `installer; true`, `installer ; make test` and a trailing
+`installer ;` all count. The step's effective shell is resolved through the
+workflow, job, and step scopes, and a custom `bash` or `sh` template must
+execute the script under `errexit`: `bash {0}` is rejected because a failed
+line would not stop the step, and so is any template that only syntax-checks
+the script, whether as `bash -n {0}`, in a combined cluster such as
+`bash -en {0}`, or as `bash -o noexec {0}` or `bash -eo noexec {0}`. A quoted
+operand such as `bash -e "{0}"` is accepted, because the runner substitutes the
+script's path before the shell parses the template. A template that runs one
+command and exits is rejected for the same reason: `bash -et {0}` and
+`bash -o onecmd -e {0}` stop after the script's first command, so a script of
+several commands would never reach the gate. `errexit` exempts a failing
+command inside an AND/OR list unless it is the command after the final `&&`, so
+`installer && echo installed` on one line and `true` on the next leaves the
+step green, while the same chain as the script's last command fails it. A
+physical line ending in `&&`, `||`, `|` or `|&` continues the command list onto
+the next line, so `true ||` followed by an installer line never installs it and
+an installer followed by `&&` carries its failure into the next line; a comment
+or blank line between the two is skipped as the shell skips it. A
+backslash-newline pair is deleted with nothing inserted, so a path split as
+`scripts/install-\` and `nextest.sh` is the one word the shell runs, and only
+an odd trailing backslash run continues the line, with only its final backslash
+deleted; a comment's trailing backslash is comment text and continues nothing,
+and a descriptor copy such as `2>&1` belongs to its command rather than
+backgrounding it, while a quoted file name ending in `>` does not make the `&`
+after it a descriptor copy. A here-document's body begins on the newline that
+ends the opening line even when a list operator continues past it, so the body
+of `cat <<'EOF' &&` is not read as part of the continued list, and the closing
+word is compared as the shell compares it: a quoted delimiter makes the body
+literal, while an unquoted body has its backslash-newline pairs deleted first,
+and a backslash escaping a character of the delimiter is removed before the
+comparison. A script holding a compound command — a branch, loop, case, brace
+group or parenthesized group, spaced or not — is refused whole, because a
+simple reading cannot say which body ran. The declaration the recipe names must
+still carry a test attribute, because a plain function of the same name is
+never discovered and the zero-test flag cannot fire for it, and an attributed
+declaration quoted inside a string literal is an example rather than a test.
+The target must be declared phony, and a `.PHONY` declaration is read with its
+comments removed, so a name mentioned only after a `#` declares nothing, a
+comment continued with a trailing backslash keeps the next line out of the
+declaration as well, and a `define` body is variable text rather than
+declaration text, so a `.PHONY` written between `define` and `endef` declares
+nothing, a nested definition ends at its own `endef`, a tab-prefixed `endef`
+stays body text, and a `.PHONY` inside an unevaluated conditional block
+declares nothing, including when a continued comment hides the directives in it.
+`.PHONY:= gate` assigns a variable rather than declaring a target, and so does
+`.PHONY: gate = value`; a rule header written `build ::=` assigns too, a
+`.PHONY : gate` with a space before the colon still declares, and a definition
+opened inside a conditional hides its body. A definition line continues onto
+the next before `endef` is read, a tab-prefixed directive inside a conditional
+is recipe text, and a recipe continues across comment lines. A rule header
+names its targets before the colon, so a duplicate written `target :` is still
+counted. The direct test scores a synthetic batch in a dedicated four-worker
+pool and records the Rayon worker that serves each distance callback; it holds
+no lock and asserts that every callback is served by the calling worker. The
+insertion-path test drives a real insertion in a dedicated four-worker pool and
+records the thread, the Rayon worker, and a non-blocking `insert_mutex`
+`try_lock` for every post-planning distance callback; it asserts that the
+callbacks stay on the mutex holder.
+
+What the two checks establish differs:
+
+- A failure of the Python contract is deterministic: a dispatch marker in a
+  pinned body fails whatever the scheduler does.
+- A failure of a Rust regression is scheduler-dependent. Scoring is observed
+  while a bounded steal window is open, so a dispatching implementation is
+  caught only when an idle worker accepts the offer. A pass is an observation,
+  not a proof; when no worker steals, a dispatching scorer can still finish on
+  the caller.
+- Neither check establishes deadlock freedom for arbitrary `DataSource`
+  callbacks. [ADR-006](adrs/adr-0006-sequential-trim-scoring.md) records the
+  deadlock cycle, the rejected alternatives, and the limits of the fix, and
+  [ADR-0002](adrs/adr-0002-adoption-of-kani-formal-verification.md) records the
+  concurrency limitations that bound what any structural harness can show. The
+  fix removes nested dispatch owned by the core; a source implementation that
+  blocks on, or dispatches to, the same Rayon pool while a distance callback
+  runs under `insert_mutex` can still deadlock.
 
 `DataSource::batch_distances(query, candidates)` has the following cache-layer
 contracts:

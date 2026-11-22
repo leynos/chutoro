@@ -803,19 +803,46 @@ timing. The sequence numbers are assigned once per insertion and recorded
 inside the graph so property tests and deterministic builds see identical
 outcomes run after run.
 
-_Implementation update (2026-11-08)._ Insertion serializes the
-apply-score-commit sequence through a single `Mutex<()>`, so only one worker
-plans against the graph at a time. Trim scoring used to dispatch its jobs with
-`into_par_iter()` while that guard was held, which invited a deadlock: a pool
-worker that was due to run nested trim work might already be blocked acquiring
-the same mutex, and the build then never returned. A benchmark child that hit
-the stall had to be killed after 25 minutes. `CpuHnsw` now scores trim jobs on
-the thread holding the guard, and `hnsw::cpu::trim_tests` pins the property.
-The rule generalizes to the whole critical section: no code path inside it may
-block on or dispatch work to the Rayon pool.
+_Implementation update (2026-11-08; sequence corrected 2026-11-19)._ Insertion
+is one transaction under `insert_mutex`: the guard is acquired before level
+sampling, planning runs under the graph read guard, apply takes the graph write
+guard and releases it, trim scoring runs with no graph guard but with
+`insert_mutex` still held, and commit takes the graph write guard again. Only
+one worker therefore plans against or mutates the graph at a time. Trim scoring
+used to dispatch its jobs with `into_par_iter()` while that guard was held,
+which invited a deadlock: a pool worker that was due to run nested trim work
+might already be blocked acquiring the same mutex, and the build then never
+returned. A benchmark child that hit the stall had to be killed after 25
+minutes. `CpuHnsw` now scores trim jobs in order on the thread holding the
+guard, and `hnsw::cpu::trim_tests` pins the property. The rule generalizes to
+the whole critical section: no code path inside it may block on or dispatch
+work to the Rayon pool. The per-primitive locks, their permitted spans and
+nesting, and the evidence that checks the rule are recorded in
+[the HNSW lock and scheduling contract][scheduling-contract].
 [ADR-006](adrs/adr-0006-sequential-trim-scoring.md) records the decision, the
 rejected alternatives, and the limit that a `DataSource` callback which itself
 waits on the same pool remains outside the fix's guarantee.
+
+[scheduling-contract]: ./developers-guide.md#hnsw-lock-and-scheduling-contract
+
+_Assurance update (2026-11-19)._ The contract is checked twice, in different
+kinds. A lexical workflow contract scans the five functions on the scoring path
+and fails deterministically on any recognized Rayon entry point in their
+bodies, including a restored `into_par_iter()`, and a checked-in copy of the
+former scorer proves the scan still distinguishes it from the fixed code. Two
+runtime regressions then drive a direct scoring batch and a real insertion in a
+dedicated four-worker pool. The direct regression records the Rayon worker that
+serves each distance callback and asserts that scoring stays on the calling
+worker; it holds no lock. The insertion-path regression records thread
+identity, Rayon worker index, and a non-blocking `insert_mutex` probe for every
+post-planning distance callback, and it asserts that scoring stays on the guard
+holder. The runtime evidence is an observation, not a proof, because it depends
+on an idle worker accepting a bounded steal offer. Neither check proves
+deadlock freedom for arbitrary `DataSource` implementations, and the broader
+concurrency limitations in
+[ADR-0002](adrs/adr-0002-adoption-of-kani-formal-verification.md) still apply.
+The `make test-scheduling-contract` target runs the regressions in CI beside
+`make test-workflow-contracts`.
 
 _Implementation update (2026-11-16)._ The insertion mutex stays a single-writer
 lock; it is retained rather than narrowed. `CpuHnsw::insert_mutex: Mutex<()>`
