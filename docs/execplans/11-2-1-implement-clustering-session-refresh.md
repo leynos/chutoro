@@ -5,7 +5,7 @@ This ExecPlan (execution plan) is a living document. The sections `Constraints`,
 `Outcomes & Retrospective`, `Conformance Basis`, and `Verification Plan` must
 be kept up to date as work proceeds.
 
-Status: DRAFT
+Status: APPROVED (2026-11-22)
 
 This plan delivers roadmap item `11.2.1` (see `docs/roadmap.md` §11.2). It must
 be approved by the user before any implementation begins. It was revised after
