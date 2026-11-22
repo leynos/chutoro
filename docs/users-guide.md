@@ -664,6 +664,45 @@ adapter derives its own address from the identifier, for example
 `Utf8PathBuf::from(key.as_ref())`. See the
 [0.2.0 migration notes](migration-notes.md#020) for the full compatibility note.
 
+### Declaring source checksums
+
+A source may declare an optional SHA-256 checksum as `sha256:<hex>`. The
+payload is 64 hexadecimal characters; `Checksum::parse` accepts upper- or
+lower-case digits. The parsed value displays the canonical lowercase
+`sha256:<hex>` form, so a checksum read back from a manifest compares equal to
+one parsed from any case variant.
+
+```rust
+use chutoro_bench_datasets::{
+    Checksum, DigestAlgorithm, IntegrityFailure, RecipeError,
+};
+
+let text = concat!(
+    "sha256:",
+    "0123456789abcdef0123456789abcdef",
+    "0123456789abcdef0123456789abcdef",
+);
+let checksum = Checksum::parse(text)?;
+assert_eq!(checksum.algorithm(), DigestAlgorithm::Sha256);
+assert_eq!(checksum.to_string(), text);
+
+let error = Checksum::parse("md5:abc").expect_err("unsupported algorithm");
+let RecipeError::Integrity(failure) = error else {
+    panic!("expected an integrity failure, got: {error}");
+};
+assert!(matches!(
+    failure.as_ref(),
+    IntegrityFailure::UnknownAlgorithm { .. }
+));
+# Ok::<(), chutoro_bench_datasets::RecipeError>(())
+```
+
+Malformed values return `RecipeError::Integrity` carrying an
+`IntegrityFailure`: a missing algorithm prefix, an unknown or wrongly cased
+algorithm, a digest of the wrong width, or a non-hexadecimal character. Parsing
+does not verify fetched bytes; fetch-time verification remains deferred to
+roadmap item 10.1.2.
+
 ## Benchmarking
 
 The companion `chutoro-benches` crate ships Criterion benchmarks for the four
