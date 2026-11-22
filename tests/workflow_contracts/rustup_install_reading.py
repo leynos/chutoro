@@ -42,11 +42,6 @@ COMPONENT_FLAG = "--component"
 #: Characters after which a `#` begins a new shell word, and so a comment.
 WORD_BOUNDARIES = frozenset(" \t;&|()<>")
 
-#: Quoted shell text, including escaped double quotes. A quoted line break
-#: does not begin an executable command, so quoted spans are blanked before
-#: command boundaries are read.
-QUOTED_TEXT = re.compile(r"'[^']*'|\"(?:\\.|[^\"\\])*\"", re.DOTALL)
-
 #: An escaped character. A backslash makes the next character literal, so an
 #: escaped separator cannot end a command and is blanked in the copy the
 #: boundary pattern reads.
@@ -192,24 +187,6 @@ def join_continuations(script: str) -> str:
     return "".join(joined)
 
 
-def _mask_quoted_match(match: re.Match[str]) -> str:
-    """Keep a single quoted command word, or mask the whole span.
-
-    A quoted executable name such as `"rustup"` runs the same command as the
-    bare word, so the decoded word stays at the same offset. Quoted text that
-    is not one command-like word is masked, so a quoted sentence cannot
-    expose a command inside it and a quoted separator cannot become one.
-    """
-    text = match.group(0)
-    try:
-        words = shlex.split(text, comments=False, posix=True)
-    except ValueError:
-        words = []
-    if len(words) == 1 and _is_command_word(words[0]):
-        return words[0] + " " * (len(text) - len(words[0]))
-    return "x" * len(text)
-
-
 def _is_command_word(word: str) -> bool:
     """Report whether *word* can stand in for an executable name."""
     if not word or "\n" in word:
@@ -217,20 +194,79 @@ def _is_command_word(word: str) -> bool:
     return not any(character in ";&|<>" for character in word)
 
 
+def _is_single_command_word(text: str, words: list[str]) -> bool:
+    """Report whether a quoted span is exactly one command word."""
+    if len(words) != 1 or "\n" in text:
+        return False
+    return _is_command_word(words[0])
+
+
+def _mask_span(text: str) -> list[str]:
+    """Return a quoted span's replacement: a command word or placeholders."""
+    try:
+        words = shlex.split(text, comments=False, posix=True)
+    except ValueError:
+        words = []
+    if _is_single_command_word(text, words):
+        return list(words[0] + " " * (len(text) - len(words[0])))
+    return ["x"] * len(text)
+
+
 def _mask_escaped_match(match: re.Match[str]) -> str:
     """Return a word placeholder of the same length as an escaped span."""
     return "x" * len(match.group(0))
+
+
+def _outside_character(character: str, escaped: bool) -> tuple[str, bool, bool]:
+    """Return the text, next escape state, and whether a quote opens."""
+    if escaped:
+        return character, False, False
+    if character == "\\":
+        return character, True, False
+    if character in {"'", '"'}:
+        return "", False, True
+    return character, False, False
+
+
+def _inside_character(character: str, quote: str, escaped: bool) -> tuple[bool, bool]:
+    """Return the next escape state and whether *quote* closes."""
+    if escaped:
+        return False, False
+    if character == "\\" and quote == '"':
+        return True, False
+    return False, character == quote
 
 
 def mask_quoted(script: str) -> str:
     """Return *script* with quoted text masked, preserving length.
 
     Keeping the length keeps the offsets usable against the unmasked script.
-    The placeholder is a word character rather than whitespace, so a quoted
-    command word still occupies its position and `"echo" rustup ...` cannot
-    read as an executable `rustup`.
+    A single quoted command word stays at its offset, so a quoted executable
+    name is recognised. Other quoted text is masked, so a quoted sentence
+    cannot expose a command inside it and a quoted separator cannot become
+    one. Escaped quotes outside a span are left alone.
     """
-    return QUOTED_TEXT.sub(_mask_quoted_match, script)
+    masked: list[str] = []
+    quote: str | None = None
+    escaped = False
+    span: list[str] = []
+    for character in script:
+        if quote is None:
+            text, escaped, opens = _outside_character(character, escaped)
+            masked.append(text)
+            if opens:
+                quote = character
+                span = [character]
+            continue
+        span.append(character)
+        escaped, closes = _inside_character(character, quote, escaped)
+        if closes:
+            quote = None
+            masked.extend(_mask_span("".join(span)))
+            span = []
+    if span:
+        masked.extend("x" * len(span))
+    return "".join(masked)
 
 
 def mask_escaped(script: str) -> str:
@@ -244,15 +280,19 @@ def mask_escaped(script: str) -> str:
 
 
 #: A here-document operator and its delimiter word, quoted or bare. A
-#: here-string, `<<<`, is not a here-document and is excluded.
+#: here-string, `<<<`, is not a here-document and is excluded. The `dash`
+#: group records `<<-`, whose terminator may be indented with tabs.
 HERE_DOCUMENT = re.compile(
-    r"(?<!<)<<-?(?![<])[ \t]*('[^']*'|\"[^\"]*\"|[^\s;&|]+)"
+    r"(?<!<)<<(?P<dash>-?)(?![<])[ \t]*('[^']*'|\"[^\"]*\"|[^\s;&|]+)"
 )
 
 
-def _here_document_delimiters(line: str) -> list[str]:
-    """Return the here-document delimiter words declared on *line*."""
-    return [match.group(1).strip("'\"") for match in HERE_DOCUMENT.finditer(line)]
+def _here_document_delimiters(line: str) -> list[tuple[str, bool]]:
+    """Return each here-document delimiter and whether tabs are stripped."""
+    return [
+        (match.group(2).strip("'\""), match.group("dash") == "-")
+        for match in HERE_DOCUMENT.finditer(line)
+    ]
 
 
 def mask_here_documents(script: str) -> str:
@@ -262,11 +302,13 @@ def mask_here_documents(script: str) -> str:
     inside one is not an execution. The closing delimiter is blanked too; a
     real command after it is left untouched.
     """
-    pending: list[str] = []
+    pending: list[tuple[str, bool]] = []
     masked = []
     for line in script.splitlines():
         if pending:
-            if line.strip() == pending[0]:
+            delimiter, strips_tabs = pending[0]
+            candidate = line.lstrip("\t") if strips_tabs else line
+            if candidate == delimiter:
                 pending.pop(0)
             masked.append(" " * len(line))
             continue
