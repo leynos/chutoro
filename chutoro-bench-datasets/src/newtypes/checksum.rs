@@ -100,18 +100,50 @@ pub struct Checksum {
 
 impl Checksum {
     /// Construct a checksum from an algorithm and its digest bytes.
+    ///
+    /// # Examples
+    ///
+    /// ```
+    /// use chutoro_bench_datasets::{Checksum, DigestAlgorithm};
+    ///
+    /// let checksum = Checksum::new(DigestAlgorithm::Sha256, [0xab; 32]);
+    /// assert_eq!(checksum.as_bytes(), &[0xab; 32]);
+    /// ```
     #[must_use]
     pub const fn new(algorithm: DigestAlgorithm, bytes: [u8; 32]) -> Self {
         Self { algorithm, bytes }
     }
 
     /// Return the digest algorithm.
+    ///
+    /// # Examples
+    ///
+    /// ```
+    /// use chutoro_bench_datasets::{Checksum, DigestAlgorithm};
+    ///
+    /// let text = format!("sha256:{}", "ab".repeat(32));
+    /// let checksum = Checksum::parse(&text)?;
+    /// assert_eq!(checksum.algorithm(), DigestAlgorithm::Sha256);
+    /// # Ok::<(), chutoro_bench_datasets::RecipeError>(())
+    /// ```
     #[must_use]
     pub const fn algorithm(&self) -> DigestAlgorithm {
         self.algorithm
     }
 
     /// Borrow the raw digest bytes.
+    ///
+    /// # Examples
+    ///
+    /// ```
+    /// use chutoro_bench_datasets::{Checksum, DigestAlgorithm};
+    ///
+    /// let text = format!("sha256:{}{}", "01", "00".repeat(31));
+    /// let checksum = Checksum::parse(&text)?;
+    /// assert_eq!(checksum.as_bytes().len(), 32);
+    /// assert_eq!(checksum.as_bytes().first(), Some(&0x01));
+    /// # Ok::<(), chutoro_bench_datasets::RecipeError>(())
+    /// ```
     #[must_use]
     pub const fn as_bytes(&self) -> &[u8; 32] {
         &self.bytes
