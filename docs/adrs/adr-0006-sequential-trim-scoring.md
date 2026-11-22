@@ -403,22 +403,21 @@ so a script of several commands would stop after the first; a quoted operand
 such as `bash -e "{0}"` is accepted, because the runner substitutes the path
 inside the quotes before the shell parses the template.
 
-Positive evidence, on commit `55c648d` on 2026-11-22: `make check-fmt`,
+Positive evidence, on commit `5cb3929` on 2026-11-22: `make check-fmt`,
 `make markdownlint` including spelling, `make interrogate` (at 100% documented
-over 921 definitions), `make nixie`, `cs delta origin/main`, and
-`make test-workflow-contracts` (1212 passed and 5 deselected, with the
-deselected module run separately at 4 passed and 1 skipped; 1 skipped in the
-main run; including its CV005 contracts check) all pass on this head. The
-module that compiles a probe crate was run apart from the rest only to fit a
-background time limit; nothing else was changed. Both runtime regressions pass,
-one nextest invocation each with `--no-tests=fail`, 1 passed with 674 skipped
-apiece, observed directly on `435a0a0` and re-run by the `build-test` job on
-every pushed head. `make lint` (rustdoc, Clippy and Whitaker), `make typecheck`,
-`make nixie`, and `make test` passed on earlier heads: 1481 nextest tests with
-1 skipped and 141 doctests with 24 ignored on `447a824`, and the lint gates on
-`f0b8bbb`. Those heads are the last to change a Rust source, and the commits
-after them touch only these contracts and the documentation this record
-describes.
+over 924 definitions), `make nixie`, `cs delta origin/main`, and
+`make test-workflow-contracts` (1220 passed and 5 deselected, the deselected
+module passing separately at 4 passed and 1 skipped, including its CV005
+contracts check) all pass on this head. The module that compiles a probe crate
+was run apart from the rest only to fit a background time limit; nothing else
+was changed. Both runtime regressions pass, one nextest invocation each with
+`--no-tests=fail`, 1 passed with 674 skipped apiece, observed directly on
+`435a0a0` and re-run by the `build-test` job on every pushed head. `make lint`
+(rustdoc, Clippy and Whitaker), `make typecheck`, `make nixie`, and `make test`
+passed on earlier heads: 1481 nextest tests with 1 skipped and 141 doctests
+with 24 ignored on `447a824`, and the lint gates on `f0b8bbb`. Those heads are
+the last to change a Rust source, and the commits after them touch only these
+contracts and the documentation this record describes.
 
 Negative control (2026-11-19, scratch worktree detached at the branch head):
 restoring `trim_jobs.into_par_iter()` in `score_trim_jobs` produced both
