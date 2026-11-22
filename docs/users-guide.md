@@ -865,10 +865,10 @@ note.
 ### Inspecting recipe failures
 
 `run_recipe` returns the phase error when cleanup succeeds. If cleanup also
-fails, `RecipeError::Cleanup` retains both failures: the cleanup error is the
-outer error and the original phase error is its source. Use
-`RecipeError::cleanup_failure()` to borrow the pair instead of parsing the
-display text.
+fails, `RecipeError::Cleanup` retains both failures: its source is a
+`CleanupFailure` payload, and that payload's source is the original phase
+error. Use `RecipeError::cleanup_failure()` to borrow the pair instead of
+parsing the display text.
 
 <!-- tested-example: recipe-cleanup-failure -->
 

@@ -3550,8 +3550,9 @@ removal for downstream callers.
 When a phase fails, the driver calls `DatasetRecipe::cleanup` with the
 `PartialState` completed so far. If cleanup succeeds, the original phase error
 is returned unchanged. If cleanup also fails, the result is
-`RecipeError::Cleanup`: the cleanup error is the outer failure and the original
-phase error is its source, so `Error::source()` walks from the cleanup failure
+`RecipeError::Cleanup`: its source is a `CleanupFailure` payload that holds the
+cleanup error, and that payload's source is the original phase error.
+`Error::source()` therefore walks from the cleanup failure through the payload
 to the phase error and on to whatever the phase error wraps. Inspect the pair
 with `RecipeError::cleanup_failure()`, `CleanupFailure::phase_error()`, and
 `CleanupFailure::cleanup_error()`. `RecipeError::cleanup(phase, source)`
