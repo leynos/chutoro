@@ -35,14 +35,8 @@ RUSTUP_INVOCATION = re.compile(
 #: The flag whose repeated form is the whole point of this module.
 COMPONENT_FLAG = "--component"
 
-#: A shell line continuation, and only that.
-#:
-#: The shell removes the backslash and the newline and nothing else, so any
-#: indentation on the next line stays and still separates arguments. A
-#: backslash followed by a space or a tab escapes that character instead, and
-#: the command ends at the newline; the pattern therefore does not match it,
-#: and a truncated install cannot read as a well-formed one.
-CONTINUATION = re.compile(r"\\\n")
+#: Characters after which a `#` begins a new shell word, and so a comment.
+WORD_BOUNDARIES = frozenset(" \t;&|()<>")
 
 #: Quoted shell text, including escaped double quotes. A quoted line break
 #: does not begin an executable command, so quoted spans are blanked before
@@ -78,7 +72,7 @@ def _is_comment_start(character: str, quote: str | None, previous: str) -> bool:
     """Report whether *character* begins a shell comment."""
     if quote is not None or character != "#":
         return False
-    return previous in {" ", "\t"}
+    return previous in WORD_BOUNDARIES
 
 
 def _quote_after(character: str, quote: str | None) -> str | None:
@@ -152,6 +146,43 @@ def shell_words(command: str) -> list[str]:
         return command.split()
 
 
+def _continuation_step(
+    character: str, quote: str | None, escaped: bool
+) -> tuple[str | None, str | None, bool]:
+    """Return the text to keep, the open quote, and the escape state."""
+    if escaped:
+        if character == "\n":
+            return None, quote, False
+        return "\\" + character, quote, False
+    if _is_escape(character, quote):
+        return None, quote, True
+    if quote is None and character in {"'", '"'}:
+        return character, character, False
+    if quote == character:
+        return character, None, False
+    return character, quote, False
+
+
+def join_continuations(script: str) -> str:
+    """Remove unescaped backslash-newline pairs, and only those.
+
+    A backslash escapes the newline and both disappear; an escaped backslash
+    leaves the newline in place, so the next line is a new command. The
+    backslash is retained for every other escaped character, because shells
+    and `shlex` give those escapes meaning that this reader must not erase.
+    """
+    joined = []
+    quote: str | None = None
+    escaped = False
+    for character in script:
+        text, quote, escaped = _continuation_step(character, quote, escaped)
+        if text is not None:
+            joined.append(text)
+    if escaped:
+        joined.append("\\")
+    return "".join(joined)
+
+
 def _blank_quoted(match: re.Match[str]) -> str:
     """Return spaces of the same length as a quoted span."""
     return " " * len(match.group(0))
@@ -187,7 +218,7 @@ def rustup_installs(script: str) -> list[str]:
     >>> rustup_installs('echo "# kept"; rustup toolchain install nightly')
     ['rustup toolchain install nightly']
     """
-    joined = CONTINUATION.sub("", strip_shell_comments(script))
+    joined = join_continuations(strip_shell_comments(script))
     boundaries = mask_quoted(joined)
     return [
         joined[match.start("command") : match.end("command")]

@@ -25,7 +25,7 @@ import typing as typ
 import pytest
 from rustup_install_reading import (
     COMPONENT_FLAG,
-    CONTINUATION,
+    join_continuations,
     NIGHTLY_JOB,
     NIGHTLY_WORKFLOW,
     assert_nightly_installer,
@@ -182,6 +182,22 @@ def _nightly_workflow(installer: str | None) -> dict[str, typ.Any]:
             False,
             id="quoted-multiline-installer-is-not-a-command",
         ),
+        pytest.param(
+            _nightly_workflow(
+                "echo ready;# disabled; rustup toolchain install nightly "
+                "--profile minimal --component clippy --component rustfmt"
+            ),
+            False,
+            id="comment-after-semicolon",
+        ),
+        pytest.param(
+            _nightly_workflow(
+                "rustup toolchain install nightly --profile minimal \\\\\n"
+                "  --component clippy --component rustfmt"
+            ),
+            False,
+            id="escaped-backslash-is-not-a-continuation",
+        ),
         pytest.param(_nightly_workflow(None), False, id="no-installer"),
         pytest.param(
             _nightly_workflow(
@@ -236,7 +252,7 @@ def test_the_nightly_installer_contract_rejects_only_broken_installers(
 def test_nightly_lane_runs_portable_simd_compile_contract() -> None:
     """Nightly must execute the feature-enabled portable-SIMD contract."""
     commands = [
-        " ".join(CONTINUATION.sub(" ", script).split())
+        " ".join(join_continuations(script).split())
         for _, script in run_scripts("nightly-portable-simd.yml")
         if "cargo +nightly test" in script
     ]
@@ -255,7 +271,7 @@ def test_nightly_lane_runs_portable_simd_compile_contract() -> None:
 def test_nightly_lane_runs_portable_simd_contract_without_feature() -> None:
     """Nightly also checks the compile refusal before enabling the feature."""
     commands = [
-        " ".join(CONTINUATION.sub(" ", script).split())
+        " ".join(join_continuations(script).split())
         for _, script in run_scripts("nightly-portable-simd.yml")
         if "cargo +nightly test" in script
     ]
@@ -308,6 +324,17 @@ def test_portable_simd_feature_forwards_to_the_dense_provider() -> None:
             "--component clippy,rustfmt\n\"",
             [],
             id="quoted-multiline-installer-is-not-a-command",
+        ),
+        pytest.param(
+            "echo ready;# disabled; rustup toolchain install nightly",
+            [],
+            id="comment-after-semicolon",
+        ),
+        pytest.param(
+            "rustup toolchain install nightly --profile minimal \\\\\n"
+            "  --component clippy",
+            ["rustup toolchain install nightly --profile minimal \\\\"],
+            id="escaped-backslash-ends-the-command",
         ),
         pytest.param(
             "rustup toolchain install nightly \\ \n  --component clippy",

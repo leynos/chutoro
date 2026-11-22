@@ -17,6 +17,7 @@ import collections.abc as cabc
 import typing as typ
 
 import pytest
+from rustup_install_reading import rustup_installs
 from workflow_support import job, run_script, steps
 
 #: The lane under contract.
@@ -60,8 +61,12 @@ def _is_gate(step: dict[str, typ.Any]) -> bool:
 
 
 def _is_nightly_installer(step: dict[str, typ.Any]) -> bool:
-    """Report whether a step installs the nightly toolchain."""
-    return "rustup toolchain install" in run_script(step)
+    """Report whether a step installs the nightly toolchain.
+
+    The shared reader joins continuations first, so a command split between
+    `toolchain` and `install` is still recognised.
+    """
+    return bool(rustup_installs(run_script(step)))
 
 
 def _is_mold_installer(step: dict[str, typ.Any]) -> bool:
@@ -158,6 +163,13 @@ def assert_lane_is_gated_and_ordered(job_definition: dict[str, typ.Any]) -> None
 def test_the_lane_gates_every_step_and_installs_before_using_it() -> None:
     """The real nightly job must carry the gate and the install order."""
     assert_lane_is_gated_and_ordered(job(WORKFLOW, JOB))
+
+
+def test_a_split_installer_is_still_selected() -> None:
+    """A continuation inside the command name must not hide the installer."""
+    step = {"run": "rustup toolchain \\\n  install nightly --profile minimal"}
+
+    assert _is_nightly_installer(step)
 
 
 def test_the_gate_records_its_decision_in_the_job_summary() -> None:
