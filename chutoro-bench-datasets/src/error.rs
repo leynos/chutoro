@@ -274,14 +274,14 @@ pub enum IntegrityFailure {
         /// Prefix exactly as it appeared in the rejected value.
         prefix: Arc<str>,
     },
-    /// The digest payload is not the algorithm's full hexadecimal width.
-    #[error("invalid {algorithm} digest length: expected {expected} hex digits, found {actual}")]
+    /// The digest payload is not the algorithm's expected byte width.
+    #[error("invalid {algorithm} digest length: expected {expected} bytes, found {actual}")]
     InvalidDigestLength {
         /// Algorithm whose width was expected.
         algorithm: DigestAlgorithm,
-        /// Required number of hexadecimal characters.
+        /// Required payload width in bytes.
         expected: usize,
-        /// Number of hexadecimal characters supplied.
+        /// Payload width supplied, in bytes.
         actual: usize,
     },
     /// A payload byte is not a hexadecimal digit.

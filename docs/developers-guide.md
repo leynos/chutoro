@@ -2957,7 +2957,7 @@ validation and preparation.
 
 Sources may declare a SHA-256 checksum as `sha256:<hex>`. `Checksum::parse`
 accepts upper- and lower-case hexadecimal digits, requires exactly 64 payload
-characters, and always displays the canonical lowercase `sha256:<hex>` form.
+bytes, and always displays the canonical lowercase `sha256:<hex>` form.
 Malformed values fail with `RecipeError::Integrity` carrying an
 `IntegrityFailure`: a missing algorithm prefix, an unknown or wrongly cased
 algorithm, a digest of the wrong width, or a non-hexadecimal character. Parsing

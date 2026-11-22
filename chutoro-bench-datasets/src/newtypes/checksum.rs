@@ -2,8 +2,8 @@
 //!
 //! A [`Checksum`] pairs a [`DigestAlgorithm`] with the algorithm's fixed-width
 //! digest bytes. Its textual form is `<algorithm>:<hex>`, where the only
-//! supported algorithm is `sha256` and the payload is 64 hexadecimal
-//! characters. Parsing accepts either hexadecimal case, while [`fmt::Display`]
+//! supported algorithm is `sha256` and the payload is 64 bytes of
+//! hexadecimal ASCII. Parsing accepts either hexadecimal case, while [`fmt::Display`]
 //! always emits the canonical lowercase form so that a checksum read back from
 //! a manifest compares equal to one parsed from any case variant.
 //!
@@ -55,7 +55,7 @@ impl DigestAlgorithm {
         }
     }
 
-    /// Return the digest width in hexadecimal characters.
+    /// Return the hexadecimal payload width in bytes.
     const fn digest_hex_len(self) -> usize {
         self.digest_len() * 2
     }
@@ -122,9 +122,9 @@ impl Checksum {
     /// Checks run in a fixed order: the value must contain a `:` separator
     /// with a non-empty prefix, the prefix must name a supported algorithm
     /// with the exact case used by [`fmt::Display`], the payload must be the
-    /// algorithm's full hexadecimal width, and every payload byte must be a
-    /// hexadecimal digit. Hexadecimal digits may be upper- or lower-case;
-    /// [`fmt::Display`] always emits lowercase.
+    /// algorithm's full hexadecimal width in bytes, and every payload byte
+    /// must be a hexadecimal digit. Hexadecimal digits may be upper- or
+    /// lower-case; [`fmt::Display`] always emits lowercase.
     ///
     /// # Examples
     ///
