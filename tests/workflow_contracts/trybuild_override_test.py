@@ -69,6 +69,9 @@ COMPILE_CONTRACT_TESTS: typ.Final[frozenset[str]] = frozenset({
     "clustering_result_api_is_checked_without_cpu",
     "error_codes_require_wildcard_arm",
     "error_code_accessors_are_must_use",
+    "checksum_api_surface_compiles",
+    "integrity_failure_requires_wildcard_arm",
+    "checksum_unsupported_variant_is_removed",
 })
 
 def _period_seconds(timeout: object) -> float | None:
