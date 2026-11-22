@@ -2980,6 +2980,14 @@ through typed phase handoffs. The type returned by each phase is consumed by
 the next one, so callers cannot publish fetched data that has not passed
 validation and preparation.
 
+Sources may declare a SHA-256 checksum as `sha256:<hex>`. `Checksum::parse`
+accepts upper- and lower-case hexadecimal digits, requires exactly 64 payload
+bytes, and always displays the canonical lowercase `sha256:<hex>` form.
+Malformed values fail with `RecipeError::Integrity` carrying an
+`IntegrityFailure`: a missing algorithm prefix, an unknown or wrongly cased
+algorithm, a digest of the wrong width, or a non-hexadecimal character. Parsing
+does not verify fetched bytes.
+
 Recipes receive infrastructure through `RecipeContext`. `Fetcher` reads source
 bytes with a mandatory `max_bytes` cap, `Storage` is a mutable cache with
 overwrite semantics, and `Publisher` is the final write-once sink. `CacheKey`
@@ -2987,8 +2995,8 @@ and `ObjectKey` are opaque string newtypes: recipes treat them as identifiers,
 and any interpretation of a key as a filesystem path, object-store prefix, or
 other backend-specific address belongs to the `Storage` and `Publisher`
 adapters. Network download, archive extraction, object-store adapters,
-lockfiles, checksum verification, and licence gates are deferred to later
-roadmap items.
+lockfiles, fetch-time checksum verification, and licence gates are deferred to
+later roadmap items.
 
 Enable the crate's `testing` feature for adapter contract tests. It exposes
 `InMemoryFetcher`, `InMemoryStorage`, `InMemoryPublisher`, `FilesystemFetcher`,

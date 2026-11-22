@@ -95,3 +95,12 @@ dataset crate.
   licence enforcement dependency in 10.1.1.
 - In-memory test adapters use `Mutex` to satisfy the public `Send + Sync` port
   bounds while remaining local deterministic test doubles.
+
+## Addendum — 2026-11-22
+
+Checksum parsing landed after 10.1.1. `Checksum` is now an inhabited
+`{ algorithm, bytes: [u8; 32] }` value that parses `sha256:<hex>`. Parsing
+reports failures through `IntegrityFailure`, boxed in `RecipeError::Integrity`.
+`RecipeError::ChecksumUnsupported` is removed. Fetch-time verification remains
+deferred to roadmap item 10.1.2, so the `Consequences` statement above still
+describes the 10.1.1 milestone.

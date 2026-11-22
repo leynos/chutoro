@@ -1,0 +1,18 @@
+error[E0004]: non-exhaustive patterns: `_` not covered
+  --> tests/trybuild/integrity_failure_exhaustive.rs:6:11
+   |
+ 6 |     match failure {
+   |           ^^^^^^^ pattern `_` not covered
+   |
+note: `IntegrityFailure` defined here
+  --> $WORKSPACE/chutoro-bench-datasets/src/error.rs
+   |
+   | pub enum IntegrityFailure {
+   | ^^^^^^^^^^^^^^^^^^^^^^^^^
+   = note: the matched value is of type `IntegrityFailure`
+   = note: `IntegrityFailure` is marked as non-exhaustive, so a wildcard `_` is necessary to match exhaustively
+help: ensure that all possible cases are being handled by adding a match arm with a wildcard pattern or an explicit pattern as shown
+   |
+10 ~         IntegrityFailure::InvalidHexCharacter { .. } => "invalid hex",
+11 ~         _ => todo!(),
+   |

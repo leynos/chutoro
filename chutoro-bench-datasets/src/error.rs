@@ -4,7 +4,7 @@ use std::{error::Error, fmt, sync::Arc};
 
 use thiserror::Error;
 
-use crate::{Phase, PortName, SourceUrl};
+use crate::{DigestAlgorithm, Phase, PortName, SourceUrl};
 
 /// Failure raised by a dataset recipe, driver, or port adapter.
 #[non_exhaustive]
@@ -16,9 +16,9 @@ pub enum RecipeError {
     /// The supplied recipe version is not `major.minor.patch`.
     #[error("invalid recipe version: {0}")]
     InvalidVersion(Arc<str>),
-    /// Checksum support is deferred to roadmap item `10.1.2`.
-    #[error("checksum schemes are not supported until roadmap 10.1.2")]
-    ChecksumUnsupported,
+    /// A source checksum could not be parsed.
+    #[error("integrity failed: {0}")]
+    Integrity(#[source] Box<IntegrityFailure>),
     /// A port failed while servicing the recipe.
     #[error("{0}")]
     Port(PortFailure),
@@ -77,6 +77,25 @@ impl RecipeError {
     #[must_use]
     pub fn invalid_version(value: impl Into<Arc<str>>) -> Self {
         Self::InvalidVersion(value.into())
+    }
+
+    /// Create an integrity failure from a typed parse failure.
+    ///
+    /// # Examples
+    ///
+    /// ```
+    /// use chutoro_bench_datasets::{IntegrityFailure, RecipeError};
+    ///
+    /// let error = RecipeError::integrity(IntegrityFailure::MissingAlgorithmPrefix);
+    /// assert!(matches!(error, RecipeError::Integrity(_)));
+    /// assert_eq!(
+    ///     error.to_string(),
+    ///     "integrity failed: checksum is missing an algorithm prefix",
+    /// );
+    /// ```
+    #[must_use]
+    pub fn integrity(failure: IntegrityFailure) -> Self {
+        Self::Integrity(Box::new(failure))
     }
 
     /// Create a port failure.
@@ -240,6 +259,37 @@ impl fmt::Display for FetchSizeExceeded {
             self.limit_bytes, self.url
         )
     }
+}
+
+/// Failure raised while parsing a source checksum.
+#[non_exhaustive]
+#[derive(Clone, Debug, Eq, Error, PartialEq)]
+pub enum IntegrityFailure {
+    /// The value has no `:` separator, or has nothing before it.
+    #[error("checksum is missing an algorithm prefix")]
+    MissingAlgorithmPrefix,
+    /// The algorithm prefix is not recognised; matching is case-sensitive.
+    #[error("unsupported checksum algorithm: {prefix}")]
+    UnknownAlgorithm {
+        /// Prefix exactly as it appeared in the rejected value.
+        prefix: Arc<str>,
+    },
+    /// The digest payload is not the algorithm's expected byte width.
+    #[error("invalid {algorithm} digest length: expected {expected} bytes, found {actual}")]
+    InvalidDigestLength {
+        /// Algorithm whose width was expected.
+        algorithm: DigestAlgorithm,
+        /// Required payload width in bytes.
+        expected: usize,
+        /// Payload width supplied, in bytes.
+        actual: usize,
+    },
+    /// A payload byte is not a hexadecimal digit.
+    #[error("invalid hexadecimal character at position {position}")]
+    InvalidHexCharacter {
+        /// Zero-based byte position within the digest payload.
+        position: usize,
+    },
 }
 
 const _: () = assert!(std::mem::size_of::<RecipeError>() <= 32);

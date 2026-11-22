@@ -1,0 +1,5 @@
+error[E0599]: no variant, associated function, or constant named `ChecksumUnsupported` found for enum `RecipeError` in the current scope
+ --> tests/trybuild/checksum_unsupported_variant_removed.rs:6:34
+  |
+6 |     matches!(error, RecipeError::ChecksumUnsupported)
+  |                                  ^^^^^^^^^^^^^^^^^^^ variant, associated function, or constant not found in `RecipeError`

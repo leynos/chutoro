@@ -167,6 +167,49 @@ match error.code() {
 All three also implement `Display`, which renders the same stable string as
 `as_str()`, so either form can be logged without a separate match.
 
+### `Checksum` is an inhabited value with a `sha256:<hex>` parser
+
+`Checksum` was an uninhabited enum whose only variant sat behind
+`#[cfg(any())]`, so `SourceSpec.checksum` could never hold a value. It is now
+the struct `Checksum { algorithm: DigestAlgorithm, bytes: [u8; 32] }`, and
+`SourceSpec.checksum` accepts a parsed value. `DigestAlgorithm` is a
+non-exhaustive enum that currently names only SHA-256.
+
+`Checksum::parse` accepts `sha256:<hex>` in either hexadecimal case, requires
+64 payload bytes, and displays the canonical lowercase form:
+
+```rust
+use chutoro_bench_datasets::{Checksum, DigestAlgorithm};
+
+let text = concat!(
+    "sha256:",
+    "0123456789abcdef0123456789abcdef",
+    "0123456789abcdef0123456789abcdef",
+);
+let checksum = Checksum::parse(text)?;
+assert_eq!(checksum.algorithm(), DigestAlgorithm::Sha256);
+assert_eq!(checksum.to_string(), text);
+# Ok::<(), chutoro_bench_datasets::RecipeError>(())
+```
+
+### `RecipeError::ChecksumUnsupported` is removed
+
+Checksum support no longer returns a "deferred" placeholder. Parsing failures
+now return `RecipeError::Integrity`, which boxes an `IntegrityFailure`; the
+`RecipeError::integrity` constructor builds one. Replace a match on the removed
+variant:
+
+```rust
+use chutoro_bench_datasets::{IntegrityFailure, RecipeError};
+
+let error = RecipeError::integrity(IntegrityFailure::MissingAlgorithmPrefix);
+assert!(matches!(error, RecipeError::Integrity(_)));
+```
+
+Code that matched `RecipeError::ChecksumUnsupported` should handle
+`RecipeError::Integrity` and inspect the boxed `IntegrityFailure` for the
+specific cause, such as `UnknownAlgorithm` or `InvalidDigestLength`.
+
 ## 0.1.0
 
 The public `ClusteringResult::from_assignments` constructor is no longer
