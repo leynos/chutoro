@@ -63,17 +63,22 @@ def _declared_targets(declaration: str) -> list[str]:
     []
     >>> _declared_targets(".PHONY : gate")
     ['gate']
+    >>> _declared_targets(".PHONY: gate ; @echo status=ok")
+    ['gate']
     >>> _declared_targets(chr(9) + ".PHONY: gate")
     []
     >>> _declared_targets("clean: gate")
     []
     """
-    if declaration[:1] == "\t" or "=" in declaration:
+    if declaration[:1] == "\t":
         return []
-    colon = declaration.find(":")
-    if colon == -1 or declaration[:colon].split() != [".PHONY"]:
+    header = declaration.split(";", 1)[0]
+    if "=" in header:
         return []
-    return _declared_names(declaration[colon + 1 :])
+    colon = header.find(":")
+    if colon == -1 or header[:colon].split() != [".PHONY"]:
+        return []
+    return _declared_names(header[colon + 1 :])
 
 
 def phony_targets(text: str) -> set[str]:

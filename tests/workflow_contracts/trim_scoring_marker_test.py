@@ -134,6 +134,11 @@ from trim_scoring_reading import SCORER, dispatch_marker
             id="an-associated-in-place-scope",
         ),
         pytest.param(
+            "ThreadPool::",
+            "<ThreadPool>::scope(pool, |_| ())",
+            id="a-qualified-type-scope",
+        ),
+        pytest.param(
             ".scope(", "pool . scope(|scope| run())", id="a-spaced-method-scope"
         ),
         pytest.param(

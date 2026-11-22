@@ -49,11 +49,13 @@ def builtin_arguments(words: cabc.Sequence[str]) -> list[str]:
     ['set', '+e']
     >>> builtin_arguments(["set", ">", "/dev/null", "+e"])
     ['set', '+e']
+    >>> builtin_arguments([">", "/dev/null", "builtin", "set", "+e"])
+    ['set', '+e']
     """
-    arguments = list(words)
+    arguments = argument_words(list(words))
     if arguments[:1] in (["builtin"], ["command"]):
         arguments = arguments[1:]
-    return argument_words(arguments)
+    return arguments
 
 
 def _names_an_option(flag: str) -> bool:

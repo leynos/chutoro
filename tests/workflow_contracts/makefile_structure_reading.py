@@ -100,6 +100,8 @@ def _opens_a_definition(line: str) -> bool:
     True
     >>> _opens_a_definition("override define job")
     True
+    >>> _opens_a_definition("private override define job")
+    True
     >>> _opens_a_definition(chr(9) + "define job")
     False
     >>> _opens_a_definition("# define job")
@@ -108,10 +110,9 @@ def _opens_a_definition(line: str) -> bool:
     if line[:1] == "\t":
         return False
     words = _directive(line).split()
-    return words[:1] == ["define"] or words[:2] in (
-        ["override", "define"],
-        ["export", "define"],
-    )
+    while words[:1] in (["override"], ["export"], ["private"]):
+        words = words[1:]
+    return words[:1] == ["define"]
 
 
 def _definition_delta(line: str) -> int:

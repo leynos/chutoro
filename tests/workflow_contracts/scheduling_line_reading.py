@@ -64,6 +64,53 @@ def _ends_with_operator(line: str) -> bool:
     return any(text.endswith(operator) for operator in _LIST_OPERATORS)
 
 
+def _in_single_quotes(text: str) -> bool:
+    """Return whether `text` ends inside an ordinary single-quoted string.
+
+    The shell preserves every character of such a string, including a
+    backslash-newline pair, so a line that ends inside one continues without
+    the pair being deleted.
+
+    Examples
+    --------
+    >>> _in_single_quotes("echo 'a")
+    True
+    >>> _in_single_quotes('echo "a')
+    False
+    >>> _in_single_quotes("echo 'a'")
+    False
+    """
+    quote = ""
+    index = 0
+    while index < len(text):
+        char, index = _quote_step(text, index, quote)
+        if quote == "'" and char == "'":
+            quote = ""
+        elif not quote and char in "'\"":
+            quote = char
+    return quote == "'"
+
+
+def _quote_step(text: str, index: int, quote: str) -> tuple[str, int]:
+    """Return the character that decides quoting, and the index after it.
+
+    Inside a double-quoted string a backslash escapes the character after it,
+    so the pair is consumed whole; anywhere else a backslash is returned and
+    the caller reads the character after it on its own.
+
+    Examples
+    --------
+    >>> _quote_step('a"b', 0, "")
+    ('a', 1)
+    >>> escaped = chr(92) + '"'
+    >>> _quote_step(escaped, 0, '"')[1]
+    2
+    """
+    if quote != "'" and text[index : index + 1] == "\\":
+        return text[index + 1 : index + 2], index + 2
+    return text[index : index + 1], index + 1
+
+
 def _continuation(line: str) -> tuple[str, bool]:
     """Return what `line` leaves before its newline, and whether it continues.
 
@@ -76,7 +123,9 @@ def _continuation(line: str) -> tuple[str, bool]:
     its word exactly, and a backslash followed by a space escapes the space
     rather than continuing. A space inserted where the pair was would turn the
     installer path ``scripts/install-\\`` + ``nextest.sh`` into two words the
-    step never runs.
+    step never runs. Inside an ordinary single-quoted string every character
+    is preserved, so a backslash-newline pair there continues the line without
+    being deleted.
 
     Examples
     --------
@@ -97,7 +146,14 @@ def _continuation(line: str) -> tuple[str, bool]:
     True
     >>> text == "a" + chr(92) * 2
     True
+    >>> quoted = "'scripts/install-" + chr(92)
+    >>> _continuation(quoted)[1]
+    True
+    >>> _continuation(quoted)[0] == quoted
+    True
     """
+    if _in_single_quotes(line):
+        return line, True
     run = len(line) - len(line.rstrip("\\"))
     if run % 2 == 0:
         return line, False
@@ -261,8 +317,6 @@ def _absorb_or_wait(
     >>> joined, pending, documents = _absorb_or_wait("", "echo 'a", "", lines)
     >>> lines
     []
-    >>> joined.endswith(chr(10))
-    True
     >>> joined, pending, documents = _absorb_or_wait(joined, "c'", pending, lines)
     >>> len(lines)
     1

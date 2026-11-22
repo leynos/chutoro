@@ -383,4 +383,24 @@ SELECTOR_CASES: typ.Final[tuple[tuple[str, bool, str], ...]] = (
         True,
         "an-installer-after-a-continued-hash",
     ),
+    (
+        f"! set +e\n{NEXTEST_INSTALLER}\ntrue",
+        False,
+        "a-negated-errexit-change",
+    ),
+    (
+        f"> /dev/null builtin set +e\n{NEXTEST_INSTALLER}\ntrue",
+        False,
+        "an-errexit-change-after-a-leading-redirection",
+    ),
+    (
+        f"set +e\nset '>' ignored -e\n{NEXTEST_INSTALLER}\ntrue",
+        False,
+        "a-quoted-redirection-in-set",
+    ),
+    (
+        "'scripts/install-" + chr(92) + "\nnextest.sh'",
+        False,
+        "a-backslash-newline-inside-single-quotes",
+    ),
 )

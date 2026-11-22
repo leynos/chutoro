@@ -87,7 +87,8 @@ _ASSOCIATED_ENTRY_POINTS = (
     "|spawn|spawn_fifo|spawn_broadcast|broadcast"
 )
 _ASSOCIATED_CALL = re.compile(
-    rf"\bThreadPool\s*::\s*(?:{_ASSOCIATED_ENTRY_POINTS})\b"
+    rf"(?:<\s*ThreadPool\s*>|\bThreadPool)\s*::\s*"
+    rf"(?:{_ASSOCIATED_ENTRY_POINTS})\b"
 )
 
 
@@ -115,6 +116,8 @@ def pool_associated_call(body: str) -> bool:
     >>> pool_associated_call("myThreadPool::scope(pool, |_| ())")
     False
     >>> pool_associated_call("ThreadPool :: scope (pool, |_| ())")
+    True
+    >>> pool_associated_call("<ThreadPool>::scope(pool, |_| ())")
     True
     """
     for found in _ASSOCIATED_CALL.finditer(body):

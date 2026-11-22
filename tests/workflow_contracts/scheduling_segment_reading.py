@@ -98,6 +98,25 @@ def _flush_segment(
     return []
 
 
+def _word(token: str, quoted: list[str]) -> str:
+    """Return a token's shell word, keeping a quoted redirection as data.
+
+    A quoted ``>`` is an argument rather than a redirection, so the quotes are
+    kept on a word that would otherwise be stripped as one.
+
+    Examples
+    --------
+    >>> _word("a", [])
+    'a'
+    >>> _word("\x010\x02", [">"])
+    "'>'"
+    """
+    word = restore_quotes(token, quoted)
+    if is_redirection(word) and word != token:
+        return f"'{word}'"
+    return word
+
+
 def read_segments(tokens: list[str], quoted: list[str]) -> list[Segment]:
     """Return one line's simple commands, each with the operator that ends it.
 
@@ -120,6 +139,8 @@ def read_segments(tokens: list[str], quoted: list[str]) -> list[Segment]:
     [Segment(words=['('], follows='')]
     >>> read_segments(["(", "a", ")"], [])
     [Segment(words=['('], follows='')]
+    >>> read_segments(["set", "\x010\x02", "ignored", "-e"], [">"])
+    [Segment(words=['set', "'>'", 'ignored', '-e'], follows='')]
     >>> read_segments(["installer", "2>", "&", "1"], [])
     [Segment(words=['installer', '2>', '&', '1'], follows='')]
     """
@@ -137,7 +158,7 @@ def read_segments(tokens: list[str], quoted: list[str]) -> list[Segment]:
             words = _flush_segment(segments, words, token)
             previous = token
             continue
-        words.append(restore_quotes(token, quoted))
+        words.append(_word(token, quoted))
         previous = token
     if words:
         segments.append(Segment(words, ""))
@@ -251,6 +272,7 @@ COMPOUND_KEYWORDS = frozenset(
         "}",
         "(",
         ")",
+        "!",
         "coproc",
     }
 )
