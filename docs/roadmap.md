@@ -678,7 +678,9 @@ ______________________________________________________________________
   own off-by-default Cargo features (`bz2`, `xz`) and exclude `.zip` explicitly
   (see [ADR 008](adrs/adr-0008-glove-source-and-zip-scope.md)). See
   `docs/benchmark-dataset-retrieval.md` §3.2. Verification after a resume
-  requires one full re-hash per completed transfer, not per resume, under
+  charges one full re-hash per verification attempt rather than per resume, and
+  a further pass is permitted whenever an attempt is interrupted before
+  publication, under
   [ADR 0009](adrs/adr-0009-resumable-download-verification-trust-model.md);
   per-shard checksums and sharded transfer belong to 10.3.13, and multipart
   object-store transfers to 10.1.4.
