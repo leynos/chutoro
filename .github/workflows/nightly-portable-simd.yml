@@ -35,6 +35,7 @@ jobs:
         run: |
           if [ "${FORCE_RUN}" = "true" ]; then
             echo "should_run=true" >> "${GITHUB_OUTPUT}"
+            echo "nightly-portable-simd: running because workflow_dispatch set force_run=true." | tee -a "${GITHUB_STEP_SUMMARY}"
             exit 0
           fi
 
@@ -42,21 +43,30 @@ jobs:
 
           now_epoch="$(date -u +%s)"
           commit_epoch="$(git log -1 --format=%ct origin/main)"
+          commit_time="$(git log -1 --format=%cI origin/main)"
           if [ $((now_epoch - commit_epoch)) -le 86400 ]; then
             echo "should_run=true" >> "${GITHUB_OUTPUT}"
+            echo "nightly-portable-simd: running because origin/main has a commit at ${commit_time} within the last 24 hours." | tee -a "${GITHUB_STEP_SUMMARY}"
           else
             echo "should_run=false" >> "${GITHUB_OUTPUT}"
+            echo "nightly-portable-simd: skipping because origin/main has no commit within the last 24 hours (latest ${commit_time})." | tee -a "${GITHUB_STEP_SUMMARY}"
           fi
-      # Each component needs its own flag. `--component clippy rustfmt`
-      # reads `rustfmt` as a second toolchain name and rustup exits 1, so
-      # this lane has never once run the steps below it: on a day the gate
-      # fires it dies here, and on every other day the gate skips the work
-      # and the run reports success in seconds. See #262.
+      # Each `--component` takes one value and must be repeated per component.
       - name: Install nightly Rust
         if: ${{ steps.gate.outputs.should_run == 'true' }}
         run: |
           rustup toolchain install nightly --profile minimal \
             --component clippy --component rustfmt
+      # The Cargo steps link with mold, which an ubuntu-latest runner does not
+      # carry, so the linker is installed from the repository's pinned script
+      # rather than left to fail at link time.
+      - name: Install mold
+        if: ${{ steps.gate.outputs.should_run == 'true' }}
+        run: |
+          scripts/install-mold.sh
+          echo "${HOME}/.local/bin" >> "${GITHUB_PATH}"
+          export PATH="${HOME}/.local/bin:${PATH}"
+          ld.mold --version
       - name: Test dense portable SIMD backend
         if: ${{ steps.gate.outputs.should_run == 'true' }}
         # An assigned RUSTFLAGS replaces .cargo/config.toml's rustflags, so

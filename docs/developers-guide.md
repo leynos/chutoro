@@ -1728,13 +1728,72 @@ to eight seconds. The lane was red when it tried to work and green when it did
 nothing, which reads as flakiness rather than as a lane that has never run. See
 issue #262.
 
-`tests/workflow_contracts/toolchain_install_test.py` now reads every
+`tests/workflow_contracts/rustup_install_reading.py` owns the reading of every
 `rustup toolchain install` in every workflow and requires each `--component`
-flag to carry exactly one value. It joins line continuations first, so a
-command split across lines is one invocation rather than none, and it reads the
+flag to carry exactly one value. `toolchain_install_test.py` holds the
+contracts over that reading. The reading removes unquoted shell comments and
+then joins line continuations, so a command split across lines is one
+invocation rather than none and a commented-out installer is no invocation. It
+decodes quoted arguments and recognizes an install only at the start of an
+executable command, so `echo 'rustup ...'` installs nothing. It reads the
 invocation rather than the step's name, so deleting the fix while keeping the
-step fails it. Both correct spellings pass: a repeated flag, and one flag with
-a comma-separated list.
+step fails it, and both correct spellings pass: a repeated flag, and one flag
+with a comma-separated list.
+
+The same module selects the nightly lane's one installer by its `run` content
+and requires it to name `nightly`, the `minimal` profile, and both `clippy` and
+`rustfmt`. Reading a selection it never required to be non-empty would accept a
+workflow that deleted the step, which is the vacuous pass one level up, so the
+assertion fails on an absent installer as well as a wrong one.
+`nightly_portable_simd_lane_test.py` pins the lane's shape around it: the gate
+step must precede the nightly and `mold` installers, both installers must
+precede all four Cargo steps, and every selected step must carry the gate's
+`steps.gate.outputs.should_run == 'true'` condition. Injected workflows in the
+same modules remove an installer, omit `rustfmt`, name the wrong toolchain or
+profile, ungate an installer, and move an installer after a Cargo step, so each
+assertion is shown to fail on the defect it exists to catch.
+
+The lane installs the linker with `scripts/install-mold.sh`, the same
+checksum-verified release archive `make install-dev-fast` uses, appends
+`$HOME/.local/bin` to `$GITHUB_PATH`, and prints `ld.mold --version` before the
+first Cargo step. An `ubuntu-latest` runner does not carry `mold`, so without
+that step each Cargo command would fail at link time. The gate writes one line
+to `$GITHUB_STEP_SUMMARY` for each outcome — forced dispatch, a recent `main`
+commit with its timestamp, or no `main` commit in the last 24 hours — and tees
+the same line to the step log, so a skipped green run is visible in both places.
+
+A forced dispatch from this branch proves the lane now does the work it was
+written for. Commit `244682b`, run
+[44988365606](https://github.com/leynos/chutoro/actions/runs/44988365606),
+`force_run=true`: every step succeeded — the gate, `Install nightly Rust`,
+`Install mold`, `Test dense portable SIMD backend` (141 tests),
+`Test portable SIMD compile contract without feature`
+(`portable_simd_is_rejected_on_nightly_without_feature`),
+`Test portable SIMD compile contract` (`portable_simd_compiles_with_feature`)
+and `Lint dense portable SIMD backend` — and the gate logged
+`nightly-portable-simd: running because workflow_dispatch set force_run=true.`
+
+An earlier run,
+[44903789820](https://github.com/leynos/chutoro/actions/runs/44903789820),
+passed the dense test and both compile-contract steps, then failed in Clippy on
+`clippy::chunks-exact-to-as-chunks` under the unpinned nightly. That lint is
+newer than the pinned stable Clippy and the kernel now uses stable `as_chunks`;
+the run above is the re-dispatch. Run
+[44908912919](https://github.com/leynos/chutoro/actions/runs/44908912919) with
+`force_run=false` took the commit-recency branch, logged
+`nightly-portable-simd: running because origin/main has a commit at
+2026-11-20T16:31:30Z within the last 24 hours.`,
+and also passed every step. A later `force_run=false` dispatch, run
+[44925931699](https://github.com/leynos/chutoro/actions/runs/44925931699), took
+the skip branch once `main` aged past 24 hours. It succeeded in seconds with
+`Install nightly Rust`, `Install mold` and the four Cargo steps `skipped`, and
+logged a skip line naming the latest `main` commit.
+
+Under the unpinned `nightly` channel the lane installs, a future nightly can
+break the lane through a new lint or language change rather than through
+repository code. Fix such a break in `chutoro-providers/dense` — as the
+`as_chunks` change did, which is stable since Rust 1.88 and so sits inside the
+workspace's 1.89 minimum — rather than silencing the lint.
 
 ## Cancelling superseded pull-request runs
 
