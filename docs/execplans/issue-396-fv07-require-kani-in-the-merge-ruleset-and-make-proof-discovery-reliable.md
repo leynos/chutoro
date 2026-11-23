@@ -22,22 +22,21 @@ that remain are narrower but serious:
   contract failing.
 - The pull-request path filter omits build inputs such as the owning crate
   roots, the dense provider's `build.rs`, and Cargo configuration. A change to
-  one of those can alter what the proof build compiles without starting the
-  job.
+  one of those can alter what the proof build compiles without starting the job.
 - The nightly job decides whether to verify from commit age, not from whether
   the exact head has a successful full verification. A missed or
   infrastructure-failed run can age out and be followed by a skipped green
   workflow.
 
-After this change a reader can observe that Kani is enforced by the repository's
-own contracts: every proof declaration is classified exactly once in a
-checked-in manifest, every Kani invocation is checked against that manifest's
-expected result set, the pull-request job is always present, the nightly job
-verifies its own checkout unconditionally, and a static contract requires the
-`kani` context to be configured for every pull request. The live ruleset edit
-itself is a repository-administration action requested after merge; the
-repository side is complete when the workflow reports `kani` from GitHub Actions
-app `15368` on every pull request.
+After this change a reader can observe that Kani is enforced by the
+repository's own contracts: every proof declaration is classified exactly once
+in a checked-in manifest, every Kani invocation is checked against that
+manifest's expected result set, the pull-request job is always present, the
+nightly job verifies its own checkout unconditionally, and a static contract
+requires the `kani` context to be configured for every pull request. The live
+ruleset edit itself is a repository-administration action requested after
+merge; the repository side is complete when the workflow reports `kani` from
+GitHub Actions app `15368` on every pull request.
 
 ## Conformance basis
 
@@ -53,8 +52,8 @@ app `15368` on every pull request.
 - [Historical execution plan: nightly slow CI job](phase-1-nightly-slow-ci-job.md),
   superseded by this plan.
 
-No Terms of Reference or technical design revision governs this repository.
-The issue text and the repository's documentation are the authority.
+No Terms of Reference or technical design revision governs this repository. The
+issue text and the repository's documentation are the authority.
 
 ## Constraints
 
@@ -106,23 +105,40 @@ The issue text and the repository's documentation are the authority.
   removed, and duplicate identities separately, and assert every declaration
   has exactly one tier.
 - Risk: Adding a required check before the workflow reports it blocks every
-  pull request. Mitigation: sequence the live ruleset change after the
-  workflow change merges, and verify via the effective-rules API first.
+  pull request. Mitigation: sequence the live ruleset change after the workflow
+  change merges, and verify via the effective-rules API first.
 - Risk: Removing the PR path filter raises cost. Mitigation: the issue requires
   an always-present status; the job is already bounded at 30 minutes and runs
   on the paid queue. Record the trade-off in the developer's guide.
 - Risk: Deleting the nightly gate removes behaviour that other contracts
-  reference. Mitigation: search every reference, delete the module, binary,
-  CLI test, lint exclusion, and documentation explanation together, and update
-  the workflow contract in the same change.
+  reference. Mitigation: search every reference, delete the module, binary, CLI
+  test, lint exclusion, and documentation explanation together, and update the
+  workflow contract in the same change.
 
 ## Progress
 
-- [ ] (2026-11-23) Record this ExecPlan and orient in the repository.
-- [ ] Phase 1: checked-in harness inventory and workflow-contract binding.
-- [ ] Phase 2: repository-owned Kani result checker and Makefile routing.
-- [ ] Phase 3: always-present PR job and unconditional nightly verification.
-- [ ] Phase 4: required-context contract and documentation reconciliation.
+- [x] (2026-11-23) Record this ExecPlan and orient in the repository.
+- [x] Phase 1: checked-in harness inventory and workflow-contract binding.
+      `tools/kani/harnesses.toml`, `kani_harness_reading.py`,
+      `kani_manifest_test.py`, and the rewritten `kani_fast_tier_test.py` are
+      in place; 33 contract tests pass and the source scan finds exactly the
+      17 declarations Kani's own list reports.
+- [x] Phase 2: repository-owned Kani result checker and Makefile routing.
+      `cargo check --all-targets` is clean, the 209-test test-support suite
+      passes including the fake-command CLI tests, `make lint` passes
+      (interrogate, rustdoc, Clippy, Whitaker), and a real `make kani`
+      verified all six fast harnesses through the checker with exit 0.
+      The checker is built once per `make` invocation rather than through
+      `cargo run` on every recipe line, after the first real run showed six
+      redundant builds spending the job budget on the admission queue.
+- [x] Phase 3: always-present PR job and unconditional nightly verification.
+      Workflows and their contracts are edited; the nightly gate module,
+      binary, CLI test, export, and lint exclusion are deleted.
+- [x] Phase 4 (repository side): required-context contract
+      (`required_checks_test.py`) and the developer's guide updates.
+- [ ] Validate the full tier (`make kani-full`) against Kani 0.67.0.
+      In progress; the core package's 15-harness sweep was started after the
+      fast tier's six-harness run completed.
 - [ ] Run all commit gates and request CodeRabbit review.
 - [ ] Push the branch and create the draft pull request.
 
@@ -134,32 +150,49 @@ The issue text and the repository's documentation are the authority.
 - Observation: the fast tier is six selectors across three modules
   (two HNSW bidirectional, two MST, two dense SIMD), while the full tier adds
   six distance proofs and five HNSW invariant proofs. That is 17 declarations
-  in total, matching the ADR's "17 harnesses".
-- Observation: the Kani 0.67.0 CLI exposes `--output-format
-  regular|terse|old`, `--output-into-files`, `--only-codegen`,
-  `--no-codegen`, and `--quiet`. Any of these can suppress or redirect the
-  harness blocks the checker parses, so the checker must reject them before
-  execution.
+  in total, matching the ADR's "17 harnesses". `cargo kani list --format json`
+  reports the same 15 core harnesses and the same two dense ones with the same
+  qualified paths the manifest records.
+- Observation: Kani 0.67.0's CLI exposes `--output-format regular|terse|old`,
+  `--output-into-files`, `--only-codegen`, `--no-codegen`, `--log-file`, and
+  `--quiet`. Any of these can suppress or redirect the harness blocks the
+  checker parses, so the checker rejects them before execution.
+- Observation: Kani's `Manual Harness Summary` prints
+  `Complete - {succeeded} successfully verified harnesses, {failed} failures,
+  {total} total.`
+  and a `Verification failed for - <name>` line per failure, and
+  `determine_targets` fails a zero-match `--harness` filter before codegen. A
+  filter that matches a *subset* is not an error; that is the case the
+  checker's expected multiset closes.
+- Observation: a `#[path = "..."]` value is a string literal, so the fully
+  blanked source the readers use erases the value they need. The reader keeps a
+  comment-blanked copy for attribute values. A resolvable path attribute still
+  yields the module's name from the declaration, which is what Rust does, so
+  the repository's ordinary test-only `#[path]` modules are readable rather
+  than reported.
+- Observation: `thiserror` treats a field named `source` as an error source, so
+  a `String` field of that name does not compile. The diagnostic fields are
+  named `detail`.
 
 ## Decision log
 
 - Decision: Represent the proof inventory as a checked-in TOML manifest with
   `package`, `pretty_name`, and `tier` per harness. Rationale: a single
   classification surface can be consumed by Python workflow contracts and by
-  the Rust checker, and it keeps tier decisions visible in review.
-  Date/Author: 2026-11-23 (agent).
+  the Rust checker, and it keeps tier decisions visible in review. Date/Author:
+  2026-11-23 (agent).
 - Decision: Derive source declarations by scanning Rust files rather than
   consuming `cargo kani list`. Rationale: the contract must fail when a proof
   declaration disappears, and a verifier inventory generated from the same
-  broken build would not catch a source-level loss. The verifier inventory
-  remains available as a future cross-check.
+  broken build would not catch a source-level loss. `cargo kani list` is used
+  as an independent cross-check during this work rather than as an input.
   Date/Author: 2026-11-23 (agent).
 - Decision: Route every Makefile Kani invocation through a repository-owned
   checker that parses the regular output and requires the exact successful
   multiset from the manifest. Rationale: Kani exits successfully when it
   verifies fewer harnesses than requested or when a selector matches nothing;
-  the checker makes the empty and reduced cases fail.
-  Date/Author: 2026-11-23 (agent).
+  the checker makes the empty and reduced cases fail. Date/Author: 2026-11-23
+  (agent).
 - Decision: Remove the pull-request path filter entirely instead of widening
   it. Rationale: the issue's first closure item requires an always-present
   status. Change detection inside the workflow would need a second job or a
@@ -169,7 +202,18 @@ The issue text and the repository's documentation are the authority.
 - Decision: Replace the nightly age gate with an unconditional run on
   `github.sha`, recording `git rev-parse HEAD`. Rationale: a skipped, failed,
   absent, or cancelled run must not count as proof success, and only a run of
-  the exact head can establish that the head was verified.
+  the exact head can establish that the head was verified. Date/Author:
+  2026-11-23 (agent).
+- Decision: Make the fast-tier Makefile selectors fully qualified rather than
+  bare function names. Rationale: `--exact` compares the whole harness path, so
+  the qualified form is what the manifest, the checker, and Kani's own
+  `pretty_name` share; a bare name would silently depend on substring matching.
+  Date/Author: 2026-11-23 (agent).
+- Decision: Let a `#[path]`-mediated module contribute its declaration's name
+  rather than forcing it to be reported. Rationale: Rust takes the module path
+  from the declaration, so the identity stays derivable and the repository's
+  test-only `#[path]` modules do not become false positives. An unresolvable
+  path and a proof-bearing source no module reaches are still reported.
   Date/Author: 2026-11-23 (agent).
 
 ## Context and orientation
@@ -199,9 +243,9 @@ literals; `rust_declaration_reading.py` already counts brace depth and locates
 inline module bodies. This work extends those readers rather than growing a
 second scanner.
 
-The pull-request workflow `.github/workflows/kani-pr.yml` defines the single
-job `kani`, which runs `make kani` and records disk headroom around the suite.
-The nightly workflow `.github/workflows/nightly-kani.yml` defines `kani-full`,
+The pull-request workflow `.github/workflows/kani-pr.yml` defines the single job
+`kani`, which runs `make kani` and records disk headroom around the suite. The
+nightly workflow `.github/workflows/nightly-kani.yml` defines `kani-full`,
 gated today by `chutoro-test-support/src/ci/nightly_gate.rs` and its
 `kani_nightly_gate` binary.
 
@@ -212,8 +256,8 @@ gated today by `chutoro-test-support/src/ci/nightly_gate.rs` and its
 End state: `tools/kani/harnesses.toml` lists all 17 declarations with package,
 qualified `pretty_name`, and tier. `tests/workflow_contracts/` gains a Rust
 declaration reader that reports file-based and nested inline module paths,
-ignores comments and literals, recognises `#[kani::proof]` and
-`#[kani::proof_for_contract(...)]`, and fails on unresolved `#[path]`,
+ignores comments and literals, recognizes `#[kani::proof]` and
+`#[kani::proof_for_contract]`, and fails on unresolved `#[path]`,
 `cfg_attr`-wrapped proofs, and macro-contained proofs. A manifest contract
 compares package/path multisets both ways, reports added, removed, and
 duplicate identities separately, and asserts package-set equality.
@@ -236,8 +280,8 @@ accepts `--manifest`, `--package`, `--scope fast|full`, and a command after
 - validates the manifest (unknown keys, unknown tiers, missing fields,
   duplicate identities);
 - rejects forbidden flags (`--quiet`, `--output-format` other than `regular`,
-  `--output-into-files`, `--no-codegen`, `--only-codegen`) and non-regular
-  output formats before execution;
+  `--output-into-files`, `--no-codegen`, `--only-codegen`, `--log-file`,
+  `--tests`, `-j`) and non-regular output formats before execution;
 - derives the expected harness set from the manifest and the requested scope;
 - runs the delegated command with any leading `NAME=VALUE` words applied only
   to the child;
@@ -251,8 +295,7 @@ accepts `--manifest`, `--package`, `--scope fast|full`, and a command after
 The Makefile routes every `cargo kani` call through `$(KANI_SUITE)`, passes
 `KANI_ENV` only to the delegated process, adds `--lib`, uses exact qualified
 fast selectors, and retains the unwind values. Unit and fake-command CLI tests
-cover ordered calls, first/middle/last failure propagation, and dry-run
-routing.
+cover ordered calls, first/middle/last failure propagation, and dry-run routing.
 
 Acceptance evidence: `cargo nextest run -p chutoro-test-support` passes;
 `make kani` succeeds against the real Kani 0.67.0 installation; a removed
@@ -295,9 +338,9 @@ The work introduces these invariants and obligations:
 
 1. Every proof declaration in the tree appears exactly once in the manifest
    with the same package and qualified path. Verified by a Python contract over
-   parsed Rust sources with adversarial fixtures for comments, literals,
-   inline modules, `#[path]`, `cfg_attr`, and macro-contained proofs. A removed
-   or added declaration is reported, not silently accepted. Negative controls:
+   parsed Rust sources with adversarial fixtures for comments, literals, inline
+   modules, `#[path]`, `cfg_attr`, and macro-contained proofs. A removed or
+   added declaration is reported, not silently accepted. Negative controls:
    remove a manifest entry, add a fake proof, duplicate an entry.
 2. The fast tier in the Makefile is exactly the manifest's fast set for each
    package, and the full tier is the package-scoped sweep. Verified by
@@ -356,3 +399,7 @@ Pending implementation.
 ## Revision note
 
 Initial plan recorded 2026-11-23 from issue #396 and the supplied coding plan.
+Revised 2026-11-23 after Phase 1: recorded the collected observations that
+changed two decisions (qualified Makefile selectors, and path-mediated modules
+keeping their declaration's name), and noted the `thiserror` field-name
+constraint.

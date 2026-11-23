@@ -1541,6 +1541,23 @@ for pull requests: the path-filtered `kani-pr.yml` workflow runs `make kani`
 whenever Kani harnesses, the modules under proof, the Makefile, or the Cargo
 manifests change. The nightly `kani-full` sweep is unchanged.
 
+_Implementation update (2026-11-23)._ The pull-request path filter and the
+nightly commit-age gate are both removed, and Kani is a required merge check.
+Three properties replace the older arrangement. First, the `kani` job runs on
+every pull request to `main`, so the required context is never absent; a path
+filter had made the job conditional on a list that could not enumerate every
+input to the proof build, and an absent required check is not a passing one.
+Second, `tools/kani/harnesses.toml` classifies all 17 declarations, the
+workflow contracts bind that inventory to the Rust sources and the Makefile,
+and every `cargo kani` invocation runs through the `kani_suite` checker, which
+requires the exact multiset of successfully completed harnesses rather than
+Kani's exit status. Third, the nightly job checks out `github.sha`, records
+`git rev-parse HEAD` in its job summary, and runs the full suite
+unconditionally: a skipped, failed, absent or cancelled run is not evidence
+that the head was verified, so an unverified head stays eligible regardless of
+age. The 2026-01-17 nightly update and the path-filter sentence above describe
+the superseded arrangement.
+
 _Implementation update (2026-02-02)._ Verus proofs now cover the edge harvest
 primitives described in `docs/property-testing-design.md` Appendix A. The
 proofs live in `verus/edge_harvest_proofs.rs` and model
