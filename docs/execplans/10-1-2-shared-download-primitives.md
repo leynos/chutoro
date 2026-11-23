@@ -146,17 +146,20 @@ Hard invariants. Violation requires escalation, not a workaround.
   is not, so a resumed transfer re-hashes the complete staged file before
   publication. Resume itself re-hashes no prefix: it needs only the sidecar's
   `durable_offset`, truncation of the staged file to that offset, and a
-  validator check. The read-back costs `expected_size` bytes once per
-  verification attempt: interruptions in the data-transfer phase add no passes,
-  however many times it resumed, so the quadratic re-read that motivated
-  chunked digests does not return. An interruption during verification abandons
-  that pass and the next process starts a fresh pass from offset zero, because
-  resuming verification would need the hash state this design rejects; the
-  bound is linear in verification attempts. At DEEP1B scale (about 512 GB) one
-  read-back takes about 0.3 h on NVMe or 1.2 h at EBS gp3 baseline throughput,
-  against an 11-hour transfer and only when a resume actually happened. The
-  ticket's alternative of repeated prefix re-reads totals about 2.8 TB, roughly
-  1.6 h on NVMe and 6.3 h on EBS gp3, before counting the transfer itself.
+  validator check. The read-back is charged per verification attempt: a
+  completed pass reads `expected_size` bytes, and an abandoned pass contributes
+  only the bytes it read before stopping. Interruptions in the data-transfer
+  phase add no passes, however many times it resumed, so the quadratic re-read
+  that motivated chunked digests does not return. An interruption during
+  verification abandons that pass and the next process starts a fresh pass from
+  offset zero, because resuming verification would need the hash state this
+  design rejects; the total is bounded by
+  `verification_attempts * expected_size`, linear in verification attempts
+  rather than resumes. At DEEP1B scale (about 512 GB) one full pass takes about
+  0.3 h on NVMe or 1.2 h at EBS gp3 baseline throughput, against an 11-hour
+  transfer and only when a resume actually happened. The ticket's alternative
+  of repeated prefix re-reads totals about 2.8 TB, roughly 1.6 h on NVMe and
+  6.3 h on EBS gp3, before counting the transfer itself.
 - Risk: abandoned `.part` files and half-extracted temporary directories are
   invisible to a content-addressed cache scan and accumulate until a runner
   fills its disk, surfacing as `ENOSPC` in unrelated jobs. Severity: high.
@@ -465,9 +468,10 @@ Recorded during planning; extend during implementation.
   granularity, and the risk that a truncated chunk vector is mistaken for a
   complete one. The bound that matters is already linear: uninterrupted
   transfers stream their digest and perform no read-back at all, and a resumed
-  transfer performs one full read-back of `expected_size` bytes per
-  verification attempt, after the final byte is durable and before the
-  publishing rename, independent of how many transfer resumes occurred. An
+  transfer reads back the bytes each verification attempt consumes — a full
+  `expected_size` pass when the attempt completes, and only its partial read
+  when an interruption abandons it — after the final byte is durable and before
+  the publishing rename, independent of how many transfer resumes occurred. An
   interruption during verification abandons that pass and starts a fresh one.
   The one permitted clean restart after a mismatch adds at most one further
   transfer and one further streaming hash, and the spent restart is recorded as
@@ -893,24 +897,25 @@ Resume itself re-hashes no prefix: it truncates the staged file to
 `durable_offset` and validates the sidecar's recorded validator. After the
 final data fsync the transfer re-hashes the whole staged file with
 `verify_file`, holding the advisory lock from that read through the publishing
-rename. A resumed transfer therefore pays one read-back of `expected_size`
-bytes per verification attempt. An uninterrupted transfer reads back nothing,
-because its streaming digest is the verification. An interruption that lands
-during verification abandons that pass; the next process starts a fresh pass
-from offset zero. A mismatch on a resumed transfer earns the existing single
-clean restart, which adds at most one further transfer and one further
-streaming hash and increments the durable `clean_restarts` counter; a mismatch
-on that restart is fatal, even if the restart itself was interrupted and the
-downloader recreated. Behavioural tests must cover: interrupt, corrupt one byte
-in the staged prefix, resume — publication is refused with `IntegrityFailure`
-and the clean restart then succeeds; an interrupted clean restart followed by
-recreation and a further mismatch — publication is refused and no second
-restart is granted; an interruption during verification followed by recreation
-— the next attempt reads the whole staged file again; an uninterrupted transfer
-performs no read-back (assert through the `PartialStore` test double's read
-counter); and at least two interruptions with the downloader recreated between
-attempts, which must still produce one verification pass and one read-back of
-`expected_size` bytes.
+rename. A resumed transfer therefore reads back the bytes its verification
+attempt consumes: `expected_size` for a completed pass, and only the partial
+read for a pass abandoned by an interruption. An uninterrupted transfer reads
+back nothing, because its streaming digest is the verification. An interruption
+that lands during verification abandons that pass; the next process starts a
+fresh pass from offset zero. A mismatch on a resumed transfer earns the
+existing single clean restart, which adds at most one further transfer and one
+further streaming hash and increments the durable `clean_restarts` counter; a
+mismatch on that restart is fatal, even if the restart itself was interrupted
+and the downloader recreated. Behavioural tests must cover: interrupt, corrupt
+one byte in the staged prefix, resume — publication is refused with
+`IntegrityFailure` and the clean restart then succeeds; an interrupted clean
+restart followed by recreation and a further mismatch — publication is refused
+and no second restart is granted; an interruption during verification followed
+by recreation — the next attempt reads the whole staged file again; an
+uninterrupted transfer performs no read-back (assert through the `PartialStore`
+test double's read counter); and at least two interruptions with the downloader
+recreated between attempts, which must still produce one verification pass and
+one read-back of `expected_size` bytes.
 
 Locking uses `rustix::fs::flock` on the borrowed file descriptor from
 `cap_std::fs::Dir` — `cap-std` has no `lock`, and `into_std()` returns the
@@ -947,11 +952,13 @@ The resume sequence proptest drives a *sequence* of scripted outcomes through
 the real `decide_resume` and `accept_response` against a model of the written
 byte range, asserting the written set is exactly `[0, final_len)`. It also
 injects the verifier's read source and counts read-back bytes, asserting `0`
-for an uninterrupted transfer and one `expected_size` pass per verification
-attempt for an interrupted transfer. An interruption inside verification
-restarts the pass rather than resuming it, so the property bounds read-back by
-verification attempts, not transfer resumes. This is what replaces the dropped
-Verus resume proof, and unlike a proof it runs against the shipped code.
+for an uninterrupted transfer and, for an interrupted transfer, the sum of the
+bytes each verification attempt actually reads. It also asserts the sum never
+exceeds `verification_attempts * expected_size`. An interruption inside
+verification restarts the pass rather than resuming it, so the property bounds
+read-back by verification attempts, not transfer resumes. This is what replaces
+the dropped Verus resume proof, and unlike a proof it runs against the shipped
+code.
 
 `chutoro-bench-datasets` is outside the `property-tests` workflow's `paths`
 filter and suite matrix, so these properties run through `make test` only.
@@ -1395,19 +1402,21 @@ a required hop). The ticket's `sha2 0.10` premise is therefore stale, and
 locally generated chunk digests are rejected because they cannot authenticate
 the pinned whole-file SHA-256. The decision is recorded in ADR 0009. The
 Decision log now states the read-back budget: zero bytes for an uninterrupted
-transfer, one `expected_size` pass per verification attempt for a resumed
-transfer (an interruption during verification abandons that pass and restarts
-it from zero), and at most one additional transfer plus one streaming hash for
-the single permitted clean restart. The spent restart is recorded as a durable
-`clean_restarts` sidecar counter, so a downloader recreated after an
-interrupted restart cannot spend a second one. The `proptest` resume state
-machine is extended to count read-back bytes, and the behavioural suite gains
-an N ≥ 2 interruption scenario with downloader recreation, an
-interrupted-restart scenario, and an interruption-during-verification scenario.
-The DEEP1B cost example is rebased on the ticket's figures (about 0.3 h on NVMe
-or 1.2 h on EBS gp3 for one read-back, against about 2.8 TB of repeated prefix
-re-reads). The `property-tests` exclusion of `chutoro-bench-datasets` is
-recorded, with workflow inclusion assigned to the 10.1.2 implementation stage.
+transfer, and for a resumed transfer the sum of the bytes each verification
+attempt actually reads, bounded above by
+`verification_attempts * expected_size` (an interrupted attempt contributes
+only its partial read and the next starts from zero), plus at most one
+additional transfer and one streaming hash for the single permitted clean
+restart. The spent restart is recorded as a durable `clean_restarts` sidecar
+counter, so a downloader recreated after an interrupted restart cannot spend a
+second one. The `proptest` resume state machine is extended to count read-back
+bytes, and the behavioural suite gains an N ≥ 2 interruption scenario with
+downloader recreation, an interrupted-restart scenario, and an
+interruption-during-verification scenario. The DEEP1B cost example is rebased
+on the ticket's figures (about 0.3 h on NVMe or 1.2 h on EBS gp3 for one
+read-back, against about 2.8 TB of repeated prefix re-reads). The
+`property-tests` exclusion of `chutoro-bench-datasets` is recorded, with
+workflow inclusion assigned to the 10.1.2 implementation stage.
 `crypto_common::hazmat::SerializableState` is recorded under Alternatives
 deferred with its trust, sensitivity, and `0.x` minor-line compatibility
 caveats.
