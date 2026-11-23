@@ -158,7 +158,7 @@ returned `206 Partial Content`.
 | `ann-benchmarks.com/glove-200-angular.hdf5`                             | `bytes 100-199/962819488` | `bytes`         | `"c4aecb89b5369bc649bacb0b3ec3be4b-115"` | absent             |
 | `storage.googleapis.com/cvdf-datasets/mnist/train-images-idx3-ubyte.gz` | `bytes 100-199/9912422`   | `bytes`         | `"f68b3c2dcbeaaa9fbdd348bbdeb94873"`     | absent             |
 
-_Table 2: Responses to `Range: bytes=100-199` on 2026-08-16._
+_Table 1: Responses to `Range: bytes=100-199` on 2026-08-16._
 
 The third row is the mirror already selected by
 `chutoro-benches/src/source/mnist/mod.rs`: the default `MnistConfig::base_url`
@@ -360,7 +360,7 @@ Effort scale:
 | GIST1M                                             | Fully automatable via ANN-Benchmarks HDF5. `S-M`.                                                                            | 3.600                                                   | 0.324                  | 0.036                    | 0.036                        |
 | DEEP1B / BigANN                                    | Automatable but operationally heavy (multi-hundred-GB artefacts, resumable download, sharded upload, long validation). `XL`. | 89.4-476.8 (1B vectors, uint8 to float32)               | 8.046-42.912           | 0.894-4.768              | 0.894-4.768                  |
 
-_Table 1: Dataset preparation effort, cache size, and approximate one-time
+_Table 2: Dataset preparation effort, cache size, and approximate one-time
 retrieval cost by provider._
 
 ## 7. Dataset-specific implementation tasks for suite and matrix readiness
