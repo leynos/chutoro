@@ -972,26 +972,27 @@ receive label `0`.
 
 #### 6.3. SIMD utilization
 
-- **Distance kernels (biggest win):** Add a CPU backend that takes contiguous
+- **Distance kernels:** Retain a CPU backend that takes contiguous
   structure-of-arrays views of point data and computes distances with stable
   `core::arch` intrinsics (AVX2/AVX-512 on x86) across lanes, with scalar
   fallback per pair where metrics are not vectorizable. Keep an optional nightly
   `std::simd` path behind a non-default feature while the API remains
   unstable. Expose the query-centric `batch_distances(query, candidates)`
   helper on the core trait and make it the default path for HNSW candidate
-  scoring on CPU: collect candidate indices in chunks sized to the SIMD width
-  and evaluate with fused multiply-adds and vector reductions, exploiting the
-  trait’s `batch_distances` path while retaining the pair-oriented
-  `distance_batch(pairs, out)` API for algorithms that require arbitrary tuples.
+  scoring on CPU. The bounded Fearless SIMD proposal below evaluates a
+  query-to-points replacement that preserves separate multiplication and
+  addition in dimension order. It uses the trait's `batch_distances` path while
+  retaining the pair-oriented `distance_batch(pairs, out)` API for algorithms
+  that require arbitrary tuples.
 - **HNSW search/insert heuristics:** When evaluating neighbours at a level,
   operate on packed indices and a structure-of-arrays layout of coordinates.
   Prefetch upcoming blocks to hide latency. Compute scores in SIMD blocks
   outside the write lock while keeping graph topology updates under the lock.
-- **Parallel Kruskal phase:** Keep the global sort in Rayon, but vectorize the
-  edge-weight transform and scan or filter candidate edges before the
-  union-find stage. Union-find itself remains branchy; focus SIMD effort on the
-  pre-filter and maintain cache-friendly structure-of-arrays parent and rank
-  arrays.
+- **Parallel Kruskal phase:** Keep the global sort in Rayon. Evaluate SIMD
+  weighting and classification after task 2.3.2's current-pipeline measurement
+  gates pass. Preserve validation and ordering before selecting masks or
+  compaction. Union-find retains its atomic access, synchronization, and
+  dependent traversal; candidate filtering needs its own algorithmic case.
 - **Data layout preconditions:** Introduce an internal `DensePointView<'a>` for
   dense numeric providers to supply structure-of-arrays packing and stride-1
   access. Retain a scalar fallback via the existing trait.
@@ -1338,6 +1339,82 @@ strengthens the previous contract, which used a fallible parallel reduction and
 could report any one of several errors depending on Rayon's scheduling.
 `ChutoroError::CpuMstFailure` continues to carry the selected inner code and
 message unchanged.
+
+##### 6.3.1. Fearless SIMD kernel boundary
+
+_Design intention (2026-11-22; implementation pending)._ Roadmap task 2.2.8
+evaluates a bounded Fearless SIMD port of the dense query-to-points Euclidean
+kernel under
+[RFC 0001](rfcs/rfc-0001-fearless-simd-query-to-points.md). [ADR-0007](adrs/adr-0007-fearless-simd-kernel-boundary.md)
+records the maintainer's dependency authorization and architecture. The
+proposal preserves the pairwise kernels, packed layout, public interfaces,
+scalar reference, and existing feature controls.
+
+| Component                          | Responsibility                                                                        |
+| ---------------------------------- | ------------------------------------------------------------------------------------- |
+| Public `DataSource` API            | Ordinary Rust values and existing contracts; no SIMD types                            |
+| `DensePointView` and dense adapter | Private packing, alignment, allocation, padding, and candidate order                  |
+| Private query dispatcher           | Cache an approved backend token or its existing kernel function pointer               |
+| Query-to-points kernel             | Generic arithmetic over independent points, with exact chunks and a bounded remainder |
+| Core CPU pipeline                  | Weighting policy, checked lookups, validation, error selection, records, and ordering |
+| Fearless SIMD                      | Safe capability tokens and vector operations inside private leaf kernels              |
+
+_Table 6.3.1: Ownership at the proposed SIMD kernel boundary._
+
+The dense dispatcher applies the existing selector and Cargo feature
+permissions before obtaining a matching safe Fearless token. Fearless's x86
+capability bundles are broader than the existing individual feature checks, and
+its native NEON backend supports AArch64. Keep the established query
+implementation where the exact token is unavailable or lacks native execution
+evidence, including supported 32-bit ARM paths. Cache a private invocation
+value containing the token or legacy function pointer, then match once per
+batch. Keep the pairwise cache unchanged. Automatic library dispatch must not
+override public feature choices, and a library baseline token must not replace
+chutoro's explicit scalar route.
+
+The kernel stays synchronous on the calling thread, preserving
+[ADR-0006](adrs/adr-0006-sequential-trim-scoring.md)'s callback contract under
+the insertion mutex. It introduces no Rayon work, blocking pool operations,
+index re-entry, new allocation, or layout change. Points occupy independent
+lanes; dimensions retain their existing accumulation order with separate
+multiplication and addition and the existing final-distance normalization. Full
+native-width chunks and a bounded remainder satisfy exact-length safe loads and
+stores without assuming that every future lane count divides the current
+16-point padding.
+
+Dense scalar/SIMD tolerance does not prove identical clustering on near ties.
+The RFC therefore requires downstream evidence, feature compatibility, native
+execution for each substituted backend, and complete-batch measurements
+including packing. Adoption requires no material performance regression under
+its preregistered decision rule and a net maintenance reduction that counts
+retained fallback bodies and added dispatch and proof code. If these conditions
+fail or the evidence remains inconclusive, retain the established path and
+record the outcome.
+
+Task 2.3.2 has separate performance gates: preserve its 5% current-pipeline
+opportunity threshold and its 10% classification/compaction share of Kruskal
+before the corresponding expensive milestones proceed. The historical 0.22%
+comparison excludes weighting and cannot establish the current opportunity.
+Remove the deleted redundant sort from the measured numerator, inspect
+optimized scalar code, and include indexed reads, staging, validation, and
+output construction in comparisons.
+
+Core keeps the scalar mutual-reachability maximum policy, source/target/weight
+validation precedence, self-loop handling, earliest-input error selection,
+original diagnostic orientation, and sequence ordering. Validate `usize`
+identifiers before narrowing or indexed loads. Raw non-finite operands can
+produce a finite transformed weight, so early rejection changes behaviour.
+`max_precise` does not establish bitwise parity for signed zeros or signalling
+NaNs. Start with vector classification and ordered scalar record emission;
+justify full compaction separately and keep mixed-width fields aligned to the
+same logical edges.
+
+Core owns its private CPU kernels and must not depend on the dense provider or
+reuse `DensePointView` as a public graph abstraction. Central workspace
+dependency versions permit independent optional consumers. Task 2.2.8 is not a
+prerequisite for 2.3.2; the
+[planning-agent prompt](planning/2-3-2-fearless-simd-agent-prompt.md) records
+the latter's reconciliation and verification obligations.
 
 #### 6.4. Property-based input generation for CPU HNSW tests
 
