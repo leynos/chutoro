@@ -21,6 +21,7 @@ use std::{io, time::Duration};
 
 use chutoro_bench_datasets::{RecipeError, StagingLock};
 use rstest::{fixture, rstest};
+use tracing_test::traced_test;
 
 mod support;
 
@@ -71,6 +72,7 @@ fn lockfile_persists_after_release(root_res: io::Result<StagingRoot>) {
     );
 }
 
+#[traced_test]
 #[rstest]
 fn second_in_process_acquisition_is_rejected_immediately(root_res: io::Result<StagingRoot>) {
     let root = root_res.expect("temporary staging root should be created");
@@ -96,6 +98,10 @@ fn second_in_process_acquisition_is_rejected_immediately(root_res: io::Result<St
             ..
         }
     ));
+    assert!(
+        logs_contain("staging lock is already held by this process"),
+        "an in-process duplicate must explain itself"
+    );
 }
 
 #[rstest]

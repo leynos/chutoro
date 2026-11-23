@@ -42,7 +42,9 @@
 //!   parent exits. `cap-std` opens with close-on-exec, which covers ordinary
 //!   `exec` but not an explicit descriptor handoff.
 //! - A lock with no timeout would wedge every other job with no log line, so
-//!   [`LockPolicy`] rejects a zero timeout and warns once on contention.
+//!   [`LockPolicy`] rejects a zero timeout and warns once on kernel-observed
+//!   contention. An in-process duplicate is rejected before the kernel loop
+//!   and logs its own warning instead.
 
 mod lock;
 mod platform;

@@ -128,8 +128,10 @@ the timeout.
 A process-wide `Mutex<HashSet<Utf8PathBuf>>` keyed by the supplied root path
 and validated name makes intra-process double acquisition deterministic. The
 entry is inserted before the first system call; a duplicate is rejected
-immediately with `waited_millis == 0`. The entry is removed on every failure
-path and when the guard drops.
+immediately with `waited_millis == 0` and a structured `warn!`, because that
+path bypasses the bounded `flock` loop and cannot use the policy's single
+warning slot. The entry is removed on every failure path and when the guard
+drops.
 
 `StagingLockGuard` owns the only file descriptor, the path, and the registry
 entry. On drop it requests `LOCK_UN`, records a debug event if unlocking fails,

@@ -181,10 +181,19 @@ struct Registration {
 }
 
 impl Registration {
-    /// Insert the path, rejecting a duplicate immediately.
+    /// Insert the path, rejecting a duplicate immediately and visibly.
+    ///
+    /// This rejection bypasses the bounded `flock` loop, so it cannot use the
+    /// policy's single-warning slot. It is still contention, and an
+    /// unexplained immediate failure sends a caller looking in the wrong
+    /// place, so it gets its own warning on every rejected acquisition.
     fn acquire(path: Utf8PathBuf) -> Result<Self, RecipeError> {
         let mut entries = lock_registry();
         if !entries.insert(path.clone()) {
+            warn!(
+                path = path.as_str(),
+                "staging lock is already held by this process"
+            );
             return Err(RecipeError::staging_lock_contended(path.as_str(), 0));
         }
         Ok(Self { path, active: true })
