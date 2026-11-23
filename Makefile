@@ -159,7 +159,32 @@ ifneq ($(strip $(KANI_VERSION_REMAINDER)),)
 _KANI_VERSION_CHECK := $(error KANI_VERSION must be MAJOR.MINOR.PATCH)
 endif
 KANI_LIB_PATH ?= $(KANI_HOME)/kani-$(KANI_VERSION)/toolchain/lib
+# The verifier's shared library path, applied to the delegated `cargo kani`
+# process rather than to the checker. The checker itself needs none of the
+# verifier's toolchain, and the leading `NAME=VALUE` word is how the Makefile
+# hands the assignment to the child without exporting it into the recipe.
 KANI_ENV ?= LD_LIBRARY_PATH="$(KANI_LIB_PATH):$(LD_LIBRARY_PATH)"
+
+# Every Kani invocation runs through this checker, which requires the exact
+# successful harness multiset the manifest lists for the package and tier.
+# It is built once per invocation of `make`, rather than through `cargo run` on
+# every recipe line: a proof run should not pay six times for a binary the
+# first line could have built, and the extra builds would spend the job's
+# 30-minute budget on the queue. The seam is command-line only, so an
+# environment value cannot repoint the gate; the contract tests substitute a
+# recorder there.
+KANI_MANIFEST ?= tools/kani/harnesses.toml
+KANI_SUITE_BINARY := target/debug/kani_suite
+KANI_SUITE_PREREQ :=
+ifeq ($(origin KANI_SUITE),command line)
+else
+override KANI_SUITE := $(KANI_SUITE_BINARY)
+KANI_SUITE_PREREQ := kani-suite-build
+endif
+
+.PHONY: kani-suite-build
+kani-suite-build: ## Build the Kani suite checker
+	$(CARGO) build --package chutoro-test-support --bin kani_suite
 
 # The development build standard (concordat rule `rust-build-defaults`):
 # the mold linker on Linux. The pin is stable, so the nightly-only parallel
@@ -290,19 +315,34 @@ kani-check: ## Check the installed Kani verifier against its pin
 	@$(PROVER_TOOLS) kani check-version --kani-command "$(CARGO) kani" || \
 		{ status=$$?; printf 'kani-check failed (exit %s)\n' "$$status" >&2; exit "$$status"; }
 
-kani: ## Run Kani practical harnesses
-	$(KANI_ENV) $(CARGO) kani -p chutoro-core --default-unwind 4 --harness hnsw::kani_proofs::bidirectional::verify_bidirectional_links_smoke_2_nodes_1_layer
-	$(KANI_ENV) $(CARGO) kani -p chutoro-core --default-unwind 4 --harness hnsw::kani_proofs::bidirectional::verify_bidirectional_links_reconciliation_2_nodes_1_layer
-	$(KANI_ENV) $(CARGO) kani -p chutoro-core --default-unwind 9 --harness hnsw::kani_proofs::connectivity::verify_base_layer_healing_links_isolated_node_2_nodes
-	$(KANI_ENV) $(CARGO) kani -p chutoro-core --default-unwind 12 --harness mst::kani_harness::kani_proofs::verify_mst_structural_correctness_4_nodes
-	$(KANI_ENV) $(CARGO) kani -p chutoro-core --default-unwind 10 --harness mst::kani_harness::kani_proofs::verify_mst_minimality_3_nodes
-	$(KANI_ENV) $(CARGO) kani -p chutoro-providers-dense --default-unwind 4 --harness simd::kani_proofs::verify_dense_simd_dispatch_selection_respects_support_masks
-	$(KANI_ENV) $(CARGO) kani -p chutoro-providers-dense --default-unwind 18 --harness simd::kani_proofs::verify_dense_simd_tail_padding_lane_bounds
+kani: $(KANI_SUITE_PREREQ) ## Run Kani practical harnesses
+	$(KANI_SUITE) --manifest $(KANI_MANIFEST) --package chutoro-core --scope fast -- \
+		$(KANI_ENV) $(CARGO) kani -p chutoro-core --lib --default-unwind 4 --exact \
+		--harness hnsw::kani_proofs::bidirectional::verify_bidirectional_links_smoke_2_nodes_1_layer
+	$(KANI_SUITE) --manifest $(KANI_MANIFEST) --package chutoro-core --scope fast -- \
+		$(KANI_ENV) $(CARGO) kani -p chutoro-core --lib --default-unwind 4 --exact \
+		--harness hnsw::kani_proofs::bidirectional::verify_bidirectional_links_reconciliation_2_nodes_1_layer
+	$(KANI_SUITE) --manifest $(KANI_MANIFEST) --package chutoro-core --scope fast -- \
+		$(KANI_ENV) $(CARGO) kani -p chutoro-core --lib --default-unwind 9 --exact \
+		--harness hnsw::kani_proofs::connectivity::verify_base_layer_healing_links_isolated_node_2_nodes
+	$(KANI_SUITE) --manifest $(KANI_MANIFEST) --package chutoro-core --scope fast -- \
+		$(KANI_ENV) $(CARGO) kani -p chutoro-core --lib --default-unwind 12 --exact \
+		--harness mst::kani_harness::kani_proofs::verify_mst_structural_correctness_4_nodes
+	$(KANI_SUITE) --manifest $(KANI_MANIFEST) --package chutoro-core --scope fast -- \
+		$(KANI_ENV) $(CARGO) kani -p chutoro-core --lib --default-unwind 10 --exact \
+		--harness mst::kani_harness::kani_proofs::verify_mst_minimality_3_nodes
+	$(KANI_SUITE) --manifest $(KANI_MANIFEST) --package chutoro-providers-dense --scope fast -- \
+		$(KANI_ENV) $(CARGO) kani -p chutoro-providers-dense --lib --default-unwind 4 --exact \
+		--harness simd::kani_proofs::verify_dense_simd_dispatch_selection_respects_support_masks
+	$(KANI_SUITE) --manifest $(KANI_MANIFEST) --package chutoro-providers-dense --scope fast -- \
+		$(KANI_ENV) $(CARGO) kani -p chutoro-providers-dense --lib --default-unwind 18 --exact \
+		--harness simd::kani_proofs::verify_dense_simd_tail_padding_lane_bounds
 
-
-kani-full: ## Run all Kani formal verification harnesses
-	$(KANI_ENV) $(CARGO) kani -p chutoro-core --default-unwind 10
-	$(KANI_ENV) $(CARGO) kani -p chutoro-providers-dense --default-unwind 18
+kani-full: $(KANI_SUITE_PREREQ) ## Run all Kani formal verification harnesses
+	$(KANI_SUITE) --manifest $(KANI_MANIFEST) --package chutoro-core --scope full -- \
+		$(KANI_ENV) $(CARGO) kani -p chutoro-core --lib --default-unwind 10
+	$(KANI_SUITE) --manifest $(KANI_MANIFEST) --package chutoro-providers-dense --scope full -- \
+		$(KANI_ENV) $(CARGO) kani -p chutoro-providers-dense --lib --default-unwind 18
 
 verus: ## Run Verus proofs for edge harvest primitives
 	@$(PROVER_TOOLS) verus run $(VERUS_PROOF_ARGS) || \

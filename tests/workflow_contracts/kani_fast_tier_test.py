@@ -7,11 +7,10 @@ compared against ``tools/kani/harnesses.toml``: the fast selectors must be
 exactly the manifest's fast-tier harnesses for the package they name, and the
 full tier must sweep each package that holds a proof.
 
-The selectors are read from executable recipe lines only. A ``--harness``
-written in a comment, echoed, or printed by ``printf`` is text, not a proof
-selection, so the reading rejects all three. A recipe line that masks its own
-failure — a trailing ``|| true`` or a leading ``-`` — is rejected too, because
-a tier whose recipes cannot fail is not a gate.
+The recipe reading, and the fixtures both tier contracts share, live in
+:mod:`kani_recipe_reading`. The commands themselves are executed by
+:mod:`kani_tier_routing_test`, which runs each tier against a recording
+checker; this module asserts what a command must say, not that it runs.
 
 Run via ``make test-workflow-contracts``.
 """
@@ -19,110 +18,16 @@ Run via ``make test-workflow-contracts``.
 from __future__ import annotations
 
 import collections
-import re
-import typing as typ
-from pathlib import Path
 
 import pytest
+
 from kani_manifest_test import _entries
-from workflow_support import ROOT
-
-MAKEFILE_PATH = ROOT / "Makefile"
-
-#: The ``kani:`` target header and its immediately following tab-indented
-#: recipe lines; the capture stops at the first line that is not tab-indented.
-KANI_TARGET_RE = re.compile(
-    r"^kani:[^\n]*\n(?P<recipe>(?:\t[^\n]*(?:\n|$))*)",
-    re.MULTILINE,
+from kani_recipe_reading import (
+    RecipeError,
+    executable_commands,
+    selections,
+    violations,
 )
-
-#: The same shape for the ``kani-full:`` target.
-KANI_FULL_TARGET_RE = re.compile(
-    r"^kani-full:[^\n]*\n(?P<recipe>(?:\t[^\n]*(?:\n|$))*)",
-    re.MULTILINE,
-)
-
-#: An executable Kani command in a tier recipe. The optional make-variable
-#: prefixes cover the environment and the checker wrapper; a ``#`` comment, an
-#: ``echo``, or a ``printf`` cannot satisfy the pattern. A leading ``-``, which
-#: tells make to ignore the recipe's failure, is captured so the caller can
-#: reject it.
-KANI_COMMAND_RE = re.compile(
-    r"^\t(?P<ignore>-)?(?:\$\([A-Z_]+\)\s+)*\$\(CARGO\)\s+kani\b(?P<arguments>.*)$"
-)
-
-#: A harness selector and its value, as ``--harness NAME`` or
-#: ``--harness=NAME``.
-HARNESS_ARGUMENT_RE = re.compile(
-    r"(?:^|\s)--harness(?:=|\s+)(?P<name>[A-Za-z_][A-Za-z0-9_:]*)(?=\s|$)"
-)
-
-#: The package selector and its value.
-PACKAGE_ARGUMENT_RE = re.compile(
-    r"(?:^|\s)(?:-p|--package)(?:=|\s+)(?P<name>[A-Za-z0-9_-]+)(?=\s|$)"
-)
-
-#: Recipe text that swallows a failure. GNU make reads a leading ``-`` as
-#: ignore-the-status, and a trailing ``|| true`` (or ``|| :``) does the same
-#: for the shell.
-SWALLOWING_SUFFIXES = ("|| true", "||true", "|| :", "||:")
-
-
-class RecipeError(ValueError):
-    """Raised when a tier recipe cannot be read as a set of Kani selections."""
-
-
-def _recipe(text: str, pattern: re.Pattern[str], target: str) -> str:
-    """Return the recipe body of one target, or raise."""
-    match = pattern.search(text)
-    if match is None or not match["recipe"]:
-        raise RecipeError(f"the Makefile must define a {target}: target with a recipe")
-    return match["recipe"].rstrip("\n")
-
-
-def _executable_commands(recipe: str) -> list[re.Match[str]]:
-    """Return the executable Kani commands in one recipe, in order."""
-    return [
-        match
-        for line in recipe.splitlines()
-        if (match := KANI_COMMAND_RE.match(line)) is not None
-    ]
-
-
-def _names(arguments: str, pattern: re.Pattern[str]) -> list[str]:
-    """Return the values `pattern` finds in one command's arguments."""
-    return [found["name"] for found in pattern.finditer(arguments)]
-
-
-def _selections(recipe: str) -> list[tuple[str, list[str]]]:
-    """Return each Kani command's package and harness arguments, in order.
-
-    Raises
-    ------
-    RecipeError
-        When a command cannot be counted as a gate: it ignores its own exit
-        status, swallows a failure, or names no single package.
-    """
-    selected: list[tuple[str, list[str]]] = []
-    for match in _executable_commands(recipe):
-        arguments = match["arguments"]
-        if match["ignore"] is not None:
-            raise RecipeError(
-                f"a Kani recipe line is prefixed with '-' so its failure is "
-                f"ignored: {arguments.strip()!r}"
-            )
-        if arguments.rstrip().endswith(SWALLOWING_SUFFIXES):
-            raise RecipeError(
-                f"a Kani recipe line swallows its failure: {arguments.strip()!r}"
-            )
-        packages = _names(arguments, PACKAGE_ARGUMENT_RE)
-        if len(packages) != 1:
-            raise RecipeError(
-                "each Kani recipe line must name exactly one package with -p, "
-                f"got {packages!r} in {arguments.strip()!r}"
-            )
-        selected.append((packages[0], _names(arguments, HARNESS_ARGUMENT_RE)))
-    return selected
 
 
 def _manifest_fast(package: str) -> list[str]:
@@ -139,24 +44,6 @@ def _manifest_packages() -> list[str]:
     return sorted({entry["package"] for entry in _entries()})
 
 
-@pytest.fixture(scope="module")
-def makefile() -> str:
-    """Return the Makefile's text."""
-    return MAKEFILE_PATH.read_text(encoding="utf-8")
-
-
-@pytest.fixture(scope="module")
-def fast_recipe(makefile: str) -> str:
-    """Return the recipe body of the ``kani:`` target."""
-    return _recipe(makefile, KANI_TARGET_RE, "kani")
-
-
-@pytest.fixture(scope="module")
-def full_recipe(makefile: str) -> str:
-    """Return the recipe body of the ``kani-full:`` target."""
-    return _recipe(makefile, KANI_FULL_TARGET_RE, "kani-full")
-
-
 @pytest.mark.parametrize(
     "recipe",
     (
@@ -168,7 +55,7 @@ def full_recipe(makefile: str) -> str:
 )
 def test_nonexecuting_recipe_text_selects_no_harness(recipe: str) -> None:
     """Names in comments or in output commands cannot satisfy the contract."""
-    assert _executable_commands(recipe) == []
+    assert executable_commands(recipe) == []
 
 
 @pytest.mark.parametrize(
@@ -183,7 +70,7 @@ def test_nonexecuting_recipe_text_selects_no_harness(recipe: str) -> None:
 def test_masked_recipe_lines_are_rejected(recipe: str, forbidden: str) -> None:
     """A tier whose recipe cannot fail is not a gate."""
     with pytest.raises(RecipeError) as raised:
-        _selections(recipe)
+        selections(recipe)
     assert forbidden in str(raised.value), (
         f"the rejection must name the masking ({forbidden!r}), got {raised.value}"
     )
@@ -191,13 +78,67 @@ def test_masked_recipe_lines_are_rejected(recipe: str, forbidden: str) -> None:
 
 def test_fast_recipe_runs_only_executable_kani_commands(fast_recipe: str) -> None:
     """Every fast-tier line is an executable Kani command with one package."""
-    selections = _selections(fast_recipe)
-    assert selections, (
+    selected = selections(fast_recipe)
+    assert selected, (
         "the kani: target must run at least one executable Kani command"
     )
-    assert all(name for _, names in selections for name in names), (
+    assert all(name for _, names in selected for name in names), (
         "every fast-tier command must name the harness it runs; an unselected "
-        f"command runs a whole package in the pull-request tier: {selections!r}"
+        f"command runs a whole package in the pull-request tier: {selected!r}"
+    )
+
+
+@pytest.mark.parametrize(
+    "arguments",
+    (
+        "-p chutoro-core --lib --quiet",
+        "-p chutoro-core --lib -q",
+        "-p chutoro-core --lib --output-format terse",
+        "-p chutoro-core --lib --output-format=old",
+        "-p chutoro-core --lib --output-into-files",
+        "-p chutoro-core --lib --no-codegen",
+        "-p chutoro-core --lib --only-codegen",
+        "-p chutoro-core --lib --log-file kani.log",
+        "-p chutoro-core --lib --tests",
+        "-p chutoro-core --lib -j",
+        "-p chutoro-core --lib --jobs 4",
+    ),
+)
+def test_forbidden_kani_flags_are_rejected(arguments: str) -> None:
+    """The checker refuses options that hide, redirect or rewrite its input."""
+    assert violations(arguments), (
+        f"expected {arguments!r} to contain a refused option"
+    )
+
+
+def test_a_regular_output_format_is_not_a_violation() -> None:
+    """The negative control: the one output format the checker reads passes."""
+    assert violations("-p chutoro-core --lib --output-format regular") == []
+
+
+def test_fast_commands_pass_no_forbidden_flag(fast_recipe: str) -> None:
+    """Every executable fast-tier command is one the checker will accept."""
+    offenders = [
+        (arguments, violations(arguments))
+        for match in executable_commands(fast_recipe)
+        if (arguments := match["arguments"]) and violations(arguments)
+    ]
+    assert not offenders, (
+        "the kani: target passes options the checker refuses, so the run "
+        f"would fail before verification: {offenders!r}"
+    )
+
+
+def test_full_commands_pass_no_forbidden_flag(full_recipe: str) -> None:
+    """Every executable nightly command is one the checker will accept."""
+    offenders = [
+        (arguments, violations(arguments))
+        for match in executable_commands(full_recipe)
+        if (arguments := match["arguments"]) and violations(arguments)
+    ]
+    assert not offenders, (
+        "the kani-full: target passes options the checker refuses, so the "
+        f"run would fail before verification: {offenders!r}"
     )
 
 
@@ -212,7 +153,7 @@ def test_fast_selectors_are_exactly_the_manifest_fast_tier(
     another module, which is what the manifest exists to prevent.
     """
     selected = collections.Counter(
-        name for _, names in _selections(fast_recipe) for name in names
+        name for _, names in selections(fast_recipe) for name in names
     )
     expected = collections.Counter(
         name for package in _manifest_packages() for name in _manifest_fast(package)
@@ -244,7 +185,7 @@ def test_fast_selectors_are_qualified_paths(fast_recipe: str) -> None:
     """
     unqualified = sorted(
         name
-        for _, names in _selections(fast_recipe)
+        for _, names in selections(fast_recipe)
         for name in names
         if "::" not in name
     )
@@ -262,7 +203,7 @@ def test_fast_selectors_are_grouped_by_their_own_package(fast_recipe: str) -> No
     running.
     """
     misplaced: list[tuple[str, str]] = []
-    for package, names in _selections(fast_recipe):
+    for package, names in selections(fast_recipe):
         allowed = set(_manifest_fast(package))
         misplaced.extend(
             (package, name) for name in names if name not in allowed
@@ -277,7 +218,7 @@ def test_fast_tier_covers_each_package_that_has_fast_proofs(
     fast_recipe: str,
 ) -> None:
     """A package with fast proofs must appear in the pull-request tier."""
-    packages = {package for package, _ in _selections(fast_recipe)}
+    packages = {package for package, _ in selections(fast_recipe)}
     populated = {
         package for package in _manifest_packages() if _manifest_fast(package)
     }
@@ -294,7 +235,7 @@ def test_full_tier_sweeps_every_package_holding_a_proof(full_recipe: str) -> Non
     package in the manifest must be swept, or a proof classified ``full``
     would never run anywhere.
     """
-    swept = {package for package, _ in _selections(full_recipe)}
+    swept = {package for package, _ in selections(full_recipe)}
     expected = set(_manifest_packages())
     assert swept == expected, (
         "the kani-full: target must sweep exactly the packages that hold "
@@ -312,7 +253,7 @@ def test_full_tier_selects_no_individual_harness(full_recipe: str) -> None:
     """
     selected = [
         (package, name)
-        for package, names in _selections(full_recipe)
+        for package, names in selections(full_recipe)
         for name in names
     ]
     assert not selected, (

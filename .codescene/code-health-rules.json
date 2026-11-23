@@ -1,5 +1,5 @@
 {
-  "usage": "Kani rule sets are scoped to bounded-proof code only. They deliberately exclude chutoro-core/src/mst/tests/kani_model_equivalence.rs and chutoro-test-support/**/kani_nightly_gate*.rs, which merely carry `kani` in the name and are ordinary Rust under no solver constraint.",
+  "usage": "Kani rule sets are scoped to bounded-proof code only. They deliberately exclude chutoro-core/src/mst/tests/kani_model_equivalence.rs and chutoro-test-support/**/kani_suite*.rs, which merely carry `kani` in the name and are ordinary Rust under no solver constraint.",
   "rule_sets": [
     {
       "matching_content_path": "chutoro-providers/dense/src/simd/kernels/mod.rs",

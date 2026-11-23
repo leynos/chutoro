@@ -7,10 +7,11 @@ installs a prover therefore carries the same three contracts: a commit-pinned
 ``setup-uv`` step, caching left to ``setup-rust``, and an install that follows
 the setup.
 
-The nightly gate runs only when its own gate step agrees, which makes a step's
-condition part of the contract: the setup, install, and execution steps must
-share one condition, or the job fails on exactly the night it was selected to
-run.
+Every one of those steps is also unconditional. The nightly job used to decide
+in an earlier step whether to install and run at all, which made a step's
+condition part of the contract; that gate is gone, because a skipped nightly
+run is not evidence that its commit was verified. The setup, install and
+execution steps now run whole, in order, on every run.
 
 Run via ``make test-workflow-contracts``.
 """
@@ -38,9 +39,6 @@ PROVER_JOBS = (
     ("nightly-kani.yml", "kani-full", "kani", "make kani-full"),
 )
 
-#: The gate the nightly job puts on every step that uses the prover tool.
-NIGHTLY_GATE = "${{ steps.gate.outputs.should_run == 'true' }}"
-
 JOB_IDS = tuple(
     f"{Path(workflow_name).stem}-{job_name}"
     for workflow_name, job_name, _, _ in PROVER_JOBS
@@ -67,12 +65,6 @@ def _uv_setup_index(job_steps: list[dict[str, object]]) -> int:
         f"{[uses_reference(step) for step in job_steps]!r}"
     )
     return index
-
-
-def _condition(step: dict[str, object]) -> str | None:
-    """Return a step's `if` condition, normalized for whitespace."""
-    condition = step.get("if")
-    return condition.strip() if isinstance(condition, str) else None
 
 
 @pytest.mark.parametrize(
@@ -123,16 +115,15 @@ def test_uv_setup_is_pinned_and_precedes_the_install(
     PROVER_JOBS,
     ids=JOB_IDS,
 )
-def test_setup_install_and_run_share_one_condition(
+def test_setup_install_and_run_are_unconditional_and_ordered(
     workflow_name: str, job_name: str, install: str, run: str
 ) -> None:
-    """A conditional install and run must share the setup's condition.
+    """Setup, install and execution run whole, in that order, every time.
 
-    The nightly job decides in an earlier step whether the toolchain is worth
-    installing. If the gate guards the install but not the run, the run fails
-    for want of a verifier; if it guards the setup but not the install, the
-    install fails for want of `uv`. The three conditions must therefore agree,
-    whichever condition that is.
+    A condition on any of the three would let a run finish without
+    verification while the job still reported a conclusion. The nightly job
+    used to guard all three with one gate; that gate is deleted, and the
+    deleted behaviour must not reappear as a step condition.
     """
     job_steps = steps(job(workflow_name, job_name))
     positions = {
@@ -145,18 +136,18 @@ def test_setup_install_and_run_share_one_condition(
         f"{workflow_name}:{job_name} has no step for {missing!r}, got "
         f"{[run_script(step) for step in job_steps]!r}"
     )
-
-    conditions = {
-        name: _condition(job_steps[index]) for name, index in positions.items()
-    }
-    assert len(set(conditions.values())) == 1, (
-        f"{workflow_name}:{job_name} must guard both sides of the prover "
-        f"install with one condition, got {conditions!r}"
+    ordered = sorted(positions.values())
+    assert ordered == [positions["uv setup"], positions["install"], positions["execution"]], (
+        f"{workflow_name}:{job_name} must set up uv, install, then run, got "
+        f"{positions!r}"
     )
-    # A job with no gate at all also trivially agrees with itself, so the
-    # nightly steps are pinned to the gate their own earlier step produces.
-    if workflow_name == "nightly-kani.yml":
-        assert set(conditions.values()) == {NIGHTLY_GATE}, (
-            f"{workflow_name}:{job_name} must guard the prover steps with "
-            f"{NIGHTLY_GATE!r}, got {conditions!r}"
-        )
+    conditional = {
+        name: job_steps[index].get("if")
+        for name, index in positions.items()
+        if "if" in job_steps[index]
+    }
+    assert not conditional, (
+        f"{workflow_name}:{job_name} must run these steps unconditionally, so "
+        f"a green job means the proof was executed; found conditions "
+        f"{conditional!r}"
+    )

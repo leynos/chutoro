@@ -52,6 +52,11 @@ excluded_paths = [
     "chutoro_benches::recall",
     # The sampler reads Linux's ambient `/proc/self/status` interface.
     "chutoro_benches::profiling::memory_sampler",
+    # The Kani suite checker reads the manifest path a workflow or Make
+    # recipe names on its command line. That is the tool's ambient boundary,
+    # as the CLI's command module is the CLI's; the parsing and comparison
+    # above it are pure and take the manifest text as an argument.
+    "chutoro_test_support::ci::kani_suite::manifest",
     # MNIST caching downloads and atomically updates an ambient cache path;
     # its tests clean up the same staged cache directory.
     "chutoro_benches::source::mnist",
@@ -61,10 +66,11 @@ excluded_crates = [
     # Integration test crates for the CI gate binaries: they stage gate
     # input files in ambient temp directories and spawn the binaries
     # against them.
-    "kani_nightly_gate_cli",
+    "kani_suite_cli",
     "benchmark_regression_gate_cli",
-    # CI gate binaries (chutoro-test-support/src/bin): read gate input
-    # files from workflow-provided ambient runner paths by design.
-    "kani_nightly_gate",
+    # CI gate binaries (chutoro-test-support/src/bin): they read gate input
+    # files and stream a delegated process's output from workflow-provided
+    # ambient runner paths by design.
+    "kani_suite",
     "benchmark_regression_gate",
 ]
