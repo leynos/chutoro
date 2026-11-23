@@ -1124,6 +1124,29 @@ direct optional dependency whose version is already pinned in the lockfile, and
 keeps `chutoro-bench-datasets` out of the exclusion list. Reach for
 `dylint.toml` only when no capability-preserving route exists.
 
+### Feature unification in package-subset lint runs
+
+`cargo clippy -p <subset> --all-features` enables every feature only for the
+selected packages and for the dependencies they forward a feature to. A subset
+that omits both `chutoro-core` and `chutoro-benches` therefore leaves
+`chutoro-core`'s `metrics` feature off, and Clippy then lints the
+`#[cfg(not(feature = "metrics"))]` code that the workspace-wide `make lint`
+never compiles. `make lint` runs `cargo clippy --all-targets --all-features`
+without `-p`, which enables the feature for every workspace package, including
+`chutoro-core`; `chutoro-benches` enables it through its `pipeline-profile`
+feature.
+
+The no-op metric hooks that a no-metrics build selects now live in
+`chutoro-core/src/hnsw/distance_cache/metric_hooks.rs` and are `const fn`, so
+the historical `missing_const_for_fn` finding no longer reproduces. The
+feature-unification risk remains for any future `#[cfg(not(feature = "..."))]`
+code. Lint with `make lint`, or include `-p chutoro-core` in the selection. To
+check the no-metrics configuration deliberately, run:
+
+```sh
+cargo clippy -p chutoro-core --all-targets --no-default-features --features cpu -- -D warnings
+```
+
 ## Injected environment access
 
 Read environment values through `mockable::Env`, not ambient `std::env`
@@ -1303,6 +1326,37 @@ value, which is the check to read before changing it; record the reason in
 The house policy is that fixtures and helpers are not tests. It governs how
 test-support code reports failure, distinct from how `#[test]`, `#[rstest]`, and
 `proptest!` bodies consume that failure.
+
+### Tracing-capture tests pin callsite interest
+
+A test that captures spans or events through
+`tracing::subscriber::with_default` must hold a
+`chutoro_test_support::tracing::CallsiteInterestPin` for the whole capture:
+from before the recording subscriber is built until after every snapshot has
+been taken. `pin_callsite_interest()` returns the guard, and the guard records
+nothing:
+
+```rust
+let _pin = pin_callsite_interest();
+let layer = RecordingLayer::default();
+let subscriber = tracing_subscriber::registry().with(layer.clone());
+tracing::subscriber::with_default(subscriber, || run_the_code());
+let spans = layer.spans();
+```
+
+`cargo test` runs the tests of one binary in a shared process, so a sibling
+thread with no scoped subscriber can be the first to touch a callsite.
+`tracing-core` 0.1.36 then caches `Interest::never` for that callsite through
+its `Rebuilder::JustOne` path, and the recording subscriber never sees the span
+even when it was installed before the capture began. The pin registers a
+second, inert dispatcher: with two live dispatches `tracing-core` rebuilds
+interest across all of them, and the inert `never` combined with the recording
+subscriber's `always` yields `sometimes`, so the recording thread answers for
+itself. nextest's process-per-test isolation masks the problem but does not fix
+it, because a single test can still spawn an unscoped thread.
+`chutoro-core/tests/tracing_callsite_pin.rs` is the regression guard, and it
+must stay a single-test binary: a second test would observe whatever interest
+the first one cached.
 
 ### Fallible fixture policy
 
