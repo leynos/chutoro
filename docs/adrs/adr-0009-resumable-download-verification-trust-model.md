@@ -60,9 +60,13 @@ _Table 1: Verification options for a resumed download._
 
 No hash state crosses an interruption. The trust boundary is the process.
 
-The advisory lock spans the whole staging-slot lifetime, for both paths. It is
-taken when the slot is acquired, before the first staged byte is written, and
-released only after the publishing rename or the discard. An uninterrupted
+The advisory lock spans one transfer attempt, for both paths. It is acquired
+before the attempt inspects or modifies the staged slot, and held from before
+the first staged byte is written until the attempt ends: after the publishing
+rename, after the discard, or when a transient error returns control to a retry
+loop. An attempt that leaves a slot for a later attempt releases the lock; the
+next attempt reacquires it before inspecting or modifying the slot. The
+operating system releases the lock if the process dies. An uninterrupted
 transfer streams every byte through a `DigestSink` as it is written and
 verifies the result on completion. It performs no read-back. Holding the lock
 from the first write matters here: a writer that could interleave between the
@@ -74,10 +78,10 @@ continuity. Resume itself re-hashes no prefix: it needs only the sidecar's
 `durable_offset`, truncation of the staged file to that offset, and a check of
 the recorded validator against the current pin. After the final data fsync the
 transfer re-hashes the complete staged file from offset zero through a fresh
-read handle, still under the lock it has held since acquisition, so nothing
-this crate controls can change the file between verification and publication.
-Publication happens only on a match. A transfer that restarts at offset zero
-has no durable bytes to distrust, so it streams and reads back nothing.
+read handle, under the lock held by the current attempt, so nothing this crate
+controls can change the file between verification and publication. Publication
+happens only on a match. A transfer that restarts at offset zero has no durable
+bytes to distrust, so it streams and reads back nothing.
 
 A full-length mismatch on a resumed transfer earns exactly one clean restart. A
 restart that itself completes uninterrupted adds at most one further transfer
@@ -97,11 +101,16 @@ updates have a fixed order:
 3. Continue the transfer from offset zero.
 
 A process that stops between steps 1 and 2 leaves a data file shorter than the
-sidecar's recorded offset. That is the restart-in-progress state, and the
-sidecar is the authority for the counter, not the file. A recreated downloader
-that observes `staged_len < durable_offset` must treat the restart as spent: it
-sets `durable_offset = 0` and `clean_restarts = 1` in one sidecar update before
-writing any byte. It may then stream from zero with no read-back. The opposite
+sidecar's recorded offset. The sidecar is the authority for the counter, not
+the file, and the counter decides whether that short file is the authorized
+restart window or a fault. The restart window exists only while
+`clean_restarts` is zero, because the documented order truncates before it
+increments. A recreated downloader that observes `staged_len < durable_offset`
+with `clean_restarts = 0` completes the interrupted transition: it sets
+`durable_offset = 0` and `clean_restarts = 1` in one sidecar update before
+writing any byte, then streams from zero with no read-back. If the counter is
+already one, a short file cannot be that window: it is a truncated or tampered
+slot, and the transfer fails rather than restarting again. The opposite update
 order is unsafe: incrementing the counter before truncating would let a crash
 in between wedge a transfer that never began its restart. Step 2 completing
 before step 1 cannot occur under this order. Without a durable counter, a
@@ -173,6 +182,12 @@ Behavioural scenarios must cover:
 - A crash simulated between truncation and the sidecar update, with a
   recreated downloader: `durable_offset` is reset to zero, `clean_restarts`
   reads one, and the transfer streams from zero.
+- A short staged file observed while `clean_restarts` is already one: the
+  transfer fails instead of streaming from zero, and no further restart is
+  granted.
+- A transient error inside a live process, followed by a retry: the attempt
+  releases the lock, the retry reacquires it before touching the slot, and a
+  resumed retry still pays exactly one read-back.
 - An interruption during verification, followed by recreation and a further
   attempt: that attempt reads the whole staged file again.
 - An uninterrupted transfer that performs no read-back, asserted through the
