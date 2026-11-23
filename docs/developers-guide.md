@@ -1900,6 +1900,18 @@ slots and 1,800 seconds. Tests in `chutoro-core/tests/nextest_config.rs` pin
 the compile-contract and benchmark smoke allowances to the authoritative
 overrides in `.config/nextest.toml`.
 
+Those two groups no longer pay for their nested builds inside a timed test. The
+`default` profile (which `ci` inherits) runs two setup scripts first,
+`warm-benches` (`cargo bench --no-run` for the benchmark crate) and
+`warm-compile-contracts` (the compile-contract tests, run once and serially),
+each only when a test it serves is selected and each with its own 1,500 s
+allowance. On a host whose shared compile pool is saturated, the wait for a
+compile slot is therefore spent in the setup script, where a timeout names the
+script, and not in a test that then reads as a defect. The two allowances sum
+to 3,000 s, which the 80 m `global-timeout` stays above. Run a single nested
+test by hand with `cargo nextest run -E 'binary(benchmark_smoke)'` and the
+scripts run first, so no manual pre-warming is needed.
+
 ### The cargo watchdog is the tier nobody expects
 
 The first two tiers are nextest's. The watchdog belongs to the shared
