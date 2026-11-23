@@ -677,7 +677,11 @@ ______________________________________________________________________
   adopt-in-place path for bare downloads. Keep `.bz2` and `.xz` behind their
   own off-by-default Cargo features (`bz2`, `xz`) and exclude `.zip` explicitly
   (see [ADR 008](adrs/adr-0008-glove-source-and-zip-scope.md)). See
-  `docs/benchmark-dataset-retrieval.md` §3.2.
+  `docs/benchmark-dataset-retrieval.md` §3.2. Verification after a resume
+  requires one full re-hash per completed transfer, not per resume, under
+  [ADR 0009](adrs/adr-0009-resumable-download-verification-trust-model.md);
+  per-shard checksums and sharded transfer belong to 10.3.13, and multipart
+  object-store transfers to 10.1.4.
 - [ ] 10.1.3. Define canonical prepared artefact contracts
   (`features`, optional `labels`, optional `ground_truth`) plus immutable
   `manifest.json` metadata containing source provenance, schema version, and
@@ -789,7 +793,11 @@ ______________________________________________________________________
 - [ ] 10.3.13. DEEP1B/BigANN: implement sharded subset ingestion
   (1M/10M/100M/1B), resumable object-store uploads, and profile-aware matrix
   partitioning so billion-scale jobs run only on dedicated scale runners. See
-  `docs/benchmark-dataset-retrieval.md` §7.13.
+  `docs/benchmark-dataset-retrieval.md` §7.13. Per-shard checksum manifests are
+  published artefacts of this item, not transient download-staging sidecars;
+  each shard carries its own pin, or the assembled artefact is still verified
+  against its whole-file SHA-256 under
+  [ADR 0009](adrs/adr-0009-resumable-download-verification-trust-model.md).
 
 ______________________________________________________________________
 

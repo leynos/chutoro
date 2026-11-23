@@ -66,6 +66,10 @@ open each document.
 - [ADR 008: GloVe source and ZIP scope](adrs/adr-0008-glove-source-and-zip-scope.md):
   accepted guidance for sourcing GloVe from ANN-Benchmarks HDF5 and keeping ZIP
   out of the download and dataset scope.
+- [ADR 0009: resumable download verification trust
+  model](adrs/adr-0009-resumable-download-verification-trust-model.md):
+  proposed whole-file re-hash after an interruption, no hash state across
+  processes, and the rejection of chunk and midstate staging digests.
 
 ## Requests for comments
 

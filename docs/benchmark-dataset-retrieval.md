@@ -187,6 +187,16 @@ For matrix jobs, retrieval cost scales approximately with:
 In practice, local worker cache hits reduce this significantly when tuple
 ordering groups by dataset.
 
+Resume verification is part of the retrieval cost. An uninterrupted download
+hashes bytes as they are written and performs no read-back. A download that
+resumed after an interruption re-hashes the complete staged file once, after
+the final byte is durable and before publication. The additional cost is one
+read of `expected_size` bytes per completed transfer, independent of how many
+times the transfer resumed; a digest mismatch on a resumed transfer permits one
+clean restart, which adds at most one further transfer and one streaming hash.
+See [ADR 0009](adrs/adr-0009-resumable-download-verification-trust-model.md)
+for the trust boundary and the rejected alternatives.
+
 ## 6. Dataset assessments
 
 Effort scale:
@@ -322,8 +332,9 @@ retrieval cost by provider._
 ### 7.13. DEEP1B / BigANN
 
 - Implement sharded ingestion pipeline for 1M, 10M, 100M, and 1B subsets.
-- Use multipart and resumable object-store uploads plus per-shard checksum
-  manifests.
+- Use multipart and resumable object-store uploads. Publish per-shard checksum
+  manifests alongside the prepared shards; manifest publication is an artefact
+  of roadmap 10.1.3 and 10.3.13, not a transient download-staging sidecar.
 - Partition matrix runs by scale profile and dedicated runner class to keep
   jobs bounded and reproducible.
 
@@ -347,8 +358,12 @@ retrieval cost by provider._
 - PBMC 68k is the least automation-friendly source because the 10x dataset page
   is form-gated; keep a mirrored internal artefact and treat it as controlled
   input.
-- DEEP1B or BigANN should use chunked transfers and manifest-level checksums,
-  then sharded object keys to avoid very large single-object retries.
+- DEEP1B or BigANN should use chunked transfers — separately pinned source
+  shards, or multipart object-store uploads under roadmap 10.1.4 and 10.3.13 —
+  then sharded object keys to avoid very large single-object retries. Chunking
+  does not replace the pinned whole-file SHA-256: each shard carries its own
+  pin, or the assembled artefact is still verified against the whole-file
+  digest.
 - For recurring benchmark jobs, retrieval cost is dominated by egress. Request
   charges are usually negligible compared with transfer.
 

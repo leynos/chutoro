@@ -3255,7 +3255,14 @@ and any interpretation of a key as a filesystem path, object-store prefix, or
 other backend-specific address belongs to the `Storage` and `Publisher`
 adapters. Network download, archive extraction, object-store adapters,
 lockfiles, fetch-time checksum verification, and licence gates are deferred to
-later roadmap items.
+later roadmap items. When roadmap 10.1.2 adds resumable downloads, verification
+follows
+[ADR 0009](adrs/adr-0009-resumable-download-verification-trust-model.md): an
+uninterrupted transfer hashes bytes as they are written and reads nothing back,
+while a transfer that resumed after an interruption re-hashes the complete
+staged file once, under the advisory lock and before the publishing rename. The
+budget is `0` read-back bytes when uninterrupted and `expected_size` otherwise,
+regardless of how many resumes occurred.
 
 Enable the crate's `testing` feature for adapter contract tests. It exposes
 `InMemoryFetcher`, `InMemoryStorage`, `InMemoryPublisher`, `FilesystemFetcher`,
@@ -3385,6 +3392,15 @@ candidate proofs:
   nonlinear, and both operands range over the full 64-bit domain rather than a
   bounded harness domain: `proptest` can sample individual values but cannot
   cover that space, and Kani cannot prove it at that bound.
+
+The same `proptest` state machine carries the read-back budget from
+[ADR 0009](adrs/adr-0009-resumable-download-verification-trust-model.md). It
+injects the verifier's read source alongside the scripted transfer outcomes and
+counts read-back bytes, asserting `0` for an uninterrupted transfer and
+`expected_size` for an interrupted transfer, for every generated interruption
+sequence. Expressing the budget as a property rather than a benchmark keeps it
+enforced on every pull request: a change that resumes by re-reading the prefix
+fails the suite instead of only making large transfers slower.
 
 The heuristic selects a tool; it does not relax the obligations in
 [Rust-specific guidance](../AGENTS.md#rust-specific-guidance). Every new
