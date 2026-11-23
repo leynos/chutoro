@@ -113,7 +113,7 @@ writes the immutable `manifest.json` and its preprocessing hash. Concretely:
   defines; it is not merged into `features`.
 - `ground_truth` is the file's `neighbors` and `distances` pair, which is why
   their shapes and ordering are validated.
-- `labels` is absent, because GloVe is a pretrained-vector corpus with no class
+- `labels` is absent because GloVe is a pretrained-vector corpus with no class
   labels.
 - No preprocessing hash depends on a stochastic transform: the coordinates are
   copied unchanged from the source, so the hash covers the source digest and

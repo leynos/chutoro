@@ -679,7 +679,7 @@ ______________________________________________________________________
   (see [ADR 008](adrs/adr-0008-glove-source-and-zip-scope.md)). See
   `docs/benchmark-dataset-retrieval.md` §3.2.
 - [ ] 10.1.3. Define canonical prepared artefact contracts
-  (`features`, `labels`, optional `ground_truth`) plus immutable
+  (`features`, optional `labels`, optional `ground_truth`) plus immutable
   `manifest.json` metadata containing source provenance, schema version, and
   preprocessing hash. See `docs/benchmark-dataset-retrieval.md` §3.1.
 - [ ] 10.1.4. Add `object_store`-based cache adapters for S3-compatible
