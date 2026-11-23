@@ -218,7 +218,9 @@ specific configurations.
 A correctly constructed HNSW graph must adhere to several structural invariants
 at all times. The PBT suite will include functions to check these invariants,
 which will be called within properties after construction or mutation
-operations.
+operations. The list below separates the normative insertion contract from the
+checks the repository currently implements; where the two differ, the
+difference is stated rather than implied.
 
 - **Invariant 1: Layer Consistency:** For any node `u` that exists at a layer
     `L > 0`, that same node `u` must also exist at all lower layers `l` where
@@ -232,17 +234,33 @@ operations.
     World" property and keep the graph sparse.
 
 - **Invariant 3: Entry Point Reachability:** Every node in the graph must be
-    reachable from the designated global entry point by traversing the graph's
-    edges (at any layer). If a node becomes disconnected, it is no longer
-    searchable, violating the core purpose of the index. This can be verified
-    using a graph traversal algorithm like Breadth-First Search (BFS) or
-    Depth-First Search (DFS) starting from the entry point.
+    reachable from the designated global entry point. The normative insertion
+    contract is stronger than the implemented checker: *base-layer*
+    reachability must hold through level-0 edges alone, because the level-0
+    best-first search produces the result set and upper layers only direct the
+    descent to it. The implemented `HnswInvariant::Reachability` check
+    traverses neighbours at every layer, so it is a cross-layer check, not the
+    base-layer requirement. A graph with base edges `0`–`1` and `2`–`3` joined
+    only by an upper-layer edge `0`–`2` passes the implemented check while its
+    base layer has two components; level-0 search started in one component
+    cannot cross to the other. This "bridged split" is a known divergence,
+    recorded in `docs/chutoro-design.md` §6.5.1 and tracked by
+    [issue #393](https://github.com/leynos/chutoro/issues/393). The test-only
+    oracle in `chutoro-core/src/hnsw/tests/base_layer_reachability.rs`
+    performs the base-layer-only breadth-first traversal. If a node becomes
+    disconnected, it is no longer searchable, violating the core purpose of
+    the index.
 
-- **Invariant 4: Bidirectional Links (if applicable):** Many HNSW
-    implementations rely on symmetric edges for efficient traversal. If the
-    `chutoro` implementation assumes that an edge `$(u, v)$` implies the
+- **Invariant 4: Bidirectional Links and permitted upper-layer isolation:**
+    Many HNSW implementations rely on symmetric edges for efficient traversal.
+    If the `chutoro` implementation assumes that an edge `$(u, v)$` implies the
     existence of an edge `$(v, u)$`, this property must be rigorously verified
-    across the entire graph.
+    across the entire graph. Reciprocity is required at every layer for every
+    retained edge. Isolation is not symmetric between layers: a node may hold
+    an empty neighbour list at level 1 or above after an eviction, but an empty
+    level-0 list violates the contract. See `docs/chutoro-design.md` §6.5.1 and
+    [ADR 0010](adrs/adr-0010-upper-layer-isolation.md) for the policy and its
+    search-quality trade-off.
 
 ### 2.3. Property-based tests for HNSW
 

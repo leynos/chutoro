@@ -4,6 +4,9 @@
 
 Accepted
 
+Amended by ADR-0010 (2026-11-24): base-layer reachability is the normative
+connectivity requirement, and upper-layer isolation after eviction is permitted.
+
 ## Context
 
 - Property test `hnsw_mutations_preserve_invariants_proptest` still fails with
@@ -151,3 +154,19 @@ do not expose or depend on this queue.
 Mutation rollback must restore the queue together with the graph nodes and
 entry point. This prevents a failed deletion from leaving stale pairs for a
 later healing pass and keeps the healing state consistent with the graph.
+
+## Amendments
+
+### ADR-0010 (2026-11-24)
+
+[ADR 0010](adr-0010-upper-layer-isolation.md) narrows the per-layer reciprocity
+guarantee recorded in this ADR. Insertion reconciliation still attempts a
+reciprocal link for every level the new node occupies at commit time, but only
+level 0 is repaired when a later eviction empties a neighbour list. An empty
+level-1-or-above list is accepted; an empty level-0 list is not.
+
+The phrases "at least one neighbour with a confirmed back-link" in Decision and
+"at least one reciprocal link per level" in this ADR's original implementation
+update therefore describe a commit-time attempt, not a persistent invariant.
+Base-layer reachability remains the normative requirement. See ADR 0010 and
+[`docs/chutoro-design.md` §6.5.1](../chutoro-design.md#651-layer-specific-connectivity-policy).

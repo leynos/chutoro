@@ -69,6 +69,10 @@ open each document.
 - [ADR 009: staging-file locks via rustix
   flock](adrs/adr-0009-staging-lock-via-rustix-flock.md): accepted guidance for
   capability-scoped advisory staging locks and their bounded acquisition policy.
+- [ADR 010: upper-layer isolation
+  policy](adrs/adr-0010-upper-layer-isolation.md): accepted guidance for
+  base-layer reachability, permitted upper-layer isolation after eviction, and
+  the search-quality trade-off.
 
 ## Requests for comments
 

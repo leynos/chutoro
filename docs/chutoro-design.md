@@ -1555,6 +1555,88 @@ setup instructions in `docs/verus-toolchain.md`, and CI runs `make verus` to
 keep the harnesses green. Scope remains limited to helper invariants, leaving
 concurrency and planner proofs to Kani and property tests.
 
+##### 6.5.1. Layer-specific connectivity policy
+
+_Implementation update (2026-11-24)._ Insertion reconciliation treats the base
+layer and the upper layers differently, and that difference is a deliberate
+policy decision recorded in [ADR 0010](adrs/adr-0010-upper-layer-isolation.md).
+The two layer classes have different requirements because they play different
+roles in search.
+
+**Base layer (level 0).** Every populated node must remain reachable from the
+graph entry point using level-0 edges alone. The base layer stores every node
+and carries the best-first search that produces the result set, so a node that
+is unreachable there cannot be returned for a query except when the query
+itself is added to the candidate set by `ensure_query_present`. The normative
+requirements are:
+
+- Base-layer reachability: every populated node is reachable from the entry
+  point through level-0 edges.
+- Base-layer reciprocity: every retained level-0 edge `u -> v` has a matching
+  `v -> u` edge, subject to the degree bound.
+- Base-layer isolation is not permitted: a populated node must not be left
+  with an empty level-0 neighbour list by insertion reconciliation.
+
+**Upper layers (levels 1 and above).** Upper layers are a navigation
+accelerator, not a search-completeness requirement. Their requirements are
+weaker:
+
+- Upper-layer reciprocity: every retained upper-layer edge is bidirectional.
+- Upper-layer degree bound: each list honours the level-specific connection
+  limit.
+- Upper-layer isolation is permitted: after an eviction, a node may hold an
+  empty neighbour list at level 1 or above.
+
+The distinction follows from how search works. `CpuHnsw::search` starts at the
+entry point's highest level and descends by greedy search: at each upper layer
+it repeatedly moves to a strictly closer neighbour of the current node. At
+level 0 it runs bounded best-first search with `ef` candidates and returns the
+closest ones. An upper-layer-isolated node cannot be used as a stepping stone
+during descent, but it remains in the base layer, so a level-0 search that
+reaches its component can still evaluate it. The trade-off is a possible recall
+reduction, not a loss of base-layer reachability: descent may start in a worse
+region, and `ef` must be large enough for the level-0 search to traverse to the
+node. Larger `ef` values compensate at the cost of additional distance
+evaluations. Upper-layer connectivity can also be restored later, when the
+isolated node is selected as a neighbour by a new insertion or when trimming
+rewrites its list; isolation is not permanent.
+
+Four causes can empty an upper-layer list, and all are accepted:
+
+- Trimming evicts the last neighbour from an existing node's upper-layer list
+  during another node's insertion.
+- Removed-edge reconciliation drops a reverse edge, leaving the target with an
+  empty list at that layer.
+- A deferred scrub removes an orphaned forward edge, leaving its origin with
+  an empty list at that layer.
+- The commit-time reciprocal fallback finds no candidate that can accept a
+  back-link at that layer, so the new node commits without an upper-layer
+  neighbour.
+
+Upper layers are not healed because repair would have to run after every
+eviction across a graph whose upper-layer degree bound is deliberately small.
+That churn would add cost and complexity for a link that is an optimization
+rather than a correctness requirement.
+
+**Enforcement today.** Base connectivity is maintained locally.
+`ConnectivityHealer::ensure_base_connectivity` reacts only when insertion
+reconciliation reports that a base-layer list became empty, either through a
+removed reverse edge or through an orphaned forward edge. It links the isolated
+node back to the entry point at level 0 and cascades any evictions this causes.
+`HnswInvariantChecker::reachability()` traverses every layer, so it accepts a
+base-layer split that is bridged by an upper-layer edge. Tests that need the
+normative requirement use the test-only base-layer oracle in
+`chutoro-core/src/hnsw/tests/base_layer_reachability.rs`, which runs a
+breadth-first search from the entry point over level-0 edges only.
+
+**Known divergence.** Neither the local healer nor the cross-layer
+`reachability()` checker detects a global base-layer split in which every node
+retains at least one level-0 neighbour inside its own component. Such a graph
+passes `check_all()` while level-0 search cannot cross between components. This
+is a known gap, tracked by
+[issue #393](https://github.com/leynos/chutoro/issues/393); the policy above
+does not claim more enforcement than the implementation provides.
+
 #### 6.6. Search correctness property
 
 _Implementation update (2025-11-12)._ The CPU suite now exercises the oracle
@@ -1664,16 +1746,31 @@ production API.
 
 #### 6.8. Inline reciprocity enforcement
 
-_Implementation update (2025-12-04)._ The insertion executor now enforces
-bidirectional links while applying trimmed neighbour lists instead of running a
-post-pass scan across touched nodes. `EdgeReconciler` still inserts reverse
-edges (or drops the forward edge when capacity or level gaps block
-reciprocity), and `ReciprocityWorkspace` rewrites trimmed updates when trimming
-evicts the new node. A new debug-only `ReciprocityAuditor` asserts that every
-touched node keeps a reciprocal back-link and stays within the per-level degree
-limit; production builds skip the scan entirely. The fallback healing path
-remains unchanged, so trimmed evictions still replace the weakest candidate
-with the new node to guarantee at least one reciprocal link per level.
+_Implementation update (2025-12-04; policy clarified 2026-11-24)._ The
+insertion executor enforces bidirectional links while applying trimmed
+neighbour lists instead of running a post-pass scan across touched nodes.
+`EdgeReconciler` inserts reverse edges, or drops the forward edge when a target
+is missing or lacks the level, and `ReciprocityWorkspace` rewrites trimmed
+updates when trimming evicts the new node.
+
+The reciprocal-link fallback is an attempt, not a guarantee. At commit time
+`ReciprocityWorkspace` tries to leave the new node with at least one
+reciprocated neighbour at every level it occupies. When a candidate list has no
+capacity, the workspace fallback evicts the tail entry and records the new node
+in its place; `EdgeReconciler::ensure_reverse_edge` instead evicts the front
+entry and defers a scrub for the orphaned forward edge. Both are local ordering
+choices and neither claims that the evicted entry is the furthest neighbour. If
+no candidate can reciprocate at an upper level, the new node commits with an
+empty list there, which [§6.5.1](#651-layer-specific-connectivity-policy)
+permits. Base-layer isolation is different: a removed reverse edge or an
+orphaned forward edge that empties a level-0 list triggers
+`ensure_base_connectivity`.
+
+`ReciprocityAuditor` is compiled only for tests and debug assertions. It checks
+that every touched node stays within the per-level degree limit and that every
+edge it does retain has a reciprocal back-link; an empty list passes because
+isolation is valid above the base layer. Production builds skip the scan
+entirely.
 
 For screen readers: This sequence diagram shows `CommitApplicator` reconciling
 added edges, writing the origin neighbour list to `Graph`, and reconciling
@@ -1692,12 +1789,12 @@ sequenceDiagram
     CommitApplicator->>Graph: write origin neighbour list
     CommitApplicator->>EdgeReconciler: reconcile_removed_edges(ctx, previous, next)
     EdgeReconciler->>ConnectivityHealer: ensure_base_connectivity(...)
-    ConnectivityHealer->>Graph: heal connectivity against entry node
+    ConnectivityHealer->>Graph: heal base connectivity against entry node
     EdgeReconciler-->>CommitApplicator: preserve bidirectional links
 ```
 
 _Figure: Inline reciprocity sequence from commit application through edge
-reconciliation, connectivity healing, and preserved bidirectional links._
+reconciliation, base connectivity healing, and preserved bidirectional links._
 
 ## Part III: GPU Acceleration Strategy
 
