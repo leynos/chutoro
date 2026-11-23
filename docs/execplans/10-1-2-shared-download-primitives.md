@@ -143,10 +143,11 @@ Hard invariants. Violation requires escalation, not a workaround.
   match while the published file differs. Severity: high. Likelihood: low, but
   silent. Mitigation: a single trust boundary. Bytes hashed in-process as they
   are written are trusted; any byte read back from disk across an interruption
-  is not, so a resumed transfer re-hashes the complete staged file before
-  publication. Resume itself re-hashes no prefix: it needs only the sidecar's
-  `durable_offset`, truncation of the staged file to that offset, and a
-  validator check. The read-back is charged per verification attempt: a
+  is not, so a transfer resumed from a non-zero durable offset re-hashes the
+  complete staged file before publication; a restart that streams again from
+  zero reads nothing back. Resume itself re-hashes no prefix: it needs only the
+  sidecar's `durable_offset`, truncation of the staged file to that offset, and
+  a validator check. The read-back is charged per verification attempt: a
   completed pass reads `expected_size` bytes, and an abandoned pass contributes
   only the bytes it read before stopping. Interruptions in the data-transfer
   phase add no passes, however many times it resumed, so the quadratic re-read
@@ -877,11 +878,10 @@ collide. The sidecar records
 `{url, expected_digest, expected_size, validator, durable_offset,
 clean_restarts, created_at, last_progress_at}`.
 It deliberately carries no hash state: see the trust boundary below. The
-`clean_restarts` counter is durable and survives downloader recreation; the
-clean restart truncates the staged data to zero and increments it rather than
-deleting the sidecar, so the one-restart limit holds across processes.
+`clean_restarts` counter is durable and survives downloader recreation, so the
+one-restart limit holds across processes.
 
-Two durability invariants, both load-bearing:
+Three durability invariants, all load-bearing:
 
 1. Write ordering is data, then fsync data, then sidecar via atomic
    temp-and-rename, then fsync the directory. The sidecar records the last
@@ -890,6 +890,17 @@ Two durability invariants, both load-bearing:
    to the recorded offset. Resume must `set_len(recorded_offset)` **before**
    appending, or a partially written tail is silently incorporated. This is the
    single most important line in the feature.
+3. The clean restart truncates and fsyncs the staged data **first**, then
+   atomically updates the sidecar to `durable_offset = 0`,
+   `clean_restarts + 1`, and the current validator, then continues from zero.
+   The counter is not written before the truncation: a crash between those
+   writes would otherwise mark a restart spent that never began, wedging the
+   download. A recreated downloader that observes `staged_len < durable_offset`
+   recognizes the restart-in-progress state and completes the transition by
+   setting `durable_offset = 0` and `clean_restarts = 1` in one update before
+   writing any byte. It then streams from zero with no read-back. A mismatch
+   with the counter already at one is fatal even when the restart was
+   interrupted.
 
 The trust boundary: bytes hashed in-process as they are written are trusted;
 bytes read back from disk after an interruption are not. A transfer that starts
@@ -897,28 +908,36 @@ from `durable_offset > 0` therefore never verifies with its streaming digest.
 Resume itself re-hashes no prefix: it truncates the staged file to
 `durable_offset` and validates the sidecar's recorded validator. After the
 final data fsync the transfer re-hashes the whole staged file with
-`verify_file`, holding the advisory lock from that read through the publishing
-rename. A resumed transfer therefore reads back the bytes its verification
-attempt consumes: `expected_size` for a completed pass, and only the partial
-read for a pass abandoned by an interruption. An uninterrupted transfer reads
-back nothing, because its streaming digest is the verification. An interruption
-that lands during verification abandons that pass; the next process starts a
-fresh pass from offset zero. A mismatch on a resumed transfer earns the
-existing single clean restart, which adds one further transfer plus either one
-streaming hash, when the restart completes uninterrupted, or one full read-back
-pass of `expected_size` bytes, when the restart is itself interrupted and
-resumed. The restart increments the durable `clean_restarts` counter; a
-mismatch on that restart is fatal, even if the restart itself was interrupted
-and the downloader recreated. Behavioural tests must cover: interrupt, corrupt
-one byte in the staged prefix, resume — publication is refused with
-`IntegrityFailure` and the clean restart then succeeds; an interrupted clean
-restart followed by recreation and a further mismatch — publication is refused
-and no second restart is granted; an interruption during verification followed
-by recreation — the next attempt reads the whole staged file again; an
-uninterrupted transfer performs no read-back (assert through the `PartialStore`
-test double's read counter); and at least two interruptions with the downloader
-recreated between attempts, which must still produce one verification pass and
-one read-back of `expected_size` bytes.
+`verify_file`, under the advisory lock. That lock spans the whole staging-slot
+lifetime on **both** paths: it is taken at slot acquisition, before the first
+staged byte, and released only after the publishing rename or the discard.
+Holding it from the first write is what stops another cooperating writer from
+interleaving between an uninterrupted transfer's streamed digest and its
+rename, a gap no read-back would expose. A transfer resumed from a non-zero
+durable offset therefore reads back the bytes its verification attempt consumes:
+`expected_size` for a completed pass, and only the partial read for a pass
+abandoned by an interruption. An uninterrupted transfer, and a restart that
+streams again from offset zero, read back nothing because their streaming
+digest is the verification. An interruption that lands during verification
+abandons that pass; the next process starts a fresh pass from zero. A mismatch
+on a resumed transfer earns the existing single clean restart, which adds one
+further transfer plus either one streaming hash, when the restart completes
+uninterrupted, or one full read-back pass of `expected_size` bytes, when the
+restart is itself interrupted and resumed from a non-zero offset. The restart
+increments the durable `clean_restarts` counter; a mismatch on that restart is
+fatal, even if the restart itself was interrupted and the downloader recreated.
+Behavioural tests must cover: interrupt, corrupt one byte in the staged prefix,
+resume — publication is refused with `IntegrityFailure` and the clean restart
+then succeeds; a clean restart that streams from zero and completes — no
+read-back, asserted through the read counter; a crash simulated between the
+truncation and the sidecar update, followed by recreation — the offset resets
+to zero, `clean_restarts` reads one, and the transfer streams from zero; an
+interrupted clean restart followed by recreation and a further mismatch —
+publication is refused and no second restart is granted; an interruption during
+verification followed by recreation — the next attempt reads the whole staged
+file again; an uninterrupted transfer performs no read-back; and at least two
+interruptions with the downloader recreated between attempts, which must still
+produce one verification pass and one read-back of `expected_size` bytes.
 
 Locking uses `rustix::fs::flock` on the borrowed file descriptor from
 `cap_std::fs::Dir` — `cap-std` has no `lock`, and `into_std()` returns the
