@@ -3259,15 +3259,15 @@ later roadmap items. When roadmap 10.1.2 adds resumable downloads, verification
 follows
 [ADR 0009](adrs/adr-0009-resumable-download-verification-trust-model.md): an
 uninterrupted transfer hashes bytes as they are written and reads nothing back,
-as does a restart that streams again from offset zero, while a transfer that
-resumed from a non-zero durable offset re-hashes the complete staged file under
-the advisory lock and before the publishing rename. The advisory lock spans the
-whole staging slot for both paths. The budget is charged per verification
-attempt: `0` read-back bytes when uninterrupted or restarted from zero, and for
-a transfer resumed from a non-zero offset the bytes each attempt actually
-reads, bounded above by `expected_size` per attempt. Interrupting the
-verification starts a fresh pass rather than resuming it, so the bound does not
-scale with the number of transfer resumes.
+as does a restart that streams again from offset zero and never later resumes,
+while a transfer that resumed from a non-zero durable offset re-hashes the
+complete staged file under the advisory lock and before the publishing rename.
+The advisory lock spans the whole staging slot for both paths. The budget is
+charged per verification attempt: `0` read-back bytes when uninterrupted or
+restarted from zero, and for a transfer resumed from a non-zero offset the
+bytes each attempt actually reads, bounded above by `expected_size` per
+attempt. Interrupting the verification starts a fresh pass rather than resuming
+it, so the bound does not scale with the number of transfer resumes.
 
 Enable the crate's `testing` feature for adapter contract tests. It exposes
 `InMemoryFetcher`, `InMemoryStorage`, `InMemoryPublisher`, `FilesystemFetcher`,
@@ -3402,14 +3402,15 @@ The same `proptest` state machine is planned to carry the read-back budget from
 [ADR 0009](adrs/adr-0009-resumable-download-verification-trust-model.md).
 It will inject the verifier's read source alongside the scripted transfer
 outcomes and count read-back bytes, asserting `0` for an uninterrupted transfer,
-`0` for a restart that streams from offset zero, and the bytes each
-verification attempt actually reads for a transfer resumed from a non-zero
-durable offset. An interruption inside verification restarts the pass instead
-of resuming it, so the property bounds read-back by verification attempts, not
-transfer resumes. Once it lands, expressing the budget as a property rather
-than a benchmark will keep it enforced on every pull request: a change that
-resumes by re-reading the prefix will fail the suite instead of only making
-large transfers slower. No read-back state machine exists in the tree yet.
+`0` for a restart that streams from offset zero and never later resumes, and
+the bytes each verification attempt actually reads for a transfer resumed from
+a non-zero durable offset. An interruption inside verification restarts the
+pass instead of resuming it, so the property bounds read-back by verification
+attempts, not transfer resumes. Once it lands, expressing the budget as a
+property rather than a benchmark will keep it enforced on every pull request: a
+change that resumes by re-reading the prefix will fail the suite instead of
+only making large transfers slower. No read-back state machine exists in the
+tree yet.
 
 The heuristic selects a tool; it does not relax the obligations in
 [Rust-specific guidance](../AGENTS.md#rust-specific-guidance). Every new

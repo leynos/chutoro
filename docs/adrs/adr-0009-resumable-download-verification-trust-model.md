@@ -118,15 +118,18 @@ process started after an interrupted restart could spend a second one, breaking
 the limit and the cost bound. A mismatch observed with the counter already at
 one is fatal even if the restart itself was interrupted.
 
-The read-back budget is stated per verification attempt. A transfer that
-streams from offset zero, including a clean restart, reads back `0` bytes. A
-transfer resumed from a non-zero durable offset reads back the bytes its
-completed verification pass consumes, which is `expected_size` for a pass that
-runs to the end of the file. Interruptions that fall in the data-transfer phase
-do not add attempts, however many resumes occurred. An interruption during
-verification abandons that attempt part-way, and the next process starts a
-fresh pass from zero, because resuming a verification would require exactly the
-hash state this record rejects.
+The read-back budget is stated per verification attempt. An attempt that
+streams from offset zero reads back `0` bytes, and so does a transfer that
+restarts from zero and never later resumes from a non-zero durable offset. An
+interruption before any non-zero offset becomes durable does not change that:
+the next attempt still starts at zero. A transfer resumed from a non-zero
+durable offset reads back the bytes its completed verification pass consumes,
+which is `expected_size` for a pass that runs to the end of the file.
+Interruptions that fall in the data-transfer phase do not add attempts, however
+many resumes occurred. An interruption during verification abandons that
+attempt part-way, and the next process starts a fresh pass from zero, because
+resuming a verification would require exactly the hash state this record
+rejects.
 
 Total read-back is therefore the sum of the bytes each verification attempt
 actually reads. An abandoned attempt contributes only the bytes it read before
@@ -156,14 +159,15 @@ artefact is still verified against the whole-file digest.
 ## Verification and acceptance
 
 The planned `proptest` resume state machine injects the verifier's read source
-and counts read-back bytes. It asserts `0` for an uninterrupted transfer, `0`
-for any transfer that restarts from offset zero, and `expected_size` for a
-transfer resumed from a non-zero durable offset whose verification completes,
-for any interruption sequence that falls in the data-transfer phase. For a
-sequence that also interrupts verification, it asserts the sum of the bytes
-each attempt actually read, and that the sum never exceeds
-`verification_attempts * expected_size`. This runs against the shipped
-functions, not a transcription.
+and counts read-back bytes. It asserts `0` for an uninterrupted transfer and
+for a transfer that restarts from offset zero and never later resumes from a
+non-zero durable offset, including one interrupted before any non-zero offset
+became durable. It asserts `expected_size` for a transfer resumed from a
+non-zero durable offset whose verification completes, for any interruption
+sequence that falls in the data-transfer phase. For a sequence that also
+interrupts verification, it asserts the sum of the bytes each attempt actually
+read, and that the sum never exceeds `verification_attempts * expected_size`.
+This runs against the shipped functions, not a transcription.
 
 Behavioural scenarios must cover:
 
@@ -171,8 +175,10 @@ Behavioural scenarios must cover:
 - At least two interruptions with the downloader recreated between attempts,
   still producing one verification pass and one read-back of `expected_size`
   bytes.
-- A clean restart that streams from offset zero and completes: `0` read-back
-  bytes, asserted through the read counter.
+- A clean restart that streams from offset zero and completes without a later
+  resume: `0` read-back bytes, asserted through the read counter.
+- A clean restart interrupted after some bytes become durable, then resumed
+  from that non-zero offset: `expected_size` read-back bytes on completion.
 - A one-byte corruption in the staged prefix before a resume: publication is
   refused with `IntegrityFailure`, and the permitted clean restart succeeds.
 - A clean restart that is itself interrupted, recreated in a fresh downloader,
