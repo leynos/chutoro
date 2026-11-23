@@ -461,8 +461,9 @@ scripts probe for their own executable first, so a warm cache repeats no
 download. The cargo-deny installer deliberately does not: a version string
 costs an attacker nothing, so it always fetches and verifies the archive. The
 default install directory is `${HOME}/.cargo/bin`, which the Makefile puts
-ahead of the rest of `PATH`; pass `CARGO_DENY_INSTALL_DIR` to choose another,
-as the CI job does.
+ahead of the rest of `PATH`; pass `CARGO_DENY_INSTALL_DIR` to install elsewhere
+for a one-off, but keep the default where `make deny` must use the pin, because
+the Makefile's `PATH` would shadow any other directory.
 
 ### The shared prover tool
 
@@ -2640,13 +2641,14 @@ The `cargo-deny` job in `ci.yml` runs the same target, so a local pass and a CI
 pass mean the same thing. It is an independent job with no `needs`, `if` or
 `continue-on-error`: a dependency that trips the policy fails the supply-chain
 lane even when every other lane is green. The job installs the pinned tool
-through `scripts/install-cargo-deny.sh` into a job-specific directory and
-appends that directory to `GITHUB_PATH`, because a `cargo-deny` already present
-on the runner image would otherwise shadow the pin. A following step requires
-`cargo deny --version` to match `tools/cargo-deny/VERSION`, so a shadowing
-binary fails the job instead of silently applying a policy the pin was never
-checked against. sccache is disabled: the check runs `cargo metadata` and never
-compiles the workspace.
+through `scripts/install-cargo-deny.sh` with no directory override, because the
+installer's default is `${HOME}/.cargo/bin` and `make` prepends that same
+directory to `PATH` for every recipe; a binary installed anywhere else would be
+shadowed inside `make deny`. A following step requires `cargo deny --version`
+to match `tools/cargo-deny/VERSION`, so a different binary fails the job
+instead of silently applying a policy the pin was never checked against.
+sccache is disabled: the check runs `cargo metadata` and never compiles the
+workspace.
 
 The policy covers the workspace graph with `--all-features` and no target
 filter, so a dependency reached only from a benchmark, a test-support crate, or

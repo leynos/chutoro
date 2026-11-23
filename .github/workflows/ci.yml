@@ -340,17 +340,17 @@ jobs:
           # this job never reads.
           use-sccache: 'false'
       - name: Install cargo-deny
-        env:
-          # A job-specific directory keeps a cargo-deny already present on the
-          # runner image from shadowing the pinned, checksum-verified binary.
-          CARGO_DENY_INSTALL_DIR: ${{ runner.temp }}/cargo-deny-bin
-        run: |
-          scripts/install-cargo-deny.sh
-          echo "${CARGO_DENY_INSTALL_DIR}" >> "$GITHUB_PATH"
+        # No install directory override, deliberately. The installer defaults
+        # to `${HOME}/.cargo/bin`, and the Makefile prepends that same
+        # directory to PATH for every recipe, so `make deny` resolves the
+        # binary this step installed. Any other directory would be shadowed
+        # inside `make`, which is how a policy would end up applied by a
+        # cargo-deny nobody pinned.
+        run: scripts/install-cargo-deny.sh
       - name: Check cargo-deny
-        # Printing whatever `cargo deny` answered would not catch a cargo-deny
-        # already on PATH that is a different version and would apply a policy
-        # this pin was never checked against, so the step requires the pin.
+        # Printing whatever `cargo deny` answered would not catch a different
+        # cargo-deny that the Makefile's PATH would prefer, so the step
+        # requires the reported version to be the pin.
         run: |
           pinned="$(tr -d '[:space:]' < tools/cargo-deny/VERSION)"
           reported="$(cargo deny --version)"

@@ -38,8 +38,9 @@ esac
 
 # `~/.cargo/bin` is the directory `cargo` searches first for a subcommand, and
 # the Makefile puts it ahead of the rest of PATH, so the default install is the
-# binary `make deny` resolves. CI overrides this with a job-specific directory
-# so the runner image's own cargo-deny cannot shadow the pin.
+# binary `make deny` resolves. CI keeps this default for the same reason: a
+# binary installed anywhere else would be shadowed inside `make`. The installer
+# replaces whatever is at the destination, so a stale binary never survives.
 INSTALL_DIR="${CARGO_DENY_INSTALL_DIR:-${HOME}/.cargo/bin}"
 BINARY="${INSTALL_DIR}/cargo-deny"
 STEM="cargo-deny-${CARGO_DENY_VERSION}-${CARGO_DENY_ARCHIVE_ARCH}-unknown-linux-musl"

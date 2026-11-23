@@ -211,8 +211,15 @@ def test_ci_job_installs_the_pinned_tool_before_using_it() -> None:
         lambda step: "scripts/install-cargo-deny.sh" in run_script(step),
     )
     install = job_steps[install_at]
-    assert install["env"]["CARGO_DENY_INSTALL_DIR"]
-    assert "GITHUB_PATH" in run_script(install)
+    # The installer must keep its default directory. `make` prepends
+    # `${HOME}/.cargo/bin` to PATH for every recipe, so a binary installed
+    # anywhere else is shadowed inside `make deny`, and the pinned version
+    # check below would then vouch for a binary the gate does not run.
+    assert "CARGO_DENY_INSTALL_DIR" not in (install.get("env") or {}), (
+        "the job must not override the install directory; the Makefile's PATH "
+        "would shadow it inside `make deny`"
+    )
+    assert run_script(install).strip() == "scripts/install-cargo-deny.sh"
 
     version_at = _step_index(
         job_steps, lambda step: "cargo deny --version" in run_script(step)
