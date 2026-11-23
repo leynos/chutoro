@@ -144,11 +144,15 @@ Hard invariants. Violation requires escalation, not a workaround.
   silent. Mitigation: a single trust boundary. Bytes hashed in-process as they
   are written are trusted; any byte read back from disk across an interruption
   is not, so a resumed transfer re-hashes the complete staged file before
-  publication. The cost is one linear read per resumed artefact, however many
-  times it resumed, so the quadratic re-read that motivated chunked digests
-  does not return. At DEEP1B scale (about 512 GB) that is roughly 17 minutes on
-  NVMe or 70 minutes at EBS gp3 baseline throughput, against an 11-hour
-  transfer, and only when a resume actually happened.
+  publication. Resume itself re-hashes no prefix: it needs only the sidecar's
+  `durable_offset`, truncation of the staged file to that offset, and a
+  validator check. The read-back costs `expected_size` bytes once per completed
+  transfer, however many times it resumed, so the quadratic re-read that
+  motivated chunked digests does not return. At DEEP1B scale (about 512 GB) one
+  read-back takes about 0.3 h on NVMe or 1.2 h at EBS gp3 baseline throughput,
+  against an 11-hour transfer and only when a resume actually happened. The
+  ticket's alternative of repeated prefix re-reads totals about 2.8 TB, roughly
+  1.6 h on NVMe and 6.3 h on EBS gp3, before counting the transfer itself.
 - Risk: abandoned `.part` files and half-extracted temporary directories are
   invisible to a content-addressed cache scan and accumulate until a runner
   fills its disk, surfacing as `ENOSPC` in unrelated jobs. Severity: high.
@@ -261,9 +265,13 @@ Recorded during planning; extend during implementation.
   `chutoro-compile-contracts` fixture noted above.
 - Observation (superseded 2026-11-11): the first draft found that
   `sha2 0.10` cannot serialize hasher midstate, and adopted chunked digests in
-  response. Two things have since changed. First, `main` now resolves
-  `sha2 0.11.0`, `digest 0.11.3`, and `crypto-common 0.2.2` through
-  `rstest-bdd -> i18n-embed -> rust-embed -> rust-embed-utils`, and
+  response. Two things have since changed. First, `main` resolves `sha2 0.11.0`,
+  `digest 0.11.3`, and `crypto-common 0.2.2`. The dependency path is
+  `rstest-bdd -> rust-embed -> rust-embed-utils -> sha2`: `rstest-bdd 0.6.0`
+  declares `rust-embed` directly, so the chain does not require `i18n-embed`.
+  (`i18n-embed` is also a dependent of `rust-embed`, so both paths exist in the
+  resolved graph, but neither is a production path for
+  `chutoro-bench-datasets`; the current reachability is dev-only.)
   `sha2::Sha256` implements `SerializableState` there
   (`sha2-0.11.0/src/block_api.rs:103`, exposed on the buffered `Sha256` by
   `digest::buffer_fixed!`). Second, re-reading the chunked design exposed a
@@ -285,6 +293,21 @@ Recorded during planning; extend during implementation.
   retired; recorded so that any future reintroduction uses
   `SerializedState<Sha256>` from the trait rather than a hard-coded array
   length.
+- Observation: the locked dependency graph contains exactly one generation of
+  each hash crate, so requiring `sha2` directly adds no second `digest`
+  generation. Evidence, measured on 2026-11-23 with
+  `cargo tree -i sha2 -e all --workspace` and `cargo tree -d --workspace`
+  against the lockfile at `main`'s `c23348e`: `sha2 0.11.0`, `digest 0.11.3`,
+  and `crypto-common 0.2.2` are the only versions present; `cargo tree -d`
+  lists neither `digest` nor `sha2` as duplicated, and `sha2 0.10.x` and
+  `crypto-common 0.1.x` appear nowhere. `sha2 0.11.0` requires Rust 1.85
+  (`sha2-0.11.0/Cargo.toml`), below the workspace minimum supported Rust
+  version (MSRV) of 1.89 (`Cargo.toml:19`). Note that
+  `chutoro-bench-datasets/Cargo.toml` declares no `rust-version` of its own and
+  does not inherit `rust-version.workspace`; that is pre-existing and this plan
+  leaves it unchanged. Impact: the ticket's premise that moving to `sha2 0.11`
+  compiles two incompatible `digest` generations is false for this lockfile,
+  and the dependency rule below is safe.
 - Observation: `cap-std` has no file locking. Evidence: `cap-std 4.0.3`
   (the resolved version, re-checked 2026-11-11; `3.4.5` behaved identically)
   exposes only `into_std()` and `as_fd()` on `cap_std::fs::File`; there is no
@@ -418,6 +441,51 @@ Recorded during planning; extend during implementation.
   checksum manifests" and §9 sharded object keys concern sharded artefacts in
   object storage, owned by 10.1.3 and 10.1.4, and are not met or blocked by
   this choice. Date/Author: 2026-11-21, plan author, after review of #199.
+- Decision: reject per-chunk staging digests, and close issue #210 as
+  answered by the trust boundary above rather than by a chunked sidecar. #210's
+  proposal descends from the 2026-08-16 chunked-digest decision committed in
+  `cfb4354`, which used 8 MiB chunks; that design was superseded by the
+  2026-11-11 checkpointed-midstate revision, which the 2026-11-21
+  trust-boundary revision then superseded. The decision is recorded in
+  [ADR 0009](../adrs/adr-0009-resumable-download-verification-trust-model.md).
+  It is delivered with the main-line documentation for #210. Rationale: #210 is
+  right that `sha2 0.10` cannot serialize hasher midstate, and right that the
+  resulting quadratic re-read is unacceptable. Its premise about the lockfile
+  is out of date (see the dependency observation under Surprises & discoveries)
+  and its proposed fix does not buy what it claims. A locally generated chunk
+  digest is computed from bytes this process wrote; it authenticates nothing
+  against the pinned whole-file SHA-256, and cannot be combined into it, so it
+  adds a second weaker trust root beside the pin without removing the need for
+  a final whole-file verification. Final verification therefore still reads the
+  whole file, and the chunk vector would only add sidecar state, locking
+  granularity, and the risk that a truncated chunk vector is mistaken for a
+  complete one. The bound that matters is already linear: uninterrupted
+  transfers stream their digest and perform no read-back at all, and an
+  interrupted transfer performs exactly one full read-back of `expected_size`
+  bytes after the final byte is durable and before the publishing rename,
+  independent of how many resumes occurred. The one permitted clean restart
+  after a mismatch adds at most one further transfer and one further streaming
+  hash. Large single-object retries are addressed where they belong, by
+  separately pinned source shards and published per-shard manifests under
+  10.1.3 and 10.3.13, and by multipart object-store uploads under 10.1.4.
+  Date/Author: 2026-11-23, plan author, after triage of #210.
+- Alternatives deferred: `crypto_common::hazmat::SerializableState`. The
+  locked `sha2 0.11.0` does provide it, so a persisted midstate is buildable
+  today; it is deferred, not impossible. Three caveats keep it out of this
+  milestone. First, trust: a deserialized midstate describes bytes hashed in
+  the past, not the staged file's current contents, so it cannot replace the
+  read-back unless the pinned prefix is treated as trusted cache input, which
+  weakens the rule above. Second, sensitivity: the trait carries an explicit
+  security warning that serialized state may contain sensitive data
+  (`crypto-common 0.2.2`, `hazmat::SerializableState`), so a sidecar holding it
+  inherits a data-handling obligation the rest of the sidecar does not. Third,
+  compatibility: the documented stability guarantee is only across `0.x.y`
+  patch releases of one minor line, so a `sha2` minor bump may invalidate every
+  staged checkpoint and must be handled as a restart rather than a decode
+  failure. Revisit only when both of the following hold: a material measured
+  read-back cost is demonstrated on supported hardware, and an ADR accepts the
+  weaker local-cache trust rule. Date/Author: 2026-11-23, plan author, after
+  triage of #210.
 - Decision: delete `RecipeError::ChecksumUnsupported` rather than repurpose it.
   Rationale: repurposing keeps a name saying "unsupported" attached to a
   failure that is usually "malformed hex", and — decisively — any
@@ -600,21 +668,34 @@ pull request. Do not begin a stage until the previous stage's gates are green.
 Create `deny.toml` at the workspace root with `[advisories]`, `[licenses]`, and
 `[bans]` sections. Under `[licenses]`, allow the workspace's existing set and
 add an explicit `bzip2-1.0.6` allowance for `libbz2-rs-sys` with a rationale
-comment in the style of `dylint.toml`'s `excluded_paths`. Under `[bans]`, add a
-`deny` entry preventing two generations of `digest` from coexisting, so the
-`sha2` version decision cannot be silently undone.
+comment in the style of `dylint.toml`'s `excluded_paths`. Under `[bans]`, add
+deny entries for the superseded hash generations (`digest < 0.11`,
+`sha2 < 0.11`, and `crypto-common < 0.2`), so the version decision cannot be
+silently undone by an old generation arriving through a dev-dependency.
+
+Add a `make check-dependency-generations` gate that runs
+`cargo tree -d --workspace` and fails when its output names `digest` or `sha2`
+more than once. Register it in `make all`. This is directly runnable, unlike a
+policy entry that a future reviewer must interpret, and it catches a duplicate
+in either direction. On the tree at the time of writing the command reports
+neither crate as duplicated.
 
 Add a `cargo-deny` job to `.github/workflows/ci.yml` alongside the existing
 `verus-proofs` job. Add a `make deny` target and register it in `make all`. Run
 `mbake validate Makefile` — it is a gate.
 
 `sha2` follows the generation already in the lockfile (0.11 at the time of
-writing), so no Dependabot ignore entry is needed. If a future `digest` major
-release lands in the lockfile through a dev-dependency first, the `[bans]` rule
-fails loudly and the `sha2` requirement moves with it in the same pull request.
+writing), which resolves once, so no Dependabot ignore entry is needed.
+`sha2 0.11.0` declares `rust-version = "1.85"`, below the workspace's
+`rust-version = "1.89.0"`. `chutoro-bench-datasets/Cargo.toml` declares no
+`rust-version` and does not inherit `rust-version.workspace`; leave that
+unchanged. If a future `digest` major release lands in the lockfile through a
+dev-dependency first, the `[bans]` rule fails loudly and the `sha2` requirement
+moves with it in the same pull request.
 
-Stage 0 validation: `make deny` exits 0 on the current tree;
-`mbake validate Makefile` passes; `make check-fmt` and `make lint` pass.
+Stage 0 validation: `make deny` and `make check-dependency-generations` exit 0
+on the current tree; `mbake validate Makefile` passes; `make check-fmt` and
+`make lint` pass.
 
 ### Stage A: integrity domain (M2, M3, M4, M5)
 
@@ -797,14 +878,21 @@ Two durability invariants, both load-bearing:
 The trust boundary: bytes hashed in-process as they are written are trusted;
 bytes read back from disk after an interruption are not. A transfer that starts
 from `durable_offset > 0` therefore never verifies with its streaming digest.
-After the final data fsync it re-hashes the whole staged file with
+Resume itself re-hashes no prefix: it truncates the staged file to
+`durable_offset` and validates the sidecar's recorded validator. After the
+final data fsync the transfer re-hashes the whole staged file with
 `verify_file`, holding the advisory lock from that read through the publishing
-rename. A mismatch on a resumed transfer earns the existing single clean
-restart; a mismatch on that restart is fatal. Behavioural tests must cover:
-interrupt, corrupt one byte in the staged prefix, resume — publication is
-refused with `IntegrityFailure` and the clean restart then succeeds; and an
-uninterrupted transfer performs no read-back (assert through the `PartialStore`
-test double's read counter), so the common case pays nothing.
+rename, so any interruption sequence produces exactly one read-back of
+`expected_size` bytes. An uninterrupted transfer reads back nothing, because
+its streaming digest is the verification. A mismatch on a resumed transfer
+earns the existing single clean restart, which adds at most one further
+transfer and one further streaming hash; a mismatch on that restart is fatal.
+Behavioural tests must cover: interrupt, corrupt one byte in the staged prefix,
+resume — publication is refused with `IntegrityFailure` and the clean restart
+then succeeds; an uninterrupted transfer performs no read-back (assert through
+the `PartialStore` test double's read counter); and at least two interruptions
+with the downloader recreated between attempts, which must still produce one
+verification pass and one read-back of `expected_size` bytes.
 
 Locking uses `rustix::fs::flock` on the borrowed file descriptor from
 `cap_std::fs::Dir` — `cap-std` has no `lock`, and `into_std()` returns the
@@ -839,9 +927,16 @@ mid-transfer, truncate the body mid-flight, and fail then succeed. Bind
 
 The resume sequence proptest drives a *sequence* of scripted outcomes through
 the real `decide_resume` and `accept_response` against a model of the written
-byte range, asserting the written set is exactly `[0, final_len)`. This is what
-replaces the dropped Verus resume proof, and unlike a proof it runs against the
-shipped code.
+byte range, asserting the written set is exactly `[0, final_len)`. It also
+injects the verifier's read source and counts read-back bytes, asserting `0`
+for an uninterrupted transfer and `expected_size` for an interrupted transfer,
+for any interruption sequence. This is what replaces the dropped Verus resume
+proof, and unlike a proof it runs against the shipped code.
+
+`chutoro-bench-datasets` is outside the `property-tests` workflow's `paths`
+filter and suite matrix, so these properties run through `make test` only.
+Adding the crate to `.github/workflows/property-tests.yml` belongs to the
+10.1.2 implementation stage, not this planning ticket.
 
 The `decide_resume` Kani harness needs `ResumeContext` to be fixed-width plain
 data: model the validator as `[u8; 32]` (a digest of the entity tag), never a
@@ -1154,16 +1249,21 @@ cap-std = { version = "4.0.3", optional = true, features = ["fs_utf8"] }
 
 `sha2` is unconditional because integrity is domain, not infrastructure.
 `sha2 0.11` unifies with the existing lockfile entry reached through
-`rstest-bdd → i18n-embed → rust-embed → rust-embed-utils`, so the crate adds no
-second `digest` generation to the build; the `[bans]` rule in `deny.toml` keeps
-it that way. `ureq 3.5` and `rustls 0.23` already resolve in the lockfile
-through `chutoro-benches`, and `flate2 1.1` resolves there too, so the HTTP and
-gzip paths add features rather than packages; `cap-std 4.0.3` matches the
-existing testing-only requirement. `flate2` with `zlib-rs` matches cargo,
-rustup, and uv. `bzip2 0.6` defaults to the pure-Rust `libbz2-rs-sys` backend,
-so no C toolchain. `liblzma` replaces the stale `xz2` (last released 2022) and
-is the heaviest item at 5.5 MB of vendored C, hence its own feature. `cap-std`
-moves from testing-only to a real optional dependency.
+`rstest-bdd → rust-embed → rust-embed-utils` (`rstest-bdd` declares
+`rust-embed` directly; `i18n-embed` is a parallel dependent of `rust-embed`,
+not a required hop), so the crate adds no second `digest` generation to the
+build. The `cargo tree -d` gate and the `[bans]` entries in `deny.toml` keep it
+that way. `sha2 0.11.0` requires Rust 1.85, below the workspace MSRV of 1.89;
+`chutoro-bench-datasets/Cargo.toml` does not declare or inherit `rust-version`,
+and this milestone leaves that unchanged. `ureq 3.5` and `rustls 0.23` already
+resolve in the lockfile through `chutoro-benches`, and `flate2 1.1` resolves
+there too, so the HTTP and gzip paths add features rather than packages;
+`cap-std 4.0.3` matches the existing testing-only requirement. `flate2` with
+`zlib-rs` matches cargo, rustup, and uv. `bzip2 0.6` defaults to the pure-Rust
+`libbz2-rs-sys` backend, so no C toolchain. `liblzma` replaces the stale `xz2`
+(last released 2022) and is the heaviest item at 5.5 MB of vendored C, hence
+its own feature. `cap-std` moves from testing-only to a real optional
+dependency.
 
 Signatures below are the contract each stage must produce.
 
@@ -1265,6 +1365,27 @@ counts toward `too-many-arguments-threshold = 4`; any future per-entry datum
 goes into `EntryMetadata`, never into the signature.
 
 ## Revision note
+
+2026-11-23 (sixth revision, issue #210): re-verified the hash dependency and
+made the read-back bound testable. `cargo tree -i sha2 -e all --workspace` and
+`cargo tree -d --workspace` show a single `sha2 0.11.0` / `digest 0.11.3` /
+`crypto-common 0.2.2` generation, reached from `rstest-bdd` through
+`rust-embed` (and also through `i18n-embed`, which is a parallel dependent, not
+a required hop). The ticket's `sha2 0.10` premise is therefore stale, and
+locally generated chunk digests are rejected because they cannot authenticate
+the pinned whole-file SHA-256. The decision is recorded in ADR 0009. The
+Decision log now states the read-back budget: zero bytes for an uninterrupted
+transfer, exactly `expected_size` after any interruption sequence, and at most
+one additional transfer plus one streaming hash for the single permitted clean
+restart. The `proptest` resume state machine is extended to count read-back
+bytes, and the behavioural suite gains an N ≥ 2 interruption scenario with
+downloader recreation. The DEEP1B cost example is rebased on the ticket's
+figures (about 0.3 h on NVMe or 1.2 h on EBS gp3 for one read-back, against
+about 2.8 TB of repeated prefix re-reads). The `property-tests` exclusion of
+`chutoro-bench-datasets` is recorded, with workflow inclusion assigned to the
+10.1.2 implementation stage. `crypto_common::hazmat::SerializableState` is
+recorded under Alternatives deferred with its trust, sensitivity, and `0.x`
+minor-line compatibility caveats.
 
 2026-11-21 (fifth revision, review of #199): retired the checkpointed hasher
 midstate. Review raised two points. The serialized state of the buffered
