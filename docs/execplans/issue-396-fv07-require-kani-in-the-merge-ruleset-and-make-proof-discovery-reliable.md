@@ -136,9 +136,12 @@ issue text and the repository's documentation are the authority.
       binary, CLI test, export, and lint exclusion are deleted.
 - [x] Phase 4 (repository side): required-context contract
       (`required_checks_test.py`) and the developer's guide updates.
-- [ ] Validate the full tier (`make kani-full`) against Kani 0.67.0.
-      In progress; the core package's 15-harness sweep was started after the
-      fast tier's six-harness run completed.
+- [x] Validate both tiers against Kani 0.67.0. `make kani` verified the six
+      fast harnesses (four in `chutoro-core`, two in
+      `chutoro-providers-dense`) and exited 0. `make kani-full` verified 15 in
+      `chutoro-core` and 2 in `chutoro-providers-dense`, each run ending
+      `Complete - N successfully verified harnesses, 0 failures, N total.`
+      and `kani_suite: verified N harness(es) ...`.
 - [ ] Run all commit gates and request CodeRabbit review.
 - [ ] Push the branch and create the draft pull request.
 
@@ -394,7 +397,28 @@ new tests passing.
 
 ## Outcomes & retrospective
 
-Pending implementation.
+The repository side of FV07 is implemented and validated:
+
+- the proof surface is classified once in `tools/kani/harnesses.toml` and
+  bound in both directions to the Rust declarations and the Makefile;
+- every Kani invocation is checked against that inventory, and both real tiers
+  pass: six fast harnesses and 15 plus 2 full harnesses;
+- the pull-request `kani` job reports on every change and the nightly job
+  verifies its own SHA unconditionally;
+- the required-context contract and the documentation agree on
+  `build-test`, `verus-proofs` and `kani`.
+
+What is deliberately left for the post-merge administrator action is the live
+ruleset edit, which is drafted in
+[the delivery notes](../planning/issue-396-ruleset-change-request.md) with its
+preconditions and verification. The #215 comment is drafted there too; neither
+has been posted.
+
+Lessons: Kani's exit status is not a count, so a run checker has to compare the
+result multiset rather than trust the process; a filename-based inventory
+misses inline modules, so the source has to be read; and a checker invoked
+through `cargo run` per recipe line pays its own build cost once per proof, so
+it is built once per `make` invocation instead.
 
 ## Revision note
 
