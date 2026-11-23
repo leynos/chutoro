@@ -196,8 +196,9 @@ attempt interrupted part-way contributes only the bytes it read before
 stopping. Interruptions in the data-transfer phase add no attempts, however
 many times the transfer resumed, so the total stays linear in verification
 attempts rather than in resumes. A digest mismatch on a resumed transfer
-permits one clean restart, which adds at most one further transfer and one
-streaming hash. See
+permits one clean restart. An uninterrupted restart adds one further transfer
+and one streaming hash; a restart that is itself interrupted adds one further
+transfer and one read-back of `expected_size` bytes instead. See
 [ADR 0009](adrs/adr-0009-resumable-download-verification-trust-model.md) for
 the trust boundary and the rejected alternatives.
 

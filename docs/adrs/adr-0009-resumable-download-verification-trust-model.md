@@ -20,13 +20,13 @@ at any point, including between processes.
 
 The originating ticket, issue #210, observed correctly that `sha2 0.10` cannot
 serialize a hasher midstate, and proposed per-chunk staging digests so that a
-resume re-hashes at most one partial chunk. Two premises need correction.
+resume re-hashes at most one partial chunk.[^1] Two premises need correction.
 First, the lockfile no longer resolves `sha2 0.10`: it resolves `sha2 0.11.0`,
 `digest 0.11.3`, and `crypto-common 0.2.2` through
 `rstest-bdd -> rust-embed -> rust-embed-utils`, and `sha2::Sha256` implements
-`crypto_common::hazmat::SerializableState` there. Second, per-chunk digests
-cannot be combined into the pinned whole-file SHA-256, so they do not remove
-the need for a final whole-file verification.
+`crypto_common::hazmat::SerializableState` there.[^2][^3] Second, per-chunk
+digests cannot be combined into the pinned whole-file SHA-256, so they do not
+remove the need for a final whole-file verification.
 
 The design question is therefore not whether hasher state can be persisted. It
 is what a resumed process may trust about the staged prefix, and what
@@ -72,15 +72,20 @@ read handle. The advisory lock is held from that read through the publishing
 rename, so nothing this crate controls can change the file between verification
 and publication. Publication happens only on a match.
 
-A full-length mismatch on a resumed transfer earns exactly one clean restart,
-which adds at most one further transfer and one further streaming hash. A
-mismatch on that restart is fatal. The spent restart is recorded durably in the
-staging sidecar, as a `clean_restarts` counter that survives downloader
-recreation; the clean restart truncates the staged data to zero and increments
-the counter rather than deleting the sidecar. Without that record, a process
-started after an interrupted restart could spend a second one, breaking the
-limit and the cost bound. A mismatch observed with the counter already at one
-is fatal even if the restart itself was interrupted.
+A full-length mismatch on a resumed transfer earns exactly one clean restart. A
+restart that itself completes uninterrupted adds at most one further transfer
+and one further streaming hash. A restart that is itself interrupted and then
+resumed from a non-zero durable offset follows the same rule as any other
+resumed transfer: after it completes, it pays one full read-back of
+`expected_size` bytes rather than a streaming hash, because its streamed digest
+no longer covers the whole file. A mismatch on the restart is fatal. The spent
+restart is recorded durably in the staging sidecar, as a `clean_restarts`
+counter that survives downloader recreation; the clean restart truncates the
+staged data to zero and increments the counter rather than deleting the
+sidecar. Without that record, a process started after an interrupted restart
+could spend a second one, breaking the limit and the cost bound. A mismatch
+observed with the counter already at one is fatal even if the restart itself
+was interrupted.
 
 The read-back budget is stated per verification attempt. An uninterrupted
 transfer reads back `0` bytes. A resumed transfer reads back the bytes its
@@ -111,7 +116,7 @@ root without removing any read.
 Large single-object retries are addressed by publication structure, not by a
 staging digest vector. Prepared shards carry per-shard checksum manifests under
 roadmap 10.1.3 and 10.3.13, and object-store transfers use multipart uploads
-under roadmap 10.1.4 and 10.3.13. A chunked transfer is a set of separately
+under roadmap 10.1.4 and 10.3.13.[^4] A chunked transfer is a set of separately
 pinned source shards or a multipart object-store operation. Neither replaces
 the pinned whole-file SHA-256: each shard carries its own pin, or the assembled
 artefact is still verified against the whole-file digest.
@@ -162,8 +167,9 @@ on EBS gp3.
   re-hash, is outside the guarantee. The decision verifies bytes present at
   publication time; it does not claim durability against arbitrary storage
   faults.
-- The single clean restart adds a second transfer and a second streaming
-  hash. The alternative is a permanent wedge after a pin change.
+- The single clean restart adds a second transfer, and either a second
+  streaming hash or, if the restart is itself interrupted, one more read-back
+  pass. The alternative is a permanent wedge after a pin change.
 - `crypto_common::hazmat::SerializableState` remains deferred, not impossible.
   Revisiting it requires both a material measured read-back cost on supported
   hardware and an ADR accepting a weaker trust rule for bytes recovered from
@@ -171,9 +177,11 @@ on EBS gp3.
 
 ## References
 
-  <https://github.com/leynos/chutoro/issues/210>.
-  <https://github.com/leynos/chutoro/blob/10-1-2-shared-download-primitives/docs/execplans/10-1-2-shared-download-primitives.md>.
-  The original chunked-digest design is commit `cfb4354`. and security-warning
-  sections:
-  <https://docs.rs/crypto-common/0.2.2/crypto_common/hazmat/trait.SerializableState.html>.
-  [§5, §7.13, and §9](../benchmark-dataset-retrieval.md).
+[^1]: [Issue #210](https://github.com/leynos/chutoro/issues/210), on
+      `sha2 0.10` and hasher midstate.
+[^2]: [Roadmap item 10.1.2 ExecPlan, PR #199](https://github.com/leynos/chutoro/blob/10-1-2-shared-download-primitives/docs/execplans/10-1-2-shared-download-primitives.md).
+      The original chunked-digest design is commit `cfb4354`.
+[^3]: [`crypto_common::hazmat::SerializableState`](https://docs.rs/crypto-common/0.2.2/crypto_common/hazmat/trait.SerializableState.html),
+      including its compatibility and security-warning sections.
+[^4]: [Benchmark dataset retrieval](../benchmark-dataset-retrieval.md) §5,
+      §7.13, and §9.
