@@ -187,11 +187,17 @@ collision-resistant.
 require a system `libhdf5`; the bounded sub-item under 10.3.10 pins the exact
 crate and version.
 
-A feature-gated ZIP extractor is reopened only if the ANN-Benchmarks files
-become unusable or a required dimension is withdrawn. That work would add an
-off-by-default `zip` Cargo feature using the `zip` crate, preserving the
-default dependency graph, and would be tracked as a roadmap item rather than
-absorbed silently here.
+A feature-gated ZIP extractor is reopened when a roadmap task needs raw tokens,
+the 300-dimensional vectors, or another ZIP-only dataset, or if the
+ANN-Benchmarks files become unusable or a required dimension is withdrawn. The
+first three conditions come from the approved coding plan; the last covers loss
+of the selected source. That work would add an off-by-default `zip` Cargo
+feature using the `zip` crate, preserving the default dependency graph, and
+would be tracked as a roadmap item rather than absorbed silently here. The
+trigger is deliberately broader than "source unusable": 10.3.10 needs only the
+four published dimensions, but a later roadmap task may legitimately need the
+raw tokens or the 300-dimensional vectors that only the Stanford ZIP bundles
+provide.
 
 ## Architectural rationale
 

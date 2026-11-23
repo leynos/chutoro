@@ -768,9 +768,10 @@ ______________________________________________________________________
   tokenizer or projection applies. Map `train` to `features` and the
   `neighbors`/`distances` pair to `ground_truth`, then publish the immutable
   manifest. Add angular distance tuples in `cpu` and `scale` profiles. Requires
-  10.1.2 fetch, checksum and `ArchiveFormat::None` adopt-in-place, plus the
-  HDF5 reader defined in 10.3.10.1. See `docs/benchmark-dataset-retrieval.md`
-  §7.10 and [ADR 008](adrs/adr-0008-glove-source-and-zip-scope.md).
+  10.1.2 fetch, checksum and `ArchiveFormat::None` adopt-in-place, 10.1.3 for
+  the canonical prepared-artefact and manifest contract, plus the HDF5 reader
+  defined in 10.3.10.1. See `docs/benchmark-dataset-retrieval.md` §7.10 and
+  [ADR 008](adrs/adr-0008-glove-source-and-zip-scope.md).
   - [ ] 10.3.10.1. Add a read-only ANN-Benchmarks HDF5 reader for the `train`,
     `test`, `neighbors`, and `distances` datasets and the `distance`
     attribute, for reuse by 10.3.10, 10.3.11, and 10.3.12. The published
