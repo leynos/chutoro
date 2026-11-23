@@ -1,0 +1,85 @@
+# Supply-chain policy for `cargo deny check advisories bans licenses`.
+#
+# Run by `make deny` locally and by the `cargo-deny` job in `ci.yml`. The tool
+# itself is pinned and checksum-verified under `tools/cargo-deny/`; see "The
+# supply-chain gate" in `docs/developers-guide.md` for the maintenance
+# procedure, including how to add a licence exception or an advisory ignore.
+
+[graph]
+# Every workspace crate is a root, so a dependency reached only from a
+# benchmark or test-support crate is still checked. `cargo deny` assumes this
+# for a virtual manifest; stating it keeps the behaviour when the manifest
+# grows a `[package]` section. `targets` stays unset so a target-specific
+# dependency is checked rather than skipped.
+all-features = true
+
+[advisories]
+# `workspace` reports an unmaintained crate only when a workspace member
+# depends on it directly. A transitive crate the project does not choose is
+# still visible in `cargo tree`, and the daily Dependabot run moves it; making
+# every such advisory fail the gate would block unrelated pull requests on
+# upstream maintenance decisions this repository cannot make.
+unmaintained = "workspace"
+# A yanked version is a withdrawal by its publisher, not a warning to weigh:
+# the resolved graph is no longer what the registry intends anyone to build.
+yanked = "deny"
+# Entries here are notes, not silence. An ignore without a `reason` and an
+# `expiry` is a permanent hole in the gate, so the list starts empty and grows
+# only through the documented procedure.
+ignore = []
+
+[licenses]
+# Deny-by-default: a crate whose licence is not listed here fails the gate.
+# The list is what the resolved graph requires, so widening it is a policy
+# change rather than a routine edit.
+allow = [
+  "Apache-2.0",
+  "Apache-2.0 WITH LLVM-exception",
+  "BSD-2-Clause",
+  "BSD-3-Clause",
+  "CC0-1.0",
+  "CDLA-Permissive-2.0",
+  "ISC",
+  "MIT",
+  "Unicode-3.0",
+  "Zlib",
+]
+# A licence used by exactly one dependency is recorded here, beside its crate
+# name, rather than by widening the global list above.
+#
+# Roadmap 10.1.2 adds `libbz2-rs-sys`, which ships under the non-SPDX
+# `bzip2-1.0.6` text. Uncomment this block then, so the allowance names the one
+# crate that needs it instead of licensing every future crate that declares
+# the same text.
+# [[licenses.exceptions]]
+# crate = "libbz2-rs-sys"
+# allow = ["bzip2-1.0.6"]
+
+[bans]
+# `warn` on duplicates: the graph has three `getrandom` and three `hashbrown`
+# generations, all pulled in by transitive dependencies the workspace does not
+# control. Denying every duplicate would fail on a Dependabot pull request that
+# changed nothing here, while a named crate below can still be pinned to one
+# generation.
+multiple-versions = "warn"
+# The only `digest` importer is `sha2`, a dev-only dependency, so the ban has
+# to see dev edges. Dev dependencies still run in CI and in every test build.
+multiple-versions-include-dev = true
+# A `*` requirement resolves to whatever the registry serves that day, so a
+# registry wildcard is denied. A path dependency cannot float that way: it is
+# this checkout, and cargo strips path-only dev-dependencies before publishing,
+# so the workspace's path entries are left alone rather than given versions
+# that nothing reads.
+wildcards = "deny"
+allow-wildcard-paths = true
+
+# Two `digest` generations cannot be compiled against each other, so a crate
+# that needs a different one splits the hash traits in two. The workspace keeps
+# `sha2` on one generation; this entry fails only if a second appears, while
+# every other duplicate stays a warning.
+[[bans.deny]]
+crate = "digest"
+deny-multiple-versions = true
+reason = """
+Two `digest` generations split the hash traits in two, so keep `sha2` and its
+family on one generation, as the workspace pins them."""

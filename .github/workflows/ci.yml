@@ -316,3 +316,38 @@ jobs:
             printf -- '- size: %s\n' \
               "$(du -sh .verus 2>/dev/null | cut -f1)"
           } >> "$GITHUB_STEP_SUMMARY"
+
+  cargo-deny:
+    # A public repository's hosted minutes are free, and the check needs one
+    # core and no coverage instrumentation, so it does not warrant a paid
+    # runner. Being independent of `build-test` is deliberate: a supply-chain
+    # failure names a dependency, and a reader should not have to wait behind
+    # the coverage lane to see it.
+    runs-on: ubuntu-latest
+    # A cold advisory-database clone dominates the run; the checks themselves
+    # take seconds. Ten minutes covers a slow clone without holding a runner
+    # for a gate that has already hung.
+    timeout-minutes: 10
+    permissions:
+      contents: read
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+      - name: Setup Rust
+        uses: leynos/shared-actions/.github/actions/setup-rust@3551a0bf76fe47d0cc5ff632c7796a8ddb23717e
+        with:
+          # `cargo deny` shells out to `cargo metadata`; it never compiles the
+          # workspace, so a compiler cache would only add a writer for a path
+          # this job never reads.
+          use-sccache: 'false'
+      - name: Install cargo-deny
+        env:
+          # A job-specific directory keeps a cargo-deny already present on the
+          # runner image from shadowing the pinned, checksum-verified binary.
+          CARGO_DENY_INSTALL_DIR: ${{ runner.temp }}/cargo-deny-bin
+        run: |
+          scripts/install-cargo-deny.sh
+          echo "${CARGO_DENY_INSTALL_DIR}" >> "$GITHUB_PATH"
+      - name: Check cargo-deny
+        run: cargo deny --version
+      - name: Check supply chain
+        run: make deny

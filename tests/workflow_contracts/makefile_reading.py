@@ -11,9 +11,9 @@ This module holds the phony-target reading and the rule-header reading. The
 directive structure it relies on lives in ``makefile_structure_reading``, and
 the split keeps each file inside the 400-line limit ``AGENTS.md`` sets.
 
-Re-use policy: import from ``scheduling_contract_test`` only, the one place
-that asserts over it. A new Make rule for a declaration belongs here with the
-make behaviour it models stated beside it.
+Re-use policy: import from ``scheduling_contract_test`` and
+``deny_gate_test``, the two places that assert over it. A new Make rule for a
+declaration belongs here with the make behaviour it models stated beside it.
 """
 
 from __future__ import annotations

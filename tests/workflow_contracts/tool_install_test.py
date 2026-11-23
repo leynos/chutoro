@@ -63,6 +63,7 @@ TARGET = "target"
 #: because the download, checksum, and extraction mechanics live in
 #: ``rust-prover-tools``; the repository owns only the pins under ``tools/``.
 INSTALLER_ORDER = (
+    (SCRIPT, "scripts/install-cargo-deny.sh", re.compile(r"\bcargo\s+deny\b")),
     (SCRIPT, "scripts/install-nextest.sh", re.compile(r"cargo\s+nextest\b")),
     (SCRIPT, "scripts/install-sccache.sh", re.compile(r"\bsccache\s+--")),
     (PROVER, "kani", re.compile(r"\bmake\s+kani(-full)?\b")),
@@ -74,7 +75,7 @@ INSTALLER_ORDER = (
 #: not among them: its two archive digests live in the pinned
 #: ``rust-prover-tools`` release, and a local copy would be a second pin that
 #: nothing reads and nothing keeps in step.
-PINNED_TOOLS = ("nextest", "sccache", "verus")
+PINNED_TOOLS = ("cargo-deny", "nextest", "sccache", "verus")
 
 #: Installer scripts a workflow invokes directly, so the committed file mode
 #: is part of the contract: a non-executable script fails the job with

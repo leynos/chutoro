@@ -1,0 +1,284 @@
+"""Contract tests for the supply-chain gate, its CI job, and its policy.
+
+`make deny` is only as strong as the recipe behind it, the workflow that runs
+it, and the policy file it reads. A target that echoes the command instead of
+running it, a CI job that cannot fail the pull request, or a policy that lists
+a licence without saying why all look like a gate from a distance. These tests
+run the target against a recording stub so the argv and the failure that reach
+the tool are observed rather than asserted as recipe text.
+
+Run via ``make test-workflow-contracts``.
+"""
+
+from __future__ import annotations
+
+import collections.abc as cabc
+import os
+import re
+import subprocess
+import tomllib
+import typing as typ
+from pathlib import Path
+
+import pytest
+from makefile_reading import phony_targets
+from scheduling_recipe_reading import recipe_commands
+from workflow_support import ROOT, job, run_script, steps, uses_reference
+
+MAKEFILE = ROOT / "Makefile"
+DENY_CONFIG = ROOT / "deny.toml"
+CI_WORKFLOW = "ci.yml"
+CI_JOB = "cargo-deny"
+DENY_RECIPE = (
+    "$(CARGO) deny --locked --config deny.toml check advisories bans licenses"
+)
+#: The licences the resolved graph requires. Adding one is a policy change,
+#: so this list is asserted exactly rather than as a minimum.
+REQUIRED_LICENCES = frozenset(
+    {
+        "Apache-2.0",
+        "Apache-2.0 WITH LLVM-exception",
+        "BSD-2-Clause",
+        "BSD-3-Clause",
+        "CC0-1.0",
+        "CDLA-Permissive-2.0",
+        "ISC",
+        "MIT",
+        "Unicode-3.0",
+        "Zlib",
+    }
+)
+PINNED_CHECKOUT = re.compile(r"^actions/checkout@[0-9a-f]{40}$")
+PINNED_SETUP_RUST = re.compile(
+    r"^leynos/shared-actions/\.github/actions/setup-rust@[0-9a-f]{40}$"
+)
+
+
+def _makefile_text() -> str:
+    """Return the root Makefile's text."""
+    return MAKEFILE.read_text(encoding="utf-8")
+
+
+def _policy() -> dict[str, typ.Any]:
+    """Return `deny.toml` parsed as TOML, which also proves it is valid."""
+    return tomllib.loads(DENY_CONFIG.read_text(encoding="utf-8"))
+
+
+def _comment_block_before(lines: list[str], index: int) -> list[str]:
+    """Return the unbroken comment lines immediately above `lines[index]`.
+
+    A policy entry without a comment directly above it is the shape this
+    helper exists to reject, so the walk stops at the first non-comment line.
+    """
+    block: list[str] = []
+    cursor = index - 1
+    while cursor >= 0 and lines[cursor].lstrip().startswith("#"):
+        block.insert(0, lines[cursor])
+        cursor -= 1
+    return block
+
+
+def _line_index(lines: list[str], needle: str) -> int:
+    """Return the index of the first line containing `needle`."""
+    return next(index for index, line in enumerate(lines) if needle in line)
+
+
+def _step_index(
+    job_steps: list[dict[str, typ.Any]],
+    predicate: cabc.Callable[[dict[str, typ.Any]], bool],
+) -> int:
+    """Return the index of the first step satisfying `predicate`."""
+    return next(
+        index for index, step in enumerate(job_steps) if predicate(step)
+    )
+
+
+def _runs(step: dict[str, typ.Any], command: str) -> bool:
+    """Report whether a step's `run` script is exactly `command`."""
+    return run_script(step).strip() == command
+
+
+def test_deny_is_a_phony_target() -> None:
+    """A same-named file must not be able to skip the gate."""
+    assert "deny" in phony_targets(_makefile_text())
+
+
+def test_deny_runs_the_three_checks_and_nothing_else() -> None:
+    """The recipe must run the global options before `check`, unmasked."""
+    assert recipe_commands(_makefile_text(), "deny") == [DENY_RECIPE]
+
+
+def test_all_runs_the_supply_chain_gate() -> None:
+    """`make all` must not build and test while skipping the policy check."""
+    header = next(
+        line for line in _makefile_text().splitlines() if line.startswith("all:")
+    )
+    prerequisites = set(header.split(":", 1)[1].split("##", 1)[0].split())
+    assert {"release", "spelling", "test-workflow-contracts", "deny"} <= (
+        prerequisites
+    )
+
+
+def test_policy_blocks_advisories_and_yanked_crates() -> None:
+    """The advisory gate must start empty and deny yanked resolutions."""
+    advisories = _policy()["advisories"]
+    assert advisories["unmaintained"] == "workspace"
+    assert advisories["yanked"] == "deny"
+    assert advisories["ignore"] == []
+
+
+def test_policy_covers_every_feature_and_dev_edge() -> None:
+    """A dev-only dependency is still built by CI and must be in scope."""
+    graph = _policy()["graph"]
+    assert graph["all-features"] is True
+    assert "targets" not in graph
+    assert graph.get("exclude-dev") is not True
+
+
+def test_policy_allows_exactly_the_licences_the_graph_requires() -> None:
+    """The allowlist is a policy decision, so an addition must be deliberate."""
+    licenses = _policy()["licenses"]
+    assert frozenset(licenses["allow"]) == REQUIRED_LICENCES
+    assert "ISC" in REQUIRED_LICENCES
+
+
+def test_policy_bans_duplicate_digest_generations() -> None:
+    """Every other duplicate warns; a second `digest` must fail the gate."""
+    bans = _policy()["bans"]
+    assert bans["multiple-versions"] == "warn"
+    assert bans["multiple-versions-include-dev"] is True
+    assert bans["wildcards"] == "deny"
+    assert bans["allow-wildcard-paths"] is True
+    entries = [entry for entry in bans["deny"] if entry.get("crate") == "digest"]
+    assert len(entries) == 1
+    assert entries[0]["deny-multiple-versions"] is True
+
+
+def test_every_policy_exception_names_its_reason() -> None:
+    """A rule a reader cannot justify is a rule that gets deleted blindly."""
+    lines = DENY_CONFIG.read_text(encoding="utf-8").splitlines()
+    digest_header = _line_index(lines, "[[bans.deny]]")
+    digest_comment = " ".join(_comment_block_before(lines, digest_header))
+    assert "digest" in digest_comment
+    assert "generation" in digest_comment
+
+    bzip2_header = _line_index(lines, "# [[licenses.exceptions]]")
+    bzip2_comment = " ".join(_comment_block_before(lines, bzip2_header))
+    assert "libbz2-rs-sys" in bzip2_comment
+    assert "bzip2-1.0.6" in bzip2_comment
+
+
+def test_ci_job_is_independent_blocking_and_read_only() -> None:
+    """A supply-chain failure must block the pull request on its own lane."""
+    definition = job(CI_WORKFLOW, CI_JOB)
+    assert definition["runs-on"] == "ubuntu-latest"
+    assert definition["permissions"] == {"contents": "read"}
+    assert isinstance(definition["timeout-minutes"], int)
+    assert definition["timeout-minutes"] <= 15
+    for key in ("needs", "if", "continue-on-error"):
+        assert key not in definition, f"the job must not set {key}"
+    for step in steps(definition):
+        for key in ("if", "continue-on-error"):
+            assert key not in step, f"the job's steps must not set {key}"
+
+
+def test_ci_job_installs_the_pinned_tool_before_using_it() -> None:
+    """The job must run the repository installer, then the gate."""
+    job_steps = steps(job(CI_WORKFLOW, CI_JOB))
+    assert PINNED_CHECKOUT.match(uses_reference(job_steps[0]))
+    setup = next(
+        step for step in job_steps if PINNED_SETUP_RUST.match(uses_reference(step))
+    )
+    assert setup["with"]["use-sccache"] == "false"
+
+    install_at = _step_index(
+        job_steps,
+        lambda step: "scripts/install-cargo-deny.sh" in run_script(step),
+    )
+    install = job_steps[install_at]
+    assert install["env"]["CARGO_DENY_INSTALL_DIR"]
+    assert "GITHUB_PATH" in run_script(install)
+
+    version_at = _step_index(
+        job_steps, lambda step: _runs(step, "cargo deny --version")
+    )
+    gate_at = _step_index(job_steps, lambda step: _runs(step, "make deny"))
+    assert install_at < version_at < gate_at
+
+
+#: Records each cargo-deny invocation, one argument per line, then exits with
+#: the status the test asks for.
+CARGO_DENY_STUB = r"""#!/usr/bin/env bash
+set -euo pipefail
+printf '%s\n' "$@" >> "$STUB_LOG"
+exit "${STUB_STATUS:-0}"
+"""
+
+#: Stands in for `cargo`, dropping the `deny` subcommand name and handing the
+#: rest to the recording cargo-deny, as cargo itself would.
+CARGO_STUB = r"""#!/usr/bin/env bash
+set -euo pipefail
+[[ "${1:-}" == deny ]] || {
+  printf 'unexpected cargo invocation: %s\n' "$*" >&2
+  exit 64
+}
+shift
+exec "$STUB_CARGO_DENY" "$@"
+"""
+
+
+def _write_stub(path: Path, body: str) -> None:
+    """Write an executable script at `path`."""
+    path.write_text(body, encoding="utf-8")
+    path.chmod(0o755)
+
+
+@pytest.mark.parametrize("status", (0, 7))
+def test_make_deny_propagates_the_gate_status(
+    tmp_path: Path, status: int
+) -> None:
+    """Success stays success, and a failure is reported rather than masked.
+
+    GNU make exits with 2 for a failed recipe and names the command's own
+    status in its diagnostic, so `Error 7` is the evidence that the gate's
+    failure reached make instead of being swallowed by the recipe.
+    """
+    bin_dir = tmp_path / "bin"
+    bin_dir.mkdir()
+    _write_stub(bin_dir / "cargo", CARGO_STUB)
+    _write_stub(bin_dir / "cargo-deny", CARGO_DENY_STUB)
+    log = tmp_path / "invocations"
+    env = {
+        key: value
+        for key, value in os.environ.items()
+        if key not in {"MAKEFLAGS", "MFLAGS", "CARGO"}
+    }
+    env |= {
+        "STUB_CARGO_DENY": str(bin_dir / "cargo-deny"),
+        "STUB_LOG": str(log),
+        "STUB_STATUS": str(status),
+    }
+
+    completed = subprocess.run(
+        ["make", "--no-print-directory", f"CARGO={bin_dir / 'cargo'}", "deny"],
+        cwd=ROOT,
+        check=False,
+        capture_output=True,
+        text=True,
+        env=env,
+    )
+
+    assert log.read_text(encoding="utf-8").splitlines() == [
+        "--locked",
+        "--config",
+        "deny.toml",
+        "check",
+        "advisories",
+        "bans",
+        "licenses",
+    ]
+    if status == 0:
+        assert completed.returncode == 0, completed.stderr
+    else:
+        assert completed.returncode != 0
+        assert f"Error {status}" in completed.stderr, completed.stderr
