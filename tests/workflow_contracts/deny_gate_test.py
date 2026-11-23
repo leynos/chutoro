@@ -29,9 +29,7 @@ MAKEFILE = ROOT / "Makefile"
 DENY_CONFIG = ROOT / "deny.toml"
 CI_WORKFLOW = "ci.yml"
 CI_JOB = "cargo-deny"
-DENY_RECIPE = (
-    "$(CARGO) deny --locked --config deny.toml check advisories bans licenses"
-)
+DENY_RECIPE = "$(CARGO) deny --locked --config deny.toml check advisories bans licenses"
 #: The licences the resolved graph requires. Adding one is a policy change,
 #: so this list is asserted exactly rather than as a minimum.
 REQUIRED_LICENCES = frozenset(
@@ -79,18 +77,35 @@ def _comment_block_before(lines: list[str], index: int) -> list[str]:
 
 
 def _line_index(lines: list[str], needle: str) -> int:
-    """Return the index of the first line containing `needle`."""
-    return next(index for index, line in enumerate(lines) if needle in line)
+    """Return the index of the first line containing `needle`.
+
+    A missing needle fails the contract with the text it looked for, because
+    the bare `StopIteration` a generator would raise says nothing about which
+    policy rule the test expected to find.
+    """
+    for index, line in enumerate(lines):
+        if needle in line:
+            return index
+    message = f"deny.toml has no line containing {needle!r}"
+    raise AssertionError(message)
 
 
 def _step_index(
     job_steps: list[dict[str, typ.Any]],
     predicate: cabc.Callable[[dict[str, typ.Any]], bool],
 ) -> int:
-    """Return the index of the first step satisfying `predicate`."""
-    return next(
-        index for index, step in enumerate(job_steps) if predicate(step)
-    )
+    """Return the index of the first step satisfying `predicate`.
+
+    A job that has lost a step is a contract failure, and the step names are
+    what makes the failure readable, so they are reported rather than a bare
+    `StopIteration`.
+    """
+    for index, step in enumerate(job_steps):
+        if predicate(step):
+            return index
+    names = [step.get("name") or step.get("uses") for step in job_steps]
+    message = f"no step matched; the job's steps are {names}"
+    raise AssertionError(message)
 
 
 def _runs(step: dict[str, typ.Any], command: str) -> bool:
@@ -111,12 +126,12 @@ def test_deny_runs_the_three_checks_and_nothing_else() -> None:
 def test_all_runs_the_supply_chain_gate() -> None:
     """`make all` must not build and test while skipping the policy check."""
     header = next(
-        line for line in _makefile_text().splitlines() if line.startswith("all:")
+        (line for line in _makefile_text().splitlines() if line.startswith("all:")),
+        None,
     )
+    assert header is not None, "the Makefile must declare an all: target"
     prerequisites = set(header.split(":", 1)[1].split("##", 1)[0].split())
-    assert {"release", "spelling", "test-workflow-contracts", "deny"} <= (
-        prerequisites
-    )
+    assert {"release", "spelling", "test-workflow-contracts", "deny"} <= (prerequisites)
 
 
 def test_policy_blocks_advisories_and_yanked_crates() -> None:
@@ -234,9 +249,7 @@ def _write_stub(path: Path, body: str) -> None:
 
 
 @pytest.mark.parametrize("status", (0, 7))
-def test_make_deny_propagates_the_gate_status(
-    tmp_path: Path, status: int
-) -> None:
+def test_make_deny_propagates_the_gate_status(tmp_path: Path, status: int) -> None:
     """Success stays success, and a failure is reported rather than masked.
 
     GNU make exits with 2 for a failed recipe and names the command's own
