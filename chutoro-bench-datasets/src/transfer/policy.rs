@@ -67,7 +67,14 @@ pub enum LockStep {
         warn: bool,
     },
     /// The deadline expired, or a late success must be released.
-    TimedOut,
+    TimedOut {
+        /// True when the caller should emit its first contention warning.
+        ///
+        /// A contention observed only at or after the deadline never reaches
+        /// [`LockStep::Retry`], so its warning must be carried here or a very
+        /// short timeout would fail with no log line.
+        warn: bool,
+    },
 }
 
 /// Bounded acquisition policy for one staging lock.
@@ -183,6 +190,8 @@ impl LockPolicy {
     /// [`LockStep::TimedOut`]; the caller must release the lock it just
     /// received. `warned` records whether the caller has already emitted its
     /// contention warning, so `warn` is true at most once per acquisition.
+    /// Contention observed only at or after the deadline carries its warning
+    /// on the timeout itself, because no retry step follows it.
     ///
     /// # Examples
     ///
@@ -197,7 +206,7 @@ impl LockPolicy {
     /// );
     /// assert_eq!(
     ///     policy.next_step(LockAttempt::Contended, Duration::from_millis(50), false),
-    ///     LockStep::TimedOut,
+    ///     LockStep::TimedOut { warn: true },
     /// );
     /// # Ok::<(), chutoro_bench_datasets::LockPolicyError>(())
     /// ```
@@ -205,18 +214,22 @@ impl LockPolicy {
     pub fn next_step(&self, attempt: LockAttempt, elapsed: Duration, warned: bool) -> LockStep {
         match attempt {
             LockAttempt::Acquired if elapsed < self.timeout => LockStep::Acquired,
-            LockAttempt::Acquired => LockStep::TimedOut,
+            LockAttempt::Acquired => LockStep::TimedOut { warn: false },
             LockAttempt::Contended => self.retry_step(elapsed, !warned),
             LockAttempt::Interrupted => self.retry_step(elapsed, false),
         }
     }
 
     /// Build a retry step bounded by the remaining time before the deadline.
+    ///
+    /// When the deadline has already passed, the same `warn` decision travels
+    /// on [`LockStep::TimedOut`], so contention observed only at the deadline
+    /// is still reported.
     fn retry_step(&self, elapsed: Duration, warn: bool) -> LockStep {
         self.timeout
             .checked_sub(elapsed)
             .filter(|remaining| !remaining.is_zero())
-            .map_or(LockStep::TimedOut, |remaining| LockStep::Retry {
+            .map_or(LockStep::TimedOut { warn }, |remaining| LockStep::Retry {
                 delay: self.poll_interval.min(remaining),
                 warn,
             })

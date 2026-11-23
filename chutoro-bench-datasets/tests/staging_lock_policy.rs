@@ -16,68 +16,117 @@ fn policy() -> Result<LockPolicy, LockPolicyError> {
         .and_then(|policy| policy.with_poll_interval(Duration::from_millis(10)))
 }
 
+/// One row of the `next_step` truth table: inputs and the exact decision.
+struct StepCase {
+    /// Attempt outcome presented to the policy.
+    attempt: LockAttempt,
+    /// Time already spent when the attempt completed.
+    elapsed_ms: u64,
+    /// Whether a contention warning has already been emitted.
+    warned: bool,
+    /// The decision the policy must return.
+    expected: LockStep,
+}
+
 #[rstest]
-#[case::acquired_before_deadline(LockAttempt::Acquired, 99, LockStep::Acquired)]
-#[case::acquired_at_deadline(LockAttempt::Acquired, 100, LockStep::TimedOut)]
-#[case::acquired_after_deadline(LockAttempt::Acquired, 101, LockStep::TimedOut)]
-#[case::contended_at_deadline(LockAttempt::Contended, 100, LockStep::TimedOut)]
-#[case::contended_after_deadline(LockAttempt::Contended, 101, LockStep::TimedOut)]
-#[case::interrupted_at_deadline(LockAttempt::Interrupted, 100, LockStep::TimedOut)]
-fn next_step_terminal_outcomes(
-    #[case] attempt: LockAttempt,
-    #[case] elapsed_ms: u64,
-    #[case] expected: LockStep,
-) {
+#[case::acquired_before_deadline(StepCase {
+    attempt: LockAttempt::Acquired,
+    elapsed_ms: 99,
+    warned: false,
+    expected: LockStep::Acquired,
+})]
+#[case::acquired_at_deadline(StepCase {
+    attempt: LockAttempt::Acquired,
+    elapsed_ms: 100,
+    warned: false,
+    expected: LockStep::TimedOut { warn: false },
+})]
+#[case::acquired_after_deadline(StepCase {
+    attempt: LockAttempt::Acquired,
+    elapsed_ms: 101,
+    warned: false,
+    expected: LockStep::TimedOut { warn: false },
+})]
+#[case::contended_at_deadline_warns(StepCase {
+    attempt: LockAttempt::Contended,
+    elapsed_ms: 100,
+    warned: false,
+    expected: LockStep::TimedOut { warn: true },
+})]
+#[case::contended_after_deadline_warns(StepCase {
+    attempt: LockAttempt::Contended,
+    elapsed_ms: 101,
+    warned: false,
+    expected: LockStep::TimedOut { warn: true },
+})]
+#[case::contended_at_deadline_after_warning(StepCase {
+    attempt: LockAttempt::Contended,
+    elapsed_ms: 100,
+    warned: true,
+    expected: LockStep::TimedOut { warn: false },
+})]
+#[case::interrupted_at_deadline(StepCase {
+    attempt: LockAttempt::Interrupted,
+    elapsed_ms: 100,
+    warned: false,
+    expected: LockStep::TimedOut { warn: false },
+})]
+#[case::contended_uses_poll(StepCase {
+    attempt: LockAttempt::Contended,
+    elapsed_ms: 10,
+    warned: false,
+    expected: LockStep::Retry {
+        delay: Duration::from_millis(10),
+        warn: true,
+    },
+})]
+#[case::contended_clamps_to_remaining(StepCase {
+    attempt: LockAttempt::Contended,
+    elapsed_ms: 95,
+    warned: false,
+    expected: LockStep::Retry {
+        delay: Duration::from_millis(5),
+        warn: true,
+    },
+})]
+#[case::contended_does_not_rewarn(StepCase {
+    attempt: LockAttempt::Contended,
+    elapsed_ms: 10,
+    warned: true,
+    expected: LockStep::Retry {
+        delay: Duration::from_millis(10),
+        warn: false,
+    },
+})]
+#[case::interrupted_uses_poll(StepCase {
+    attempt: LockAttempt::Interrupted,
+    elapsed_ms: 10,
+    warned: false,
+    expected: LockStep::Retry {
+        delay: Duration::from_millis(10),
+        warn: false,
+    },
+})]
+#[case::interrupted_clamps_to_remaining(StepCase {
+    attempt: LockAttempt::Interrupted,
+    elapsed_ms: 98,
+    warned: false,
+    expected: LockStep::Retry {
+        delay: Duration::from_millis(2),
+        warn: false,
+    },
+})]
+fn next_step_matches_its_contract(#[case] case: StepCase) {
     let policy = policy().expect("valid policy should build");
 
     assert_eq!(
-        policy.next_step(attempt, Duration::from_millis(elapsed_ms), false),
-        expected,
+        policy.next_step(
+            case.attempt,
+            Duration::from_millis(case.elapsed_ms),
+            case.warned,
+        ),
+        case.expected,
     );
-}
-
-#[rstest]
-#[case::contended_warns_first(LockAttempt::Contended, false, true)]
-#[case::contended_does_not_rewarn(LockAttempt::Contended, true, false)]
-#[case::interrupted_never_warns(LockAttempt::Interrupted, false, false)]
-#[case::interrupted_after_warning_stays_quiet(LockAttempt::Interrupted, true, false)]
-fn next_step_warns_only_on_first_contention(
-    #[case] attempt: LockAttempt,
-    #[case] warned: bool,
-    #[case] expected_warning: bool,
-) {
-    let step = policy().expect("valid policy should build").next_step(
-        attempt,
-        Duration::from_millis(10),
-        warned,
-    );
-
-    assert!(matches!(
-        step,
-        LockStep::Retry { warn, .. } if warn == expected_warning
-    ));
-}
-
-#[rstest]
-#[case::contended_uses_poll(LockAttempt::Contended, 10, 10)]
-#[case::contended_clamps_to_remaining(LockAttempt::Contended, 95, 5)]
-#[case::interrupted_uses_poll(LockAttempt::Interrupted, 10, 10)]
-#[case::interrupted_clamps_to_remaining(LockAttempt::Interrupted, 98, 2)]
-fn next_step_clamps_the_retry_delay(
-    #[case] attempt: LockAttempt,
-    #[case] elapsed_ms: u64,
-    #[case] expected_delay_ms: u64,
-) {
-    let step = policy().expect("valid policy should build").next_step(
-        attempt,
-        Duration::from_millis(elapsed_ms),
-        false,
-    );
-
-    assert!(matches!(
-        step,
-        LockStep::Retry { delay, .. } if delay == Duration::from_millis(expected_delay_ms)
-    ));
 }
 
 #[test]
@@ -146,7 +195,7 @@ proptest! {
 
             match policy.next_step(attempt, elapsed, warnings > 0) {
                 LockStep::Acquired => break true,
-                LockStep::TimedOut => break false,
+                LockStep::TimedOut { .. } => break false,
                 LockStep::Retry { delay, warn } => {
                     prop_assert!(delay > Duration::ZERO);
                     prop_assert!(delay <= Duration::from_millis(poll_ms));

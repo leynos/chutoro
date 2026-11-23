@@ -263,19 +263,22 @@ fn acquire_file(
     registration: Registration,
 ) -> Result<StagingLockGuard, RecipeError> {
     let started = Instant::now();
-    let mut warned = false;
+    let mut warning = ContentionWarning::new(path, policy);
     loop {
         let attempt = platform::try_flock(&file)
             .map_err(|error| RecipeError::staging_lock_io(path.as_str(), error))?;
         let elapsed = started.elapsed();
-        match policy.next_step(attempt, elapsed, warned) {
+        match policy.next_step(attempt, elapsed, warning.is_emitted()) {
             LockStep::Acquired => {
                 let key = registration.into_path();
                 return Ok(StagingLockGuard::new(file, key));
             }
-            LockStep::TimedOut => {
-                // Release a success that arrived after the deadline before the
-                // registration removes its entry, then close the descriptor.
+            LockStep::TimedOut { warn } => {
+                // A contention seen only at the deadline never retries, so its
+                // warning is owed here. The descriptor then closes, which also
+                // releases a success that arrived after the deadline, and the
+                // registration removes its entry.
+                warning.emit(warn);
                 platform::unlock(&file);
                 return Err(RecipeError::staging_lock_contended(
                     path.as_str(),
@@ -283,16 +286,47 @@ fn acquire_file(
                 ));
             }
             LockStep::Retry { delay, warn } => {
-                if warn {
-                    warned = true;
-                    warn!(
-                        path = path.as_str(),
-                        timeout_ms = duration_millis(policy.timeout()),
-                        "staging lock is held; waiting for the holder to release it"
-                    );
-                }
+                warning.emit(warn);
                 thread::sleep(delay);
             }
+        }
+    }
+}
+
+/// The single contention warning owed by one acquisition attempt.
+struct ContentionWarning<'a> {
+    /// Lockfile path reported in the warning.
+    path: &'a Utf8Path,
+    /// Timeout reported in the warning.
+    timeout: Duration,
+    /// Whether the warning has already been emitted.
+    emitted: bool,
+}
+
+impl<'a> ContentionWarning<'a> {
+    /// Bind a warning to the acquisition it belongs to.
+    const fn new(path: &'a Utf8Path, policy: LockPolicy) -> Self {
+        Self {
+            path,
+            timeout: policy.timeout(),
+            emitted: false,
+        }
+    }
+
+    /// Whether the warning has been emitted already.
+    const fn is_emitted(&self) -> bool {
+        self.emitted
+    }
+
+    /// Emit the warning if the policy asked for it and it is still owed.
+    fn emit(&mut self, warn: bool) {
+        if warn && !self.emitted {
+            self.emitted = true;
+            warn!(
+                path = self.path.as_str(),
+                timeout_ms = duration_millis(self.timeout),
+                "staging lock is held; contention observed"
+            );
         }
     }
 }
