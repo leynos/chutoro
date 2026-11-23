@@ -1116,6 +1116,14 @@ staging, and the separately compiled CI gate binaries. Keep the rest of each
 workspace crate under `no_std_fs_operations` enforcement and add an explanatory
 comment whenever a new boundary is unavoidable.
 
+A capability root is not a filesystem exception. When `cap-std` lacks an
+operation, borrow the descriptor it already owns (`AsFd`) rather than
+recovering an ambient `std::fs::File` with `into_std()`. The staging lock's
+`rustix::fs::flock` call is the worked example: it needs a lock, declares a
+direct optional dependency whose version is already pinned in the lockfile, and
+keeps `chutoro-bench-datasets` out of the exclusion list. Reach for
+`dylint.toml` only when no capability-preserving route exists.
+
 ## Injected environment access
 
 Read environment values through `mockable::Env`, not ambient `std::env`
@@ -1541,6 +1549,28 @@ naming the path, because a contract cannot say anything about a workflow it
 never saw, and `Path.glob` yields nothing for a missing directory rather than
 complaining about it: without the guard, every assertion passed having read no
 workflow at all.
+
+### Fixture lockfiles
+
+Each compile-contract fixture under
+`chutoro-compile-contracts/tests/fixtures/<name>/` keeps its own `Cargo.lock`,
+because each fixture is a standalone workspace. Every package version in a
+fixture lockfile must also appear in the workspace `Cargo.lock`, except the
+fixture's own package, which the contract excludes: CI fetches only the
+workspace lockfile, and the fixture checks then run
+`cargo check --offline --locked`, so a fixture-only version is unavailable and
+fails before compilation starts. Seed the fixture lock from the workspace one
+and let Cargo prune it:
+
+```sh
+cp Cargo.lock chutoro-compile-contracts/tests/fixtures/<name>/Cargo.lock
+cargo metadata --format-version 1 --offline \
+  --manifest-path chutoro-compile-contracts/tests/fixtures/<name>/Cargo.toml
+```
+
+`tests/workflow_contracts/fixture_locks_test.py` enforces the subset rule, so a
+fixture regenerated against a newer registry version fails the contract rather
+than the offline check.
 
 ### The development route's own contracts
 
@@ -2184,7 +2214,8 @@ Compile-contract tests belong in the `chutoro-compile-contracts` package. Its
 package-level `nextest` override shares the `nested-cargo` serial group with
 other tests that start compilers, reserves four required threads, and sets a
 1,800-second `slow-timeout` in both profiles. Other tests retain the 60-second
-default per-test `slow-timeout`.
+default per-test `slow-timeout`. Fixture lockfiles follow the seed-and-prune
+procedure in [Fixture lockfiles](#fixture-lockfiles).
 
 The `Doctests` step runs `make test-doc` because the coverage action's
 `cargo nextest` invocation never runs doctests. The target compiles and runs
@@ -3269,15 +3300,28 @@ overwrite semantics, and `Publisher` is the final write-once sink. `CacheKey`
 and `ObjectKey` are opaque string newtypes: recipes treat them as identifiers,
 and any interpretation of a key as a filesystem path, object-store prefix, or
 other backend-specific address belongs to the `Storage` and `Publisher`
-adapters. Network download, archive extraction, object-store adapters,
-lockfiles, fetch-time checksum verification, and licence gates are deferred to
-later roadmap items.
+adapters. Network download, archive extraction, object-store adapters, the
+roadmap 10.1.5 cache lockfile, fetch-time checksum verification, and licence
+gates are deferred to later roadmap items.
+
+All filesystem access goes through `cap_std::fs_utf8` relative to a `Dir`
+capability root. Do not call `std::fs`, and do not call `into_std()` to recover
+an ambient handle. The staging lock in `src/transfer/lock.rs`, enabled by the
+`http` feature, opens its `.lock` file through the capability root and borrows
+the descriptor with `AsFd` for `rustix::fs::flock`; this is the sanctioned
+pattern for an operation `cap-std` does not expose. The lock is advisory, so
+the cache root must be a local filesystem: `flock` is unreliable on NFS and may
+be emulated on overlay mounts. See
+[`ADR-009`](adrs/adr-0009-staging-lock-via-rustix-flock.md).
 
 Enable the crate's `testing` feature for adapter contract tests. It exposes
 `InMemoryFetcher`, `InMemoryStorage`, `InMemoryPublisher`, `FilesystemFetcher`,
 and `StubRecipe`. The behavioural tests in
 `chutoro-bench-datasets/tests/recipe_bdd.rs` run the same fetcher contract
-against both in-memory and filesystem-backed adapters.
+against both in-memory and filesystem-backed adapters. The `http` feature
+exposes `StagingLock`, `StagingLockGuard`, `LockPolicy`, and their outcome
+types; it enables `cap-std` and `rustix` but changes neither `default` nor
+`testing`.
 
 The design rationale is recorded in
 [`ADR-004`](adrs/adr-0004-bench-dataset-recipe-trait.md). The broader dataset

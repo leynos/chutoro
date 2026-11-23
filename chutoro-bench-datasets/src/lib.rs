@@ -13,8 +13,16 @@
 //!
 //! Deferred roadmap items intentionally remain out of this crate. Network
 //! download primitives, extractor ports, canonical manifest schemas, object
-//! store adapters, lockfiles, provenance gates, licence gates, and
-//! property-based metadata verification are added by later milestones.
+//! store adapters, the roadmap 10.1.5 cache lockfile, provenance gates,
+//! licence gates, and property-based metadata verification are added by later
+//! milestones. The `http` feature provides the staging-file lock that
+//! resumable transfers will use.
+//!
+//! # Features
+//!
+//! - `testing` exposes in-memory and filesystem-backed test adapters.
+//! - `http` exposes the capability-scoped staging lock. It enables `cap-std`
+//!   and `rustix` but does not change the `testing` or default feature sets.
 //!
 //! # Example
 //!
@@ -41,11 +49,14 @@
 //!
 //! # Concurrency
 //!
-//! Concurrent invocations for the same [`RecipeId`] may produce
+//! Concurrent invocations for the same [`RecipeId`] may still produce
 //! non-deterministic cache results until roadmap item `10.1.5` introduces
-//! lockfile semantics. Recipes and ports are `Send + Sync` so a future driver
-//! can coordinate work explicitly, but this milestone provides no cache-level
-//! mutual exclusion.
+//! cache lockfile semantics. The `http` feature's staging lock excludes
+//! concurrent writers to one staging artefact only; it does not deduplicate
+//! recipe preparation or coordinate the cache index.
+//!
+//! Recipes and ports are `Send + Sync` so a future driver can coordinate work
+//! explicitly, but this milestone provides no cache-level mutual exclusion.
 
 mod context;
 mod driver;
@@ -55,6 +66,9 @@ mod newtypes;
 mod ports;
 mod published;
 mod recipe;
+
+#[cfg(feature = "http")]
+pub mod transfer;
 
 #[cfg(any(test, feature = "testing"))]
 pub mod testing;
@@ -70,3 +84,9 @@ pub use newtypes::{
 pub use ports::{Fetcher, Publisher, Storage};
 pub use published::{PublishedArtefact, PublishedManifest};
 pub use recipe::DatasetRecipe;
+
+#[cfg(feature = "http")]
+pub use transfer::{
+    DEFAULT_POLL_INTERVAL, LockAttempt, LockPolicy, LockPolicyError, LockStep, MIN_POLL_INTERVAL,
+    StagingLock, StagingLockGuard,
+};

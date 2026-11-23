@@ -8,6 +8,7 @@ publish = false
 
 [features]
 default = []
+http = ["dep:cap-std", "dep:rustix"]
 testing = ["dep:cap-std"]
 
 [dependencies]
@@ -17,15 +18,20 @@ cap-std = { version = "4.0.3", optional = true, features = ["fs_utf8"] }
 thiserror = "2.0"
 tracing = "0.1"
 
+[target.'cfg(not(windows))'.dependencies]
+rustix = { version = "1.1.4", optional = true, features = ["fs"] }
+
 [dev-dependencies]
-chutoro-bench-datasets = { path = ".", features = ["testing"] }
+chutoro-bench-datasets = { path = ".", features = ["testing", "http"] }
 chutoro-test-support = { path = "../chutoro-test-support" }
+mockable.workspace = true
 mockall = "0.15"
 proptest = "1.5"
 rstest = "0.28"
 rstest-bdd = "0.6.0-beta1"
 rstest-bdd-macros = "0.6.0-beta1"
 tempfile = "3.10"
+tracing-subscriber = "0.3"
 tracing-test = { version = "0.2", features = ["no-env-filter"] }
 
 [lints]

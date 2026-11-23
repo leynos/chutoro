@@ -464,14 +464,17 @@ dependencies = [
  "cap-std",
  "chutoro-bench-datasets",
  "chutoro-test-support",
+ "mockable",
  "mockall 0.15.0",
  "proptest",
  "rstest",
  "rstest-bdd",
  "rstest-bdd-macros",
+ "rustix",
  "tempfile",
  "thiserror 2.0.21",
  "tracing",
+ "tracing-subscriber",
  "tracing-test",
 ]
 
