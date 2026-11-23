@@ -10,13 +10,23 @@ experimental = ["setup-scripts"]
 [scripts.setup.fetch-locked]
 command = "cargo fetch --locked"
 
+# Build the benchmark binaries the smoke test runs through a nested `cargo bench`,
+# so that test finds them built instead of compiling them inside its timed body
+# while it waits in the shared build-limits queue (NC-010, chutoro#454). The
+# nested command uses the same `--offline --locked`, and nextest passes this
+# script the environment `make test` sets, so the RUSTFLAGS match. The allowance
+# plus the fetch's stays well inside `global-timeout`.
+[scripts.setup.warm-benches]
+command = "cargo bench --offline --locked -p chutoro-benches --benches --no-run"
+slow-timeout = { period = "300s", terminate-after = 3 }
+
 [[profile.default.scripts]]
 filter = "all()"
 setup = "fetch-locked"
 
-[[profile.ci.scripts]]
-filter = "all()"
-setup = "fetch-locked"
+[[profile.default.scripts]]
+filter = "package(chutoro-benches)"
+setup = "warm-benches"
 
 [test-groups]
 # Every test that starts Cargo or rustc shares one serial slot.
