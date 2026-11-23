@@ -112,6 +112,8 @@ fn registry_warning_does_not_hold_the_registry_mutex(root_res: io::Result<Stagin
         lock: StagingLock,
         /// Whether the callback has already run.
         entered: std::sync::atomic::AtomicBool,
+        /// Set when the callback's nested acquisition succeeds.
+        reacquired: std::sync::Arc<std::sync::atomic::AtomicBool>,
     }
 
     impl<S: tracing::Subscriber> tracing_subscriber::layer::Layer<S> for ReenterOnEvent {
@@ -126,7 +128,9 @@ fn registry_warning_does_not_hold_the_registry_mutex(root_res: io::Result<Stagin
             let reentrant_policy = LockPolicy::new(Duration::from_millis(200))
                 .and_then(|policy| policy.with_poll_interval(Duration::from_millis(2)));
             if let Ok(valid_policy) = reentrant_policy {
-                let _acquired = self.lock.acquire("reentrant.lock", valid_policy);
+                let acquired = self.lock.acquire("reentrant.lock", valid_policy).is_ok();
+                self.reacquired
+                    .store(acquired, std::sync::atomic::Ordering::SeqCst);
             }
         }
     }
@@ -139,11 +143,13 @@ fn registry_warning_does_not_hold_the_registry_mutex(root_res: io::Result<Stagin
             policy(Duration::from_millis(50)).expect("policy"),
         )
         .expect("outer lock should be acquired");
+    let reacquired = std::sync::Arc::new(std::sync::atomic::AtomicBool::new(false));
     let subscriber = tracing_subscriber::layer::SubscriberExt::with(
         tracing_subscriber::registry(),
         ReenterOnEvent {
             lock: root.lock(),
             entered: std::sync::atomic::AtomicBool::new(false),
+            reacquired: std::sync::Arc::clone(&reacquired),
         },
     );
     let (sender, receiver) = std::sync::mpsc::channel();
@@ -162,6 +168,10 @@ fn registry_warning_does_not_hold_the_registry_mutex(root_res: io::Result<Stagin
         .expect("the registry warning must not hold the registry mutex");
     assert!(rejected, "the duplicate must still be rejected");
     worker.join().expect("worker should finish");
+    assert!(
+        reacquired.load(std::sync::atomic::Ordering::SeqCst),
+        "the re-entrant subscriber must acquire its nested lock"
+    );
 }
 
 #[rstest]
