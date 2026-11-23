@@ -99,7 +99,7 @@ Concurrent matrix jobs that prepare the same dataset must exclude each other
 while a partial download is appended, committed, or discarded. The
 `chutoro-bench-datasets` `http` feature therefore provides an advisory staging
 lock. The governing decision is
-[`ADR-007`](adrs/adr-0007-staging-lock-via-rustix-flock.md).
+[`ADR-008`](adrs/adr-0008-staging-lock-via-rustix-flock.md).
 
 - The lock file is a stable, relative `.lock` file inside the cache root. It is
   created if missing, opened without truncation, and never removed or renamed.

@@ -3272,7 +3272,7 @@ the descriptor with `AsFd` for `rustix::fs::flock`; this is the sanctioned
 pattern for an operation `cap-std` does not expose. The lock is advisory, so
 the cache root must be a local filesystem: `flock` is unreliable on NFS and may
 be emulated on overlay mounts. See
-[`ADR-007`](adrs/adr-0007-staging-lock-via-rustix-flock.md).
+[`ADR-008`](adrs/adr-0008-staging-lock-via-rustix-flock.md).
 
 Enable the crate's `testing` feature for adapter contract tests. It exposes
 `InMemoryFetcher`, `InMemoryStorage`, `InMemoryPublisher`, `FilesystemFetcher`,

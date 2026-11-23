@@ -1,4 +1,4 @@
-# Architectural decision record (ADR) 007: staging-file locks via rustix flock
+# Architectural decision record (ADR) 008: staging-file locks via rustix flock
 
 ## Status
 
@@ -46,9 +46,11 @@ new version. It is not, however, a declared dependency of
 through the `testing` feature and its dev-dependency graph. Using `rustix` in
 production code requires a direct, target-scoped optional dependency.
 
-ADR 0005 records the Cranelift development route and ADR 0006 records
-sequential trim scoring, so this decision takes the next free serial, 0007;
-published ADR numbers are not reused.
+ADR 0005 records the Cranelift development route, ADR 0006 records
+sequential trim scoring, and ADR 0007 records the Fearless SIMD kernel
+boundary, so this decision takes the next free serial, 0008; published ADR
+numbers are not reused. This ADR was first drafted as 0007 and renumbered when
+that serial landed on `main` first.
 
 ## Decision drivers
 
@@ -106,7 +108,7 @@ timeout clock starts, and the opened descriptor must be a regular file.
 Acquisition follows a pure, clock-free `LockPolicy::next_step` that receives
 the attempt outcome, elapsed time, and whether a contention warning has already
 been emitted. It returns one of `Acquired`, `Retry { delay, warn }`, or
-`TimedOut`. The policy:
+`TimedOut { warn }`. The policy:
 
 - rejects a zero timeout and a poll interval below one millisecond;
 - clamps every sleep to the remaining time before the deadline;
@@ -114,7 +116,10 @@ been emitted. It returns one of `Acquired`, `Retry { delay, warn }`, or
   both;
 - rejects a late success: a lock granted at or after the deadline is released
   and reported as a timeout;
-- emits `warn = true` exactly once, on the first contention.
+- emits `warn = true` exactly once, on the first contention, including a first
+  contention observed only at or after the deadline. That case never reaches a
+  retry, so the timeout carries the warning itself; without it a very short
+  accepted timeout would fail with no log line at all.
 
 The adapter sleeps exactly the delay the policy returns. It never blocks in the
 kernel, so a holder that dies without unlocking cannot wedge another job beyond
