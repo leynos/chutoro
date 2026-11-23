@@ -66,8 +66,8 @@ open each document.
 - [ADR 008: GloVe source and ZIP scope](adrs/adr-0008-glove-source-and-zip-scope.md):
   accepted guidance for sourcing GloVe from ANN-Benchmarks HDF5 and keeping ZIP
   out of the download and dataset scope.
-- [ADR 008: staging-file locks via rustix
-  flock](adrs/adr-0008-staging-lock-via-rustix-flock.md): accepted guidance for
+- [ADR 009: staging-file locks via rustix
+  flock](adrs/adr-0009-staging-lock-via-rustix-flock.md): accepted guidance for
   capability-scoped advisory staging locks and their bounded acquisition policy.
 
 ## Requests for comments

@@ -1,4 +1,4 @@
-# Architectural decision record (ADR) 008: staging-file locks via rustix flock
+# Architectural decision record (ADR) 009: staging-file locks via rustix flock
 
 ## Status
 
@@ -47,10 +47,10 @@ through the `testing` feature and its dev-dependency graph. Using `rustix` in
 production code requires a direct, target-scoped optional dependency.
 
 ADR 0005 records the Cranelift development route, ADR 0006 records sequential
-trim scoring, and ADR 0007 records the Fearless SIMD kernel boundary, so this
-decision takes the next free serial, 0008; published ADR numbers are not
-reused. This ADR was first drafted as 0007 and renumbered when that serial
-landed on `main` first.
+trim scoring, ADR 0007 records the Fearless SIMD kernel boundary, and ADR 0008
+records the GloVe source and ZIP scope, so this decision takes the next free
+serial, 0009; published ADR numbers are not reused. It was drafted as 0007 and
+renumbered twice as those serials landed on `main` first.
 
 ## Decision drivers
 
