@@ -4,10 +4,11 @@ This ExecPlan (execution plan) is a living document. The sections `Constraints`,
 `Tolerances`, `Risks`, `Progress`, `Surprises & discoveries`, `Decision log`,
 and `Outcomes & retrospective` must be kept up to date as work proceeds.
 
-Status: APPROVED for implementation (2026-11-23, revision 6). The maintainer
-approved this plan and authorized production work for Milestones 0 to 2.
-Milestones 3 to 6 stay gated on Gate A, and need no further authorization
-beyond the gates themselves.
+Status: IN PROGRESS (revision 7, 2026-11-23). The maintainer approved the plan
+and authorized production work for Milestones 0 to 2. Gate A has now been
+measured and fails: the decision-size ratio is 0.16% to 0.69%, far below the
+pre-registered 5%. Milestones 3 to 6 are therefore declined, and the remaining
+work is Milestone 2 and Milestone 7.
 
 Roadmap item: 2.3.2 (Phase 2, "Hot-path optimizations"), `docs/roadmap.md`
 lines 400-402. Design: `docs/chutoro-design.md` §6.3 "SIMD utilization".
@@ -102,17 +103,17 @@ does not mark 2.2.8 complete or in progress.
 | Non-exhaustive error-code enums                                   | Done                                   | `define_error_codes!` in `mst/error.rs:52-66`, PR #427 (#203)                  |
 | Users' guide MST error codes                                      | Done                                   | `docs/users-guide.md:531-564`, PR #434 (#207)                                  |
 | Pipeline benchmark and stage profile                              | Done                                   | `chutoro-benches/benches/pipeline.rs`, `pipeline-profile` feature, PR #431     |
-| Gate A on the current tree                                        | **Outstanding measurement**            | Milestone 1                                                                    |
-| Assembly inspection of scalar loops                               | **Outstanding measurement**            | Milestone 1                                                                    |
+| Gate A on the current tree                                        | Done                                   | Milestone 1: 0.1640%-0.6895% at n = 10 000, so the gate fails                  |
+| Assembly inspection of scalar loops                               | Done                                   | Milestone 1: scalar `maxss`/`vmaxss`, no packed float max at either codegen    |
 | Exact-edge-list oracle property                                   | **Remaining**                          | Milestone 2                                                                    |
 | BDD scenarios for edge preparation                                | **Remaining**                          | Milestone 2                                                                    |
 | Deterministic transform lookup errors                             | **Remaining** (found in this revision) | Milestone 2                                                                    |
 | Dedup-before-sort                                                 | **Remaining, exactness-gated**         | Milestone 2                                                                    |
-| Gate B sub-stage instrument                                       | **Gated** on Gate A                    | Milestone 3                                                                    |
-| Packed sort record                                                | **Gated** on Gate A                    | Milestone 4                                                                    |
-| Candidate pre-filter (Filter-Kruskal)                             | **Gated** on Gate A and its own case   | Milestone 5                                                                    |
-| Fearless SIMD kernel                                              | **Gated** on Gates A and B             | Milestone 6                                                                    |
-| `fearless_simd = "1.2"`, `fearless_simd_macros = "0.1"`           | Authorized, **not added**              | Added only inside Milestone 6, after its gates pass                            |
+| Gate B sub-stage instrument                                       | Declined                               | Gate A failed: the ratio is below 5%, so the milestone is not entered          |
+| Packed sort record                                                | Declined                               | Gate A failed: the sort-only lever cannot justify itself                       |
+| Candidate pre-filter (Filter-Kruskal)                             | Declined                               | Gate A failed: the union-find walk is inside a sub-1% stage                    |
+| Fearless SIMD kernel                                              | Declined                               | Gate A failed: no SIMD dependency is added                                     |
+| `fearless_simd = "1.2"`, `fearless_simd_macros = "0.1"`           | Not added                              | The Milestone 6 gates were not reached, so the exemption is unused             |
 | Null-result record and roadmap closure                            | **Remaining**                          | Milestone 7                                                                    |
 
 _Table 3: Completed, outstanding, gated and remaining work. Paths are relative
@@ -406,19 +407,68 @@ Timestamps are mandatory (Tolerance 8).
       partitions with the same flags: 1558 passed and 1 skipped outside
       `chutoro-compile-contracts`, then 21 of 21 inside it. `make test-doc`
       passes.
-- [ ] Milestone 1: Gate A measurement and assembly inspection.
+- [x] (2026-11-23) Milestone 1: Gate A measurement and assembly inspection.
+      Five profiled runs at 4 threads give 0.1640%, 0.1812%, 0.2345%, 0.5458%
+      and 0.6895% at n = 10 000 (minimum, median and maximum 0.1640%, 0.2345%
+      and 0.6895%), and 0.7130% to 2.4731% at n = 1000. Supplementary runs give
+      0.2706% at one thread and 0.1499% at eight. The highest decision-size
+      ratio is below 5%, so Gate A fails. Assembly inspection finds no packed
+      float max at the default or `x86-64-v3` codegen; the transform loop is
+      scalar `maxss`/`vmaxss`.
 - [ ] Milestone 2: remaining guards.
   - [ ] Exact-edge-list oracle property.
   - [ ] BDD feature and step glue, with pinned fixtures.
   - [ ] Lowest-index lookup errors in the transform.
   - [ ] Dedup-before-sort, or a recorded reason for declining it.
-- [ ] Milestone 3 (gated on A): Gate B instrument and measurement.
-- [ ] Milestone 4 (gated on A): packed sort record.
-- [ ] Milestone 5 (gated on A and its own case): Filter-Kruskal.
-- [ ] Milestone 6 (gated on A and B): Fearless SIMD kernel.
+- [x] (2026-11-23) Milestone 3 (gated on A): declined, Gate A failed.
+- [x] (2026-11-23) Milestone 4 (gated on A): declined, Gate A failed.
+- [x] (2026-11-23) Milestone 5 (gated on A and its own case): declined, Gate A
+      failed.
+- [x] (2026-11-23) Milestone 6 (gated on A and B): declined, Gate A failed.
 - [ ] Milestone 7: design-document update, roadmap and final gates.
 
 ## Surprises & discoveries
+
+### Found in revision 7 (2026-11-23, measured)
+
+- Observation: **Gate A is far below its threshold on the current tree.**
+  Evidence: five profiled runs on the Table 4 workload at four threads give
+  ratios of 0.1640%, 0.1812%, 0.2345%, 0.5458% and 0.6895% at n = 10 000, and
+  0.7130% to 2.4731% at n = 1000. The highest decision-size ratio is under
+  0.7%. Impact: the gate fails under its own pass/fail rule, so Milestones 3 to
+  6 are declined and the plan takes its null-result path.
+
+- Observation: **the harvested edge count is about 34n, not about 16n.**
+  Evidence: a one-off probe on the decision workload reports 340,465 harvested
+  edges at n = 10 000 and 32,966 at n = 1000. Impact: revision 2's estimate
+  understated the list by more than half, but the measured stage shares are
+  smaller still, so the conclusion does not depend on the estimate.
+
+- Observation: **the measurement window was noisy but the ratios were
+  decisive.** Evidence: the host ran under heavy unrelated compile load from
+  other agents for the whole window, and the `pipeline/n=10000` Criterion
+  intervals span 43 s to 80 s. Even the highest ratio, at the noisiest moment,
+  is 0.69%. Impact: the noise band is wide in absolute time but cannot close a
+  gap of more than four percentage points.
+
+- Observation: **the scalar loops are not already effectively vectorized, and
+  a target-specialized build does not change that.** Evidence: scanning the
+  emitted assembly of `chutoro-core`, the default build contains no `maxps`,
+  `cmpps` or `vpcmpgtq` anywhere, and the transform's per-edge loop is scalar
+  `maxss` twice per edge. The `x86-64-v3` build uses `vmaxss` twice per edge
+  and still contains no packed float max. Impact: Gate A, not the assembly, is
+  what declines the kernel; the assembly finding is recorded so a later reader
+  does not have to repeat it.
+
+- Observation: **the measurement method needed two bounded substitutions.**
+  Evidence: assigning `RUSTFLAGS="--emit=asm"` would suppress the dependency
+  rlibs, so the assembly was emitted with
+  `cargo rustc -p chutoro-core --profile bench --lib -- --emit=asm`, which
+  confines the flag to the crate under inspection and reuses the bench-profile
+  cache. The supplementary one-thread and eight-thread runs bound Criterion with
+  `--profile-time 1`, because the decision-size iteration costs minutes at one
+  thread. Impact: neither substitution touches the five-run, four-thread Gate A
+  measurement; both are recorded in the decision log.
 
 ### Found in revision 4 (2026-11-22)
 
@@ -554,6 +604,25 @@ On those numbers the Gate A ratio would be about 1.25% at n = 1000 and 0.16% at
 n = 10 000. That is an expectation for Milestone 1, not its outcome.
 
 ## Decision log
+
+- Decision (2026-11-23): **Gate A fails, so Milestones 3 to 6 are declined.**
+  The measured decision-size ratios are 0.1640%, 0.1812%, 0.2345%, 0.5458% and
+  0.6895% across five four-thread runs; the gate's rule fails the gate when the
+  highest ratio is below 5%. Tolerance 5 requires recording the null result
+  beside the roadmap item and continuing with the applicable remaining work,
+  which is Milestone 2 and Milestone 7. Open questions Q1 and Q2 close as moot,
+  as the 2026-11-23 authorization decision provided.
+
+- Decision (2026-11-23): record the assembly-inspection method substitution.
+  `cargo rustc -p chutoro-core --profile bench --lib -- --emit=asm` was used
+  instead of the plan's `RUSTFLAGS="--emit=asm" cargo build`, because an
+  assigned `RUSTFLAGS` applies to every crate in the graph and suppresses the
+  dependency rlibs the build needs. The flag therefore reaches only the crate
+  under inspection, from the same bench profile and the same baseline and
+  `x86-64-v3` codegen. The supplementary one-thread and eight-thread profile
+  runs use Criterion `--profile-time 1` to bound their measurement phase.
+  Neither substitution changes the five-run four-thread Gate A measurement or
+  its pass/fail rule.
 
 - Decision (2026-11-23): the maintainer approved this plan and instructed that
   implementation begin. The approval covers Milestones 0 to 2 as production
@@ -1224,7 +1293,22 @@ Interim note (2026-11-22): the cheap structural work landed through four
 separate issues rather than through this plan. Whether anything expensive
 remains is now a single pending measurement.
 
+Interim note (2026-11-23): **Gate A fails.** On the Table 4 workload,
+`(T_mutual_reachability + T_kruskal) / T_whole_run` is 0.1640% to 0.6895% at n
+= 10 000 across five four-thread runs, with a median of 0.2345%; at n = 1000
+the same ratio is 0.7130% to 2.4731%. One-thread and eight-thread runs give
+0.2706% and 0.1499% at the decision size. Gate B, the packed sort record,
+Filter-Kruskal and the Fearless SIMD kernel are all declined on that number, so
+no dependency or manifest change was made. The scalar loops are scalar at both
+codegen levels: the transform's per-edge work compiles to two `maxss` (default)
+or `vmaxss` (`x86-64-v3`) instructions, and no packed float max appears
+anywhere in the crate. What remains is the Milestone 2 guards and the Milestone
+7 record.
+
 ## Revision note
+
+**Revision 7 (2026-11-23).** Recorded the Gate A measurement and its failure,
+the assembly inspection, and the decision to decline Milestones 3 to 6.
 
 **Revision 6 (2026-11-23).** Recorded the maintainer's approval of the plan and
 the instruction to begin implementation, and set the status to APPROVED before
