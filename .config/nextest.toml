@@ -10,13 +10,57 @@ experimental = ["setup-scripts"]
 [scripts.setup.fetch-locked]
 command = "cargo fetch --locked"
 
+# Two tests start nested builds inside their own timed bodies: the benchmark
+# smoke test (`cargo bench`) and the compile-contract tests (trybuild and fixture
+# `cargo check`). On a cold target directory, or a host whose shared compile pool
+# is busy, a test then spends its whole allowance queueing for a compile slot and
+# fails without any defect (#454). These scripts pay for the builds once, before
+# any test starts, so each timed body finds them built. They are set on the
+# `default` profile, which `ci` inherits, so a local `make test` is covered as well
+# as CI, and they run only when a test they serve is selected. They build with
+# the same packages, features and profile as the tests (the `RUSTFLAGS` the gate
+# exports reach them too), so the tests reuse the result instead of rebuilding.
+#
+# Each has its own allowance, sized for a cold queue and not for a quiet host:
+# the whole serial compile-contract suite gets as long as one contract test did
+# (1,800 s), since a cold test was already reaching 1,500 s. The three allowances
+# sum to 4,200 s, and `global-timeout` (80 m, 4,800 s) sits above that sum plus
+# the 235 s a warm full run measures.
+[scripts.setup.warm-benches]
+command = "cargo bench --offline --locked -p chutoro-benches --benches --no-run"
+slow-timeout = { period = "1800s", terminate-after = 1 }
+
+# Runs the compile-contract tests themselves, one at a time, since they are the
+# only way to fill trybuild's scratch project and the fixture target directories
+# they check. A failing test makes the script fail, and nextest then reports that
+# failure rather than running the suite. `make test` runs with `--all-features`,
+# which this follows.
+[scripts.setup.warm-compile-contracts]
+command = "cargo test --offline --locked --all-features --no-fail-fast -p chutoro-compile-contracts -- --test-threads=1"
+slow-timeout = { period = "1800s", terminate-after = 1 }
+
+# The same suite with the crate's default features. A direct `cargo nextest run`
+# without `--all-features` selects tests the all-features run removes, such as
+# the nightly feature-negative portable SIMD fixture, whose own target directory
+# the first script never fills. Most of the build is reused, so this one is short.
+[scripts.setup.warm-compile-contracts-default]
+command = "cargo test --offline --locked --no-fail-fast -p chutoro-compile-contracts -- --test-threads=1"
+slow-timeout = { period = "600s", terminate-after = 1 }
+
 [[profile.default.scripts]]
 filter = "all()"
 setup = "fetch-locked"
 
-[[profile.ci.scripts]]
-filter = "all()"
-setup = "fetch-locked"
+[[profile.default.scripts]]
+filter = "binary(benchmark_smoke)"
+setup = "warm-benches"
+
+[[profile.default.scripts]]
+filter = "package(chutoro-compile-contracts)"
+setup = ["warm-compile-contracts", "warm-compile-contracts-default"]
+
+# The `ci` profile inherits these rules from `default`; nextest applies a
+# profile's scripts to every profile that inherits it, so none are repeated.
 
 [test-groups]
 # Every test that starts Cargo or rustc shares one serial slot.
