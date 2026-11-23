@@ -60,17 +60,24 @@ _Table 1: Verification options for a resumed download._
 
 No hash state crosses an interruption. The trust boundary is the process.
 
-An uninterrupted transfer streams every byte through a `DigestSink` as it is
-written and verifies the result on completion. It performs no read-back.
+The advisory lock spans the whole staging-slot lifetime, for both paths. It is
+taken when the slot is acquired, before the first staged byte is written, and
+released only after the publishing rename or the discard. An uninterrupted
+transfer streams every byte through a `DigestSink` as it is written and
+verifies the result on completion. It performs no read-back. Holding the lock
+from the first write matters here: a writer that could interleave between the
+streamed digest and the rename would make the published bytes differ from the
+ones the digest covered, and no read-back would expose that.
 
 A transfer that resumes from a non-zero durable offset discards streaming
 continuity. Resume itself re-hashes no prefix: it needs only the sidecar's
 `durable_offset`, truncation of the staged file to that offset, and a check of
 the recorded validator against the current pin. After the final data fsync the
 transfer re-hashes the complete staged file from offset zero through a fresh
-read handle. The advisory lock is held from that read through the publishing
-rename, so nothing this crate controls can change the file between verification
-and publication. Publication happens only on a match.
+read handle, still under the lock it has held since acquisition, so nothing
+this crate controls can change the file between verification and publication.
+Publication happens only on a match. A transfer that restarts at offset zero
+has no durable bytes to distrust, so it streams and reads back nothing.
 
 A full-length mismatch on a resumed transfer earns exactly one clean restart. A
 restart that itself completes uninterrupted adds at most one further transfer
@@ -79,22 +86,38 @@ resumed from a non-zero durable offset follows the same rule as any other
 resumed transfer: after it completes, it pays one full read-back of
 `expected_size` bytes rather than a streaming hash, because its streamed digest
 no longer covers the whole file. A mismatch on the restart is fatal. The spent
-restart is recorded durably in the staging sidecar, as a `clean_restarts`
-counter that survives downloader recreation; the clean restart truncates the
-staged data to zero and increments the counter rather than deleting the
-sidecar. Without that record, a process started after an interrupted restart
-could spend a second one, breaking the limit and the cost bound. A mismatch
-observed with the counter already at one is fatal even if the restart itself
-was interrupted.
+restart is recorded durably in the staging sidecar as a `clean_restarts`
+counter that survives downloader recreation, and the clean restart's durable
+updates have a fixed order:
 
-The read-back budget is stated per verification attempt. An uninterrupted
-transfer reads back `0` bytes. A resumed transfer reads back the bytes its
+1. Truncate the staged data to zero and fsync it.
+2. Atomically update the sidecar to `durable_offset = 0`,
+   `clean_restarts = clean_restarts + 1`, and the current validator, via
+   temp-and-rename followed by a directory fsync.
+3. Continue the transfer from offset zero.
+
+A process that stops between steps 1 and 2 leaves a data file shorter than the
+sidecar's recorded offset. That is the restart-in-progress state, and the
+sidecar is the authority for the counter, not the file. A recreated downloader
+that observes `staged_len < durable_offset` must treat the restart as spent: it
+sets `durable_offset = 0` and `clean_restarts = 1` in one sidecar update before
+writing any byte. It may then stream from zero with no read-back. The opposite
+order is unsafe: incrementing the counter before truncating would let a crash
+in between wedge a transfer that never began its restart. Step 2 completing
+before step 1 cannot occur under this order. Without a durable counter, a
+process started after an interrupted restart could spend a second one, breaking
+the limit and the cost bound. A mismatch observed with the counter already at
+one is fatal even if the restart itself was interrupted.
+
+The read-back budget is stated per verification attempt. A transfer that
+streams from offset zero, including a clean restart, reads back `0` bytes. A
+transfer resumed from a non-zero durable offset reads back the bytes its
 completed verification pass consumes, which is `expected_size` for a pass that
 runs to the end of the file. Interruptions that fall in the data-transfer phase
 do not add attempts, however many resumes occurred. An interruption during
 verification abandons that attempt part-way, and the next process starts a
-fresh pass from offset zero, because resuming a verification would require
-exactly the hash state this record rejects.
+fresh pass from zero, because resuming a verification would require exactly the
+hash state this record rejects.
 
 Total read-back is therefore the sum of the bytes each verification attempt
 actually reads. An abandoned attempt contributes only the bytes it read before
@@ -124,12 +147,14 @@ artefact is still verified against the whole-file digest.
 ## Verification and acceptance
 
 The planned `proptest` resume state machine injects the verifier's read source
-and counts read-back bytes. It asserts `0` for an uninterrupted transfer and
-`expected_size` for an interrupted transfer, for any interruption sequence that
-falls in the data-transfer phase. For a sequence that also interrupts
-verification, it asserts the sum of the bytes each attempt actually read, and
-that the sum never exceeds `verification_attempts * expected_size`. This runs
-against the shipped functions, not a transcription.
+and counts read-back bytes. It asserts `0` for an uninterrupted transfer, `0`
+for any transfer that restarts from offset zero, and `expected_size` for a
+transfer resumed from a non-zero durable offset whose verification completes,
+for any interruption sequence that falls in the data-transfer phase. For a
+sequence that also interrupts verification, it asserts the sum of the bytes
+each attempt actually read, and that the sum never exceeds
+`verification_attempts * expected_size`. This runs against the shipped
+functions, not a transcription.
 
 Behavioural scenarios must cover:
 
@@ -137,12 +162,17 @@ Behavioural scenarios must cover:
 - At least two interruptions with the downloader recreated between attempts,
   still producing one verification pass and one read-back of `expected_size`
   bytes.
+- A clean restart that streams from offset zero and completes: `0` read-back
+  bytes, asserted through the read counter.
 - A one-byte corruption in the staged prefix before a resume: publication is
   refused with `IntegrityFailure`, and the permitted clean restart succeeds.
 - A clean restart that is itself interrupted, recreated in a fresh downloader,
   then mismatches again: publication is refused with `IntegrityFailure`, and no
   second clean restart is granted. The scenario must show the `clean_restarts`
   sidecar counter persisting across the recreation.
+- A crash simulated between truncation and the sidecar update, with a
+  recreated downloader: `durable_offset` is reset to zero, `clean_restarts`
+  reads one, and the transfer streams from zero.
 - An interruption during verification, followed by recreation and a further
   attempt: that attempt reads the whole staged file again.
 - An uninterrupted transfer that performs no read-back, asserted through the

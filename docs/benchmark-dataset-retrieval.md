@@ -188,17 +188,19 @@ In practice, local worker cache hits reduce this significantly when tuple
 ordering groups by dataset.
 
 Resume verification is part of the retrieval cost. An uninterrupted download
-hashes bytes as they are written and performs no read-back. A download that
-resumed after an interruption re-hashes the complete staged file, after the
-final byte is durable and before publication. The additional cost is charged
-per verification attempt: a completed pass reads `expected_size` bytes, and an
+hashes bytes as they are written and performs no read-back, and so does a
+restart that streams again from offset zero. A download that resumed from a
+non-zero durable offset re-hashes the complete staged file, after the final
+byte is durable and before publication. The additional cost is charged per
+verification attempt: a completed pass reads `expected_size` bytes, and an
 attempt interrupted part-way contributes only the bytes it read before
 stopping. Interruptions in the data-transfer phase add no attempts, however
 many times the transfer resumed, so the total stays linear in verification
 attempts rather than in resumes. A digest mismatch on a resumed transfer
 permits one clean restart. An uninterrupted restart adds one further transfer
-and one streaming hash; a restart that is itself interrupted adds one further
-transfer and one read-back of `expected_size` bytes instead. See
+and one streaming hash; a restart that is itself interrupted and resumed from a
+non-zero offset adds one further transfer and one read-back of `expected_size`
+bytes instead. See
 [ADR 0009](adrs/adr-0009-resumable-download-verification-trust-model.md) for
 the trust boundary and the rejected alternatives.
 
