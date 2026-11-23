@@ -4,9 +4,10 @@ This ExecPlan (execution plan) is a living document. The sections `Constraints`,
 `Tolerances`, `Risks`, `Progress`, `Surprises & discoveries`, `Decision log`,
 and `Outcomes & retrospective` must be kept up to date as work proceeds.
 
-Status: IN PROGRESS (revision 5, 2026-11-23). The maintainer has authorized
-production work for Milestones 0 to 2. Milestones 3 to 6 stay gated on Gate A,
-and need no further authorization beyond the gates themselves.
+Status: APPROVED for implementation (2026-11-23, revision 6). The maintainer
+approved this plan and authorized production work for Milestones 0 to 2.
+Milestones 3 to 6 stay gated on Gate A, and need no further authorization
+beyond the gates themselves.
 
 Roadmap item: 2.3.2 (Phase 2, "Hot-path optimizations"), `docs/roadmap.md`
 lines 400-402. Design: `docs/chutoro-design.md` §6.3 "SIMD utilization".
@@ -553,6 +554,11 @@ On those numbers the Gate A ratio would be about 1.25% at n = 1000 and 0.16% at
 n = 10 000. That is an expectation for Milestone 1, not its outcome.
 
 ## Decision log
+
+- Decision (2026-11-23): the maintainer approved this plan and instructed that
+  implementation begin. The approval covers Milestones 0 to 2 as production
+  work and closes the plan's approval gate. Milestones 3 to 6 remain gated on
+  Gates A and B as pre-registered; the approval does not weaken either gate.
 
 - Decision (2026-11-22): record the maintainer's dependency authorization as a
   narrow exemption to Constraint 7 and Tolerance 3. The authorized entries are
@@ -1219,6 +1225,10 @@ separate issues rather than through this plan. Whether anything expensive
 remains is now a single pending measurement.
 
 ## Revision note
+
+**Revision 6 (2026-11-23).** Recorded the maintainer's approval of the plan and
+the instruction to begin implementation, and set the status to APPROVED before
+the first implementation commit.
 
 **Revision 5 (2026-11-23).** Recorded the maintainer's authorization of
 production work for Milestones 0 to 2, the expected null-result path, and that
