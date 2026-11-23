@@ -1,0 +1,124 @@
+# Inventory of every Kani proof declaration in this repository.
+#
+# This file is the single classification of the proof surface. The
+# workflow-contract suite binds it to the `#[kani::proof]` declarations in the
+# tree and to the Makefile selectors, and the `kani_suite` checker requires a
+# Kani run to complete exactly the harnesses listed here for the package and
+# tier it was asked to verify.
+#
+# Fields:
+#
+# - `package`     the Cargo package the declaration is compiled into, as the
+#                 `-p` selector names it;
+# - `pretty_name` the fully qualified harness path Kani prints in its
+#                 `Checking harness <name>...` line, which is also what
+#                 `--harness <name> --exact` selects;
+# - `tier`        `fast` for the pull-request tier (`make kani`), or `full`
+#                 for proofs that run only in the nightly package sweep
+#                 (`make kani-full`).
+#
+# A harness added to the tree must be added here in the same change, with its
+# tier decided explicitly. The contract test reports an added declaration, a
+# removed manifest entry and a duplicate identity separately, so an omission
+# cannot pass as an empty surface.
+
+version = 1
+
+# chutoro-core: distance kernel proofs. Full tier: they were never part of the
+# curated pull-request set, and the fast tier is deliberately kept to proofs
+# that complete quickly.
+[[harness]]
+package = "chutoro-core"
+pretty_name = "distance::kani_proofs::verify_cosine_bounded_3d"
+tier = "full"
+
+[[harness]]
+package = "chutoro-core"
+pretty_name = "distance::kani_proofs::verify_cosine_symmetry_3d"
+tier = "full"
+
+[[harness]]
+package = "chutoro-core"
+pretty_name = "distance::kani_proofs::verify_cosine_zero_on_identical_3d"
+tier = "full"
+
+[[harness]]
+package = "chutoro-core"
+pretty_name = "distance::kani_proofs::verify_euclidean_non_negative_3d"
+tier = "full"
+
+[[harness]]
+package = "chutoro-core"
+pretty_name = "distance::kani_proofs::verify_euclidean_symmetry_3d"
+tier = "full"
+
+[[harness]]
+package = "chutoro-core"
+pretty_name = "distance::kani_proofs::verify_euclidean_zero_on_identical_3d"
+tier = "full"
+
+# chutoro-core: HNSW proofs. The two bidirectional proofs and the connectivity
+# healer's proof are the fast tier; the five invariant proofs run in the full
+# tier.
+[[harness]]
+package = "chutoro-core"
+pretty_name = "hnsw::kani_proofs::bidirectional::verify_bidirectional_links_reconciliation_2_nodes_1_layer"
+tier = "fast"
+
+[[harness]]
+package = "chutoro-core"
+pretty_name = "hnsw::kani_proofs::bidirectional::verify_bidirectional_links_smoke_2_nodes_1_layer"
+tier = "fast"
+
+# chutoro-core: the connectivity healer's fast-tier proof.
+[[harness]]
+package = "chutoro-core"
+pretty_name = "hnsw::kani_proofs::connectivity::verify_base_layer_healing_links_isolated_node_2_nodes"
+tier = "fast"
+
+[[harness]]
+package = "chutoro-core"
+pretty_name = "hnsw::kani_proofs::invariants::verify_entry_point_validity_4_nodes"
+tier = "full"
+
+[[harness]]
+package = "chutoro-core"
+pretty_name = "hnsw::kani_proofs::invariants::verify_neighbour_uniqueness_2_nodes_base_layer"
+tier = "full"
+
+[[harness]]
+package = "chutoro-core"
+pretty_name = "hnsw::kani_proofs::invariants::verify_neighbour_uniqueness_2_nodes_upper_layer"
+tier = "full"
+
+[[harness]]
+package = "chutoro-core"
+pretty_name = "hnsw::kani_proofs::invariants::verify_no_self_loops_2_nodes_base_layer"
+tier = "full"
+
+[[harness]]
+package = "chutoro-core"
+pretty_name = "hnsw::kani_proofs::invariants::verify_no_self_loops_2_nodes_upper_layer"
+tier = "full"
+
+# chutoro-core: minimum-spanning-forest proofs. Fast tier.
+[[harness]]
+package = "chutoro-core"
+pretty_name = "mst::kani_harness::kani_proofs::verify_mst_minimality_3_nodes"
+tier = "fast"
+
+[[harness]]
+package = "chutoro-core"
+pretty_name = "mst::kani_harness::kani_proofs::verify_mst_structural_correctness_4_nodes"
+tier = "fast"
+
+# chutoro-providers-dense: SIMD boundary proofs. Fast tier.
+[[harness]]
+package = "chutoro-providers-dense"
+pretty_name = "simd::kani_proofs::verify_dense_simd_dispatch_selection_respects_support_masks"
+tier = "fast"
+
+[[harness]]
+package = "chutoro-providers-dense"
+pretty_name = "simd::kani_proofs::verify_dense_simd_tail_padding_lane_bounds"
+tier = "fast"
