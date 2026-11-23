@@ -4,8 +4,9 @@ This ExecPlan (execution plan) is a living document. The sections `Constraints`,
 `Tolerances`, `Risks`, `Progress`, `Surprises & discoveries`, `Decision log`,
 and `Outcomes & retrospective` must be kept up to date as work proceeds.
 
-Status: DRAFT (revision 4, 2026-11-22). Documentation only; no production
-change is authorized by this revision.
+Status: IN PROGRESS (revision 5, 2026-11-23). The maintainer has authorized
+production work for Milestones 0 to 2. Milestones 3 to 6 stay gated on Gate A,
+and need no further authorization beyond the gates themselves.
 
 Roadmap item: 2.3.2 (Phase 2, "Hot-path optimizations"), `docs/roadmap.md`
 lines 400-402. Design: `docs/chutoro-design.md` §6.3 "SIMD utilization".
@@ -397,7 +398,13 @@ Timestamps are mandatory (Tolerance 8).
 - [x] (2026-11-22) Revision 4: reconciled against `051d395`, PR #453 at
       `16042ce` and Fearless SIMD 1.2.0; recorded the dependency authorization.
 - [x] Delivered on `main` by other pull requests (see Table 3).
-- [ ] Milestone 0: baseline gates; record the `make test` count.
+- [x] (2026-11-23) Milestone 0: baseline gates on `6e95659`. `check-fmt`,
+      `typecheck` and `lint` pass. Nextest: 1579 tests. A whole `make test` run
+      hit the 80-minute global timeout under compile-slot contention (838
+      passed, 0 failed, 1 cancelled), so the suite was completed in two
+      partitions with the same flags: 1558 passed and 1 skipped outside
+      `chutoro-compile-contracts`, then 21 of 21 inside it. `make test-doc`
+      passes.
 - [ ] Milestone 1: Gate A measurement and assembly inspection.
 - [ ] Milestone 2: remaining guards.
   - [ ] Exact-edge-list oracle property.
@@ -598,6 +605,15 @@ n = 10 000. That is an expectation for Milestone 1, not its outcome.
   `fearless_simd_macros`. Add the macro only if assembly shows the generic body
   compiled without the token's target features, and record its compile-time
   cost.
+
+- Decision (2026-11-23): the maintainer authorized production code for
+  Milestones 0 to 2, and confirmed that Kruskal remains a candidate only
+  through the gates. The expected path is: measure Gate A, record what is
+  expected to be a null result, land the Milestone 2 guards, and close the item
+  in Milestone 7. Open questions Q1 and Q2 apply only if Gate A passes, and are
+  not answered until then. Rationale: at the historical share of about 0.16%,
+  even eliminating both stages entirely would save at most that fraction of a
+  run.
 
 - Decision (2026-08-16, still in force): no `key` field on `MstEdge`; do not
   narrow the union-find arrays, which are already separate
@@ -1172,6 +1188,9 @@ Prior art:
 
 ## Open questions for the maintainer
 
+Both questions are moot unless Gate A passes (decision of 2026-11-23). If it
+fails, they close with the plan.
+
 - **Q1.** Should a transform-only SIMD kernel be allowed when Gate A passes but
   Gate B fails? Revision 4 says no, to keep the pre-registered rule. Changing
   it needs a documented decision that defines its own threshold.
@@ -1200,6 +1219,10 @@ separate issues rather than through this plan. Whether anything expensive
 remains is now a single pending measurement.
 
 ## Revision note
+
+**Revision 5 (2026-11-23).** Recorded the maintainer's authorization of
+production work for Milestones 0 to 2, the expected null-result path, and that
+Q1 and Q2 apply only if Gate A passes.
 
 **Revision 4 (2026-11-22).** Revised for the Fearless SIMD direction proposed
 in PR #453. The changes:
