@@ -106,17 +106,21 @@ the file, and the counter decides whether that short file is the authorized
 restart window or a fault. The restart window exists only while
 `clean_restarts` is zero, because the documented order truncates before it
 increments. A recreated downloader that observes `staged_len < durable_offset`
-with `clean_restarts = 0` completes the interrupted transition: it sets
-`durable_offset = 0` and `clean_restarts = 1` in one sidecar update before
-writing any byte, then streams from zero with no read-back. If the counter is
-already one, a short file cannot be that window: it is a truncated or tampered
-slot, and the transfer fails rather than restarting again. The opposite update
-order is unsafe: incrementing the counter before truncating would let a crash
-in between wedge a transfer that never began its restart. Step 2 completing
-before step 1 cannot occur under this order. Without a durable counter, a
-process started after an interrupted restart could spend a second one, breaking
-the limit and the cost bound. A mismatch observed with the counter already at
-one is fatal even if the restart itself was interrupted.
+with `clean_restarts = 0` completes the interrupted transition by applying step
+2 in full: in one sidecar update it sets `durable_offset = 0`,
+`clean_restarts = 1`, and the current validator, before writing any byte. It
+then streams from zero with no read-back. Recording the validator matters
+because a restart is typically earned by an expectation change, which includes
+a validator change; leaving the stale value behind would make a later non-zero
+resume reject a prefix written under the current pin, discarding it again. If
+the counter is already one, a short file cannot be that window: it is a
+truncated or tampered slot, and the transfer fails rather than restarting
+again. The opposite update order is unsafe: incrementing the counter before
+truncating would let a crash in between wedge a transfer that never began its
+restart. Step 2 completing before step 1 cannot occur under this order. Without
+a durable counter, a process started after an interrupted restart could spend a
+second one, breaking the limit and the cost bound. A mismatch observed with the
+counter already at one is fatal even if the restart itself was interrupted.
 
 The read-back budget is stated per verification attempt. An attempt that
 streams from offset zero reads back `0` bytes, and so does a transfer that
@@ -131,13 +135,26 @@ attempt part-way, and the next process starts a fresh pass from zero, because
 resuming a verification would require exactly the hash state this record
 rejects.
 
+A **verification attempt** opens when the transfer starts reading the staged
+file to hash it and closes when it either abandons that read or holds the
+result. Its second case extends past the last byte of the read to the
+publishing rename, because a pass that completes reading and then stops before
+that rename leaves a staged file no reader may trust. The next process
+therefore verifies the whole file again, exactly as if the read had been
+abandoned. That interval, from the first verification read to the publishing
+rename, is the **verification window** the cost bound refers to. An
+interruption anywhere inside it costs at most one further pass, whether it fell
+before, during, or after the pass's final read.
+
 Total read-back is therefore the sum of the bytes each verification attempt
 actually reads. An abandoned attempt contributes only the bytes it read before
 the interruption, not a full pass, so a 100-byte file interrupted after 10
-bytes and then verified costs 110 bytes, not 200. The sum is bounded above by
+bytes and then verified costs 110 bytes, not 200. A pass that completed its
+read and then stopped before the rename contributes the full pass, plus
+`expected_size` for the replacement. The sum is bounded above by
 `verification_attempts * expected_size`, which is linear in the number of
-interruptions landing inside a verification window and independent of the
-number of transfer resumes. Both the sum and its bound are acceptance
+interruptions landing anywhere inside a verification window and independent of
+the number of transfer resumes. Both the sum and its bound are acceptance
 properties, not only cost estimates.
 
 Per-chunk staging digests are rejected in every hasher generation. A chunk
@@ -165,8 +182,10 @@ non-zero durable offset, including one interrupted before any non-zero offset
 became durable. It asserts `expected_size` for a transfer resumed from a
 non-zero durable offset whose verification completes, for any interruption
 sequence that falls in the data-transfer phase. For a sequence that also
-interrupts verification, it asserts the sum of the bytes each attempt actually
-read, and that the sum never exceeds `verification_attempts * expected_size`.
+interrupts the verification window, it asserts the sum of the bytes each
+attempt actually read, and that the sum never exceeds
+`verification_attempts * expected_size`. It includes a stop after a completed
+pass and before the rename, which must charge that pass plus its replacement.
 This runs against the shipped functions, not a transcription.
 
 Behavioural scenarios must cover:
@@ -187,7 +206,11 @@ Behavioural scenarios must cover:
   sidecar counter persisting across the recreation.
 - A crash simulated between truncation and the sidecar update, with a
   recreated downloader: `durable_offset` is reset to zero, `clean_restarts`
-  reads one, and the transfer streams from zero.
+  reads one, the current validator is recorded, and the transfer streams from
+  zero.
+- A verification pass that completes its read but stops before the publishing
+  rename, followed by recreation: the next process reads the whole staged file
+  again, and the total is charged as two passes.
 - A short staged file observed while `clean_restarts` is already one: the
   transfer fails instead of streaming from zero, and no further restart is
   granted.

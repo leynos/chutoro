@@ -3262,12 +3262,17 @@ uninterrupted transfer hashes bytes as they are written and reads nothing back,
 as does a restart that streams again from offset zero and never later resumes,
 while a transfer that resumed from a non-zero durable offset re-hashes the
 complete staged file under the advisory lock and before the publishing rename.
-The advisory lock spans the whole staging slot for both paths. The budget is
-charged per verification attempt: `0` read-back bytes when uninterrupted or
-restarted from zero, and for a transfer resumed from a non-zero offset the
-bytes each attempt actually reads, bounded above by `expected_size` per
-attempt. Interrupting the verification starts a fresh pass rather than resuming
-it, so the bound does not scale with the number of transfer resumes.
+The advisory lock spans one transfer attempt on both paths: it is acquired
+before the attempt touches the slot and released when the attempt ends, whether
+by rename, discard, or a transient error that returns control to a retry. The
+budget is charged per verification attempt: `0` read-back bytes when
+uninterrupted or restarted from zero, and for a transfer resumed from a
+non-zero offset the bytes each attempt actually reads, bounded above by
+`expected_size` per attempt. The verification window runs from the first
+verification read to publication, so a pass that completes its read and then
+stops before the rename still costs that pass and the replacement. Interrupting
+the verification starts a fresh pass rather than resuming it, so the bound does
+not scale with the number of transfer resumes.
 
 Enable the crate's `testing` feature for adapter contract tests. It exposes
 `InMemoryFetcher`, `InMemoryStorage`, `InMemoryPublisher`, `FilesystemFetcher`,
