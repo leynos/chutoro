@@ -74,11 +74,24 @@ and publication. Publication happens only on a match.
 
 A full-length mismatch on a resumed transfer earns exactly one clean restart,
 which adds at most one further transfer and one further streaming hash. A
-mismatch on that restart is fatal.
+mismatch on that restart is fatal. The spent restart is recorded durably in the
+staging sidecar, as a `clean_restarts` counter that survives downloader
+recreation; the clean restart truncates the staged data to zero and increments
+the counter rather than deleting the sidecar. Without that record, a process
+started after an interrupted restart could spend a second one, breaking the
+limit and the cost bound. A mismatch observed with the counter already at one
+is fatal even if the restart itself was interrupted.
 
 The read-back budget is therefore: `0` bytes for an uninterrupted transfer, and
-`expected_size` bytes after any interruption sequence, independent of the
-number of resumes. It is an acceptance property, not only a cost estimate.
+one full pass of `expected_size` bytes per verification attempt for a resumed
+transfer. Interruptions that fall in the data-transfer phase do not add passes,
+however many resumes occurred. An interruption during verification abandons
+that pass, and the next process starts a fresh pass from offset zero, because
+resuming a verification would require exactly the hash state this record
+rejects. Total read-back is therefore `verification_attempts * expected_size`,
+linear in the number of interruptions that land inside a verification window
+and independent of the number of transfer resumes. That bound is an acceptance
+property, not only a cost estimate.
 
 Per-chunk staging digests are rejected in every hasher generation. A chunk
 digest computed from bytes this process wrote describes the past, cannot be
@@ -100,8 +113,10 @@ artefact is still verified against the whole-file digest.
 
 The planned `proptest` resume state machine injects the verifier's read source
 and counts read-back bytes. It asserts `0` for an uninterrupted transfer and
-`expected_size` for an interrupted transfer, for any interruption sequence.
-This runs against the shipped functions, not a transcription.
+`expected_size` for an interrupted transfer, for any interruption sequence that
+falls in the data-transfer phase. For a sequence that also interrupts
+verification, it asserts one further `expected_size` per abandoned verification
+attempt. This runs against the shipped functions, not a transcription.
 
 Behavioural scenarios must cover:
 
@@ -111,6 +126,12 @@ Behavioural scenarios must cover:
   bytes.
 - A one-byte corruption in the staged prefix before a resume: publication is
   refused with `IntegrityFailure`, and the permitted clean restart succeeds.
+- A clean restart that is itself interrupted, recreated in a fresh downloader,
+  then mismatches again: publication is refused with `IntegrityFailure`, and no
+  second clean restart is granted. The scenario must show the `clean_restarts`
+  sidecar counter persisting across the recreation.
+- An interruption during verification, followed by recreation and a further
+  attempt: that attempt reads the whole staged file again.
 - An uninterrupted transfer that performs no read-back, asserted through the
   `PartialStore` test double's read counter.
 
@@ -124,6 +145,10 @@ on EBS gp3.
 
 - A resumed transfer pays one full read of the staged artefact. At DEEP1B
   scale that is a material but bounded fraction of the transfer.
+- An interruption that lands during verification abandons that pass and pays
+  for another. The cost is bounded by the number of verification attempts, not
+  by transfer resumes, but a pathological sequence of interrupts timed to the
+  verification window can multiply the read cost.
 - The advisory lock only coordinates writers that take it. An external writer
   that ignores advisory locking, or storage corruption that occurs after the
   re-hash, is outside the guarantee. The decision verifies bytes present at
