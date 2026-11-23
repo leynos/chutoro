@@ -1549,6 +1549,27 @@ never saw, and `Path.glob` yields nothing for a missing directory rather than
 complaining about it: without the guard, every assertion passed having read no
 workflow at all.
 
+### Fixture lockfiles
+
+Each compile-contract fixture under
+`chutoro-compile-contracts/tests/fixtures/<name>/` keeps its own `Cargo.lock`,
+because each fixture is a standalone workspace. Every package version in a
+fixture lockfile must also appear in the workspace `Cargo.lock`: CI fetches
+only the workspace lockfile, and the fixture checks then run
+`cargo check --offline --locked`, so a fixture-only version is unavailable and
+fails before compilation starts. Seed the fixture lock from the workspace one
+and let Cargo prune it:
+
+```sh
+cp Cargo.lock chutoro-compile-contracts/tests/fixtures/<name>/Cargo.lock
+cargo metadata --format-version 1 --offline \
+  --manifest-path chutoro-compile-contracts/tests/fixtures/<name>/Cargo.toml
+```
+
+`tests/workflow_contracts/fixture_locks_test.py` enforces the subset rule, so a
+fixture regenerated against a newer registry version fails the contract rather
+than the offline check.
+
 ### The development route's own contracts
 
 The `dev_fast_*` suites hold the Cranelift route at three depths. Most read
@@ -2175,7 +2196,8 @@ Compile-contract tests belong in the `chutoro-compile-contracts` package. Its
 package-level `nextest` override shares the `nested-cargo` serial group with
 other tests that start compilers, reserves four required threads, and sets a
 1,800-second `slow-timeout` in both profiles. Other tests retain the 60-second
-default per-test `slow-timeout`.
+default per-test `slow-timeout`. Fixture lockfiles follow the seed-and-prune
+procedure in [Fixture lockfiles](#fixture-lockfiles).
 
 The `Doctests` step runs `make test-doc` because the coverage action's
 `cargo nextest` invocation never runs doctests. The target compiles and runs

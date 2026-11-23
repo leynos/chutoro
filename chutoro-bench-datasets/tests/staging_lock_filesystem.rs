@@ -19,17 +19,45 @@
 
 use std::{io, time::Duration};
 
+use camino::Utf8Path;
+use cap_std::{ambient_authority, fs_utf8::Dir};
 use chutoro_bench_datasets::{LockPolicy, RecipeError, StagingLock};
 use rstest::{fixture, rstest};
 use tracing_test::traced_test;
 
 mod support;
 
-use support::{StagingRoot, hold_externally, make_fifo, policy};
+use support::{StagingRoot, hold_externally, policy};
 
 #[fixture]
 fn root_res() -> io::Result<StagingRoot> {
     StagingRoot::new()
+}
+
+impl StagingRoot {
+    /// Return the absolute path of one file inside the root.
+    fn join(&self, name: &str) -> camino::Utf8PathBuf {
+        self.path().join(name)
+    }
+
+    /// Return true when `name` exists inside the root.
+    fn contains(&self, name: &str) -> bool {
+        Dir::open_ambient_dir(self.path(), ambient_authority())
+            .and_then(|dir| dir.metadata(name))
+            .is_ok()
+    }
+}
+
+/// Create a FIFO at `path` through `mkfifo(1)`, which avoids a libc binding.
+fn make_fifo(path: &Utf8Path) -> io::Result<()> {
+    let status = std::process::Command::new("mkfifo")
+        .arg(path.as_str())
+        .status()?;
+    if status.success() {
+        Ok(())
+    } else {
+        Err(io::Error::other(format!("mkfifo failed with {status}")))
+    }
 }
 
 #[rstest]
@@ -201,7 +229,7 @@ fn rejected_duplicate_leaves_the_first_lock_usable(root_res: io::Result<StagingR
         "the duplicate must be rejected before any wait"
     );
     assert!(
-        hold_externally(&root.join("shared.lock")).is_err(),
+        hold_externally(&root, "shared.lock").is_err(),
         "the first guard must still hold the lock against an independent descriptor"
     );
 

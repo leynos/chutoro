@@ -37,8 +37,8 @@ fn root_res() -> io::Result<StagingRoot> {
 fn externally_held_lock_times_out_then_allows_reacquisition(root_res: io::Result<StagingRoot>) {
     let root = root_res.expect("temporary staging root should be created");
     let lock = root.lock();
-    let blocking = root.join("blocked.lock");
-    let external = hold_externally(&blocking).expect("the external lock should be acquired");
+    let external =
+        hold_externally(&root, "blocked.lock").expect("the external lock should be acquired");
 
     let error = lock
         .acquire(
@@ -73,8 +73,8 @@ fn externally_held_lock_times_out_then_allows_reacquisition(root_res: io::Result
 fn contention_warns_only_once(root_res: io::Result<StagingRoot>) {
     let root = root_res.expect("temporary staging root should be created");
     let lock = root.lock();
-    let blocking = root.join("warned.lock");
-    let external = hold_externally(&blocking).expect("the external lock should be acquired");
+    let external =
+        hold_externally(&root, "warned.lock").expect("the external lock should be acquired");
 
     let _ = lock
         .acquire(
@@ -104,8 +104,8 @@ fn contention_warns_only_once(root_res: io::Result<StagingRoot>) {
 fn deadline_edge_contention_still_warns(root_res: io::Result<StagingRoot>) {
     let root = root_res.expect("temporary staging root should be created");
     let lock = root.lock();
-    let blocking = root.join("deadline-edge.lock");
-    let external = hold_externally(&blocking).expect("the external lock should be acquired");
+    let external =
+        hold_externally(&root, "deadline-edge.lock").expect("the external lock should be acquired");
 
     let error = lock
         .acquire(

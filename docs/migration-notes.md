@@ -98,6 +98,24 @@ stays fixed and grows by exactly one value; existing labels keep their meaning,
 a failing stage still records no sample, and builds without the feature are
 unchanged.
 
+### Additive API: `http` staging locks
+
+The new `http` feature exposes `chutoro_bench_datasets::transfer`, which
+re-exports `StagingLock`, `StagingLockGuard`, `LockPolicy`, `LockPolicyError`,
+`LockStep`, `LockAttempt`, `DEFAULT_POLL_INTERVAL`, and `MIN_POLL_INTERVAL`. It
+enables the optional `cap-std` and `rustix` dependencies; `default` and
+`testing` are unchanged, so existing consumers see no behaviour change unless
+they opt in.
+
+Four `RecipeError` variants describe staging-lock failures:
+`StagingLockInvalidName`, `StagingLockContended`, `StagingLockIo`, and
+`StagingLockUnsupportedPlatform`. `RecipeError` remains `#[non_exhaustive]`, so
+an exhaustive downstream `match` already needs a wildcard arm; add specific
+arms only where the caller reacts to a lock failure. The
+[user's guide](users-guide.md#staging-download-locks) shows the feature and the
+API, and [ADR-009](adrs/adr-0009-staging-lock-via-rustix-flock.md) records the
+design.
+
 ### Additive API: core-distance selection helper
 
 `chutoro_core::core_distance_from_neighbours` exposes the core-distance

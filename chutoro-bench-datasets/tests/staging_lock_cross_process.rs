@@ -93,7 +93,7 @@ fn parent_times_out_while_child_holds_then_reacquires() {
             RecipeError::StagingLockContended {
                 waited_millis,
                 ..
-            } if waited_millis >= 40
+            } if u128::from(waited_millis) >= CONTENTION_TIMEOUT.as_millis()
         ),
         "unexpected error: {error}"
     );

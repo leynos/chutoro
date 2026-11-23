@@ -749,6 +749,61 @@ chutoro-bench-datasets = "0.1.0"
 chutoro-bench-datasets = { version = "0.1.0", features = ["testing"] }
 ```
 
+### Staging download locks
+
+Enable the `http` feature when a recipe needs to stage a download behind an
+exclusive lock. The feature enables `cap-std` and `rustix`; it leaves both
+`default` and `testing` unchanged.
+
+```toml
+[dependencies]
+chutoro-bench-datasets = { version = "0.1.0", features = ["http"] }
+```
+
+`StagingLock` opens or creates a stable `.lock` file under a capability root,
+takes a non-blocking exclusive `flock`, and retries under a `LockPolicy` until
+the lock is granted or the timeout expires. Keep the returned
+`StagingLockGuard` alive while the staging file is written; dropping it
+releases the lock, removes the in-process registry entry, and closes the
+descriptor. The lockfile itself is never removed or renamed.
+
+```rust
+use std::time::Duration;
+use chutoro_bench_datasets::{LockPolicy, RecipeError, StagingLock};
+
+let lock = StagingLock::new("target/bench-datasets");
+let policy =
+    LockPolicy::new(Duration::from_secs(30)).map_err(|error| RecipeError::other(error))?;
+let guard = lock.acquire("mnist.lock", policy)?;
+assert!(guard.path().ends_with("mnist.lock"));
+drop(guard);
+# Ok::<(), RecipeError>(())
+```
+
+`LockPolicy::new` requires a non-zero timeout and uses a 25 ms poll interval by
+default; `with_poll_interval` sets a longer interval and rejects one below 1
+ms. A contended acquisition fails with `RecipeError::StagingLockContended`
+after the timeout and logs one warning on first contention. The lock API
+returns four staging-lock errors:
+
+- `StagingLockInvalidName`: the name is not one relative UTF-8 `.lock`
+  component; pass a stable name such as `mnist.lock`.
+- `StagingLockContended`: this process already holds the lock
+  (`waited_millis == 0`), or another holder outlasted the timeout; retry later
+  or raise the timeout.
+- `StagingLockIo`: opening, creating, or locking the file failed; inspect the
+  source error.
+- `StagingLockUnsupportedPlatform`: the target has no `flock` binding; no
+  filesystem operation is attempted.
+
+The API exists on Windows and the `rustix`-excluded targets but returns
+`StagingLockUnsupportedPlatform` there. Advisory locks are also unreliable on
+NFS and overlay mounts, so the cache root must be a local filesystem. See
+[ADR-009: staging-file locks via rustix flock](adrs/adr-0009-staging-lock-via-rustix-flock.md)
+and the
+[staging lock semantics](benchmark-dataset-retrieval.md#staging-lock-semantics)
+in the retrieval reference for the full contract.
+
 ### Dataset recipe usage pattern
 
 Implement `DatasetRecipe` for each dataset. Its associated types model the four
