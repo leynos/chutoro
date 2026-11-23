@@ -5,7 +5,7 @@ error[E0004]: non-exhaustive patterns: `_` not covered
    |           ^^^^^^^ pattern `_` not covered
    |
 note: `IntegrityFailure` defined here
-  --> $WORKSPACE/chutoro-bench-datasets/src/error.rs
+  --> $WORKSPACE/chutoro-bench-datasets/src/error/mod.rs
    |
    | pub enum IntegrityFailure {
    | ^^^^^^^^^^^^^^^^^^^^^^^^^
