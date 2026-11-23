@@ -1,5 +1,3 @@
-use crate::{DigestAlgorithm, Phase, PortName, SourceUrl};
-
 //! Typed failures emitted by dataset recipes and their I/O ports.
 
 mod cleanup_failure;
@@ -10,7 +8,7 @@ use std::{error::Error, fmt, sync::Arc};
 
 use thiserror::Error;
 
-use crate::{Phase, PortName, SourceUrl};
+use crate::{DigestAlgorithm, Phase, PortName, SourceUrl};
 
 /// Failure raised by a dataset recipe, driver, or port adapter.
 #[non_exhaustive]
@@ -486,7 +484,17 @@ pub enum IntegrityFailure {
 
 
 
+
 const _: () = assert!(std::mem::size_of::<RecipeError>() <= 32);
+
+// `RecipeError` boxes cleanup payloads as `dyn Error + Send + Sync`, so the
+// compound failure must satisfy the same bounds as every other boxed source.
+
+// `RecipeError` boxes cleanup payloads as `dyn Error + Send + Sync`, so the
+// compound failure must satisfy the same bounds as every other boxed source.
+
+// `RecipeError` boxes cleanup payloads as `dyn Error + Send + Sync`, so the
+// compound failure must satisfy the same bounds as every other boxed source.
 
 // `RecipeError` boxes cleanup payloads as `dyn Error + Send + Sync`, so the
 // compound failure must satisfy the same bounds as every other boxed source.
