@@ -27,7 +27,7 @@ use std::{num::NonZeroUsize, sync::Arc};
 use tracing::Level;
 use tracing_subscriber::layer::SubscriberExt;
 
-use chutoro_test_support::tracing::RecordingLayer;
+use chutoro_test_support::tracing::{RecordingLayer, pin_callsite_interest};
 
 /// Mirrors the concurrency the memory guard derives for this test thread.
 ///
@@ -82,6 +82,7 @@ fn builder_rejects_zero_min_cluster_size() {
 #[cfg(feature = "cpu")]
 #[rstest]
 fn run_records_core_tracing(dummy: Dummy) {
+    let _pin = pin_callsite_interest();
     let chutoro = ChutoroBuilder::new()
         .with_min_cluster_size(2)
         .with_execution_strategy(ExecutionStrategy::CpuOnly)
@@ -101,31 +102,38 @@ fn run_records_core_tracing(dummy: Dummy) {
 
 #[rstest]
 fn run_logs_empty_source_warning() {
+    let _pin = pin_callsite_interest();
     let chutoro = ChutoroBuilder::new()
         .build()
         .expect("configuration must be valid");
     let layer = RecordingLayer::default();
     let subscriber = tracing_subscriber::registry().with(layer.clone());
 
-    let err = tracing::subscriber::with_default(subscriber, || chutoro.run(&Dummy::new(vec![])))
-        .expect_err("empty sources must fail");
+    let result = tracing::subscriber::with_default(subscriber, || chutoro.run(&Dummy::new(vec![])));
+    let spans = layer.spans();
+    let events = layer.events();
+
+    let err = result.expect_err("empty sources must fail");
     assert!(matches!(err, ChutoroError::EmptySource { .. }));
 
-    let spans = layer.spans();
     let run_span = spans
         .iter()
         .find(|span| span.name == "core.run")
-        .expect("core.run span must exist");
+        .unwrap_or_else(|| {
+            panic!("core.run span must exist; spans: {spans:?}, events: {events:?}")
+        });
     assert_eq!(run_span.fields.get("items"), Some(&"0".to_owned()));
 
-    let events = layer.events();
-    assert!(events.iter().any(|event| {
-        event.level == Level::WARN
-            && event
-                .fields
-                .get("message")
-                .is_some_and(|value| value == "data source is empty, returning error")
-    }));
+    assert!(
+        events.iter().any(|event| {
+            event.level == Level::WARN
+                && event
+                    .fields
+                    .get("message")
+                    .is_some_and(|value| value == "data source is empty, returning error")
+        }),
+        "the empty-source warning must be recorded; spans: {spans:?}, events: {events:?}"
+    );
 }
 
 #[cfg(not(feature = "cpu"))]
@@ -300,6 +308,7 @@ fn run_memory_limit_uses_configured_distance_cache_capacity(dummy: Dummy) {
 #[cfg(feature = "cpu")]
 #[rstest]
 fn run_passes_builder_hnsw_params_to_cpu_pipeline(dummy: Dummy) {
+    let _pin = pin_callsite_interest();
     let hnsw_params = HnswParams::new(1, 2).expect("parameters must be valid");
     let layer = RecordingLayer::default();
     let subscriber = tracing_subscriber::registry().with(layer.clone());

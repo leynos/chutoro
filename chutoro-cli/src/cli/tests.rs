@@ -16,7 +16,7 @@ use tempfile::TempDir;
 use tracing::Level;
 use tracing_subscriber::layer::SubscriberExt;
 
-use chutoro_test_support::tracing::RecordingLayer;
+use chutoro_test_support::tracing::{RecordingLayer, pin_callsite_interest};
 
 use chutoro_providers_dense::DenseMatrixProviderError;
 use chutoro_providers_text::TextProviderError;
@@ -228,6 +228,7 @@ fn run_command_emits_tracing_fields(#[from(temp_dir)] temp_dir_result: io::Resul
     let dir = temp_dir_result.expect("temp dir should be created");
     let path = create_text_file(&dir, "lines.txt", "alpha\nbeta\ngamma\n")
         .expect("text fixture must be written");
+    let _pin = pin_callsite_interest();
     let layer = RecordingLayer::default();
     let subscriber = tracing_subscriber::registry().with(layer.clone());
 
@@ -295,6 +296,7 @@ fn run_command_emits_tracing_fields(#[from(temp_dir)] temp_dir_result: io::Resul
 fn open_text_reader_records_path_on_error(#[from(temp_dir)] temp_dir_result: io::Result<TempDir>) {
     let dir = temp_dir_result.expect("temp dir should be created");
     let missing_path = dir.path().join("missing.txt");
+    let _pin = pin_callsite_interest();
     let layer = RecordingLayer::default();
     let subscriber = tracing_subscriber::registry().with(layer.clone());
 
