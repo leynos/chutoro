@@ -22,7 +22,7 @@ tracing = "0.1"
 rustix = { version = "1.1.4", optional = true, features = ["fs"] }
 
 [dev-dependencies]
-chutoro-bench-datasets = { path = ".", features = ["testing"] }
+chutoro-bench-datasets = { path = ".", features = ["testing", "http"] }
 chutoro-test-support = { path = "../chutoro-test-support" }
 mockable.workspace = true
 mockall = "0.15"
