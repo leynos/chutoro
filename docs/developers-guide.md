@@ -2630,21 +2630,21 @@ command that applies it:
 cargo deny --locked --config deny.toml check advisories bans licenses
 ```
 
-The `cargo-deny` job in `ci.yml` runs the same target, so a local pass and a
-CI pass mean the same thing. It is an independent, blocking job with no
-`needs`, `if` or `continue-on-error`: a dependency that trips the policy fails
-the pull request even when every other lane is green. The job installs the
-pinned tool through `scripts/install-cargo-deny.sh` into a job-specific
-directory and appends that directory to `GITHUB_PATH`, because a `cargo-deny`
-already present on the runner image would otherwise shadow the pin. sccache is
-disabled: the check runs `cargo metadata` and never compiles the workspace.
+The `cargo-deny` job in `ci.yml` runs the same target, so a local pass and a CI
+pass mean the same thing. It is an independent job with no `needs`, `if` or
+`continue-on-error`: a dependency that trips the policy fails the supply-chain
+lane even when every other lane is green. The job installs the pinned tool
+through `scripts/install-cargo-deny.sh` into a job-specific directory and
+appends that directory to `GITHUB_PATH`, because a `cargo-deny` already present
+on the runner image would otherwise shadow the pin. sccache is disabled: the
+check runs `cargo metadata` and never compiles the workspace.
 
 The policy covers the workspace graph with `--all-features` and no target
-filter, so a dependency reached only from a benchmark, a test-support crate,
-or a platform-specific `cfg` is still checked. The compile-test fixture
-manifests under `chutoro-compile-contracts/tests/fixtures/` are not workspace
-members and are therefore outside the policy; they exist to compile a
-deliberately broken or feature-starved crate, not to ship.
+filter, so a dependency reached only from a benchmark, a test-support crate, or
+a platform-specific `cfg` is still checked. The compile-test fixture manifests
+under `chutoro-compile-contracts/tests/fixtures/` are not workspace members and
+are therefore outside the policy; they exist to compile a deliberately broken
+or feature-starved crate, not to ship.
 
 #### What the checks enforce
 
@@ -2653,19 +2653,19 @@ deliberately broken or feature-starved crate, not to ship.
   transitive crate this project does not choose is visible in `cargo tree` but
   does not block unrelated work. Yanked versions are denied outright.
 - **Licences.** The allowlist in `deny.toml` is exactly the set the resolved
-  graph requires. A new licence is a policy change: add it deliberately, in
-  the same pull request that introduces the crate, with a reason in the
-  review. A licence that only one crate needs belongs in
-  `[[licenses.exceptions]]` beside that crate name, not in the global `allow`
-  list. The `libbz2-rs-sys` entry is commented out until roadmap 10.1.2 adds
-  the crate; uncomment it with the dependency.
+  graph requires. A new licence is a policy change: add it deliberately, in the
+  same pull request that introduces the crate, with a reason in the review. A
+  licence that only one crate needs belongs in `[[licenses.exceptions]]` beside
+  that crate name, not in the global `allow` list. The `libbz2-rs-sys` entry is
+  commented out until roadmap 10.1.2 adds the crate; uncomment it with the
+  dependency.
 - **Bans.** Duplicate versions warn, because the workspace does not control
   the transitive `getrandom`, `hashbrown` and similar generations. One
-  duplicate is an error: two `digest` generations split the hash traits in
-  two, so `[[bans.deny]]` sets `deny-multiple-versions` for `digest`. The
-  check includes dev-dependencies because the only current `digest` path is
-  dev-only. Registry wildcards are denied; path dependencies are exempt, since
-  they are this checkout rather than an unpinned download.
+  duplicate is an error: two `digest` generations split the hash traits in two,
+  so `[[bans.deny]]` sets `deny-multiple-versions` for `digest`. The check
+  includes dev-dependencies because the only current `digest` path is dev-only.
+  Registry wildcards are denied; path dependencies are exempt, since they are
+  this checkout rather than an unpinned download.
 
 #### Changing the pin
 
@@ -2697,9 +2697,8 @@ ignore = [
 ```
 
 An ignore without an expiry is a permanent hole, and an expired ignore is
-reported as a normal advisory again. Fix the dependency first; ignore only
-what the project cannot fix, and record why in the pull request that adds the
-entry.
+reported as a normal advisory again. Fix the dependency first; ignore only what
+the project cannot fix, and record why in the pull request that adds the entry.
 
 #### Required check
 
