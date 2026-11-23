@@ -923,19 +923,23 @@ read-back would expose. A transfer resumed from a non-zero durable offset
 therefore reads back the bytes its verification attempt consumes:
 `expected_size` for a completed pass, and only the partial read for a pass
 abandoned by an interruption. An uninterrupted transfer, and a restart that
-streams again from offset zero, read back nothing because their streaming
-digest is the verification. An interruption that lands during verification
-abandons that pass; the next process starts a fresh pass from zero. A mismatch
-on a resumed transfer earns the existing single clean restart, which adds one
-further transfer plus either one streaming hash, when the restart completes
-uninterrupted, or one full read-back pass of `expected_size` bytes, when the
-restart is itself interrupted and resumed from a non-zero offset. The restart
-increments the durable `clean_restarts` counter; a mismatch on that restart is
-fatal, even if the restart itself was interrupted and the downloader recreated.
-Behavioural tests must cover: interrupt, corrupt one byte in the staged prefix,
-resume — publication is refused with `IntegrityFailure` and the clean restart
-then succeeds; a clean restart that streams from zero and completes — no
-read-back, asserted through the read counter; a crash simulated between the
+streams again from offset zero and never later resumes from a non-zero offset,
+read back nothing because their streaming digest is the verification. An
+interruption before any non-zero offset becomes durable does not change that.
+An interruption that lands during verification abandons that pass; the next
+process starts a fresh pass from zero. A mismatch on a resumed transfer earns
+the existing single clean restart, which adds one further transfer plus either
+one streaming hash, when the restart completes uninterrupted, or one full
+read-back pass of `expected_size` bytes, when the restart is itself interrupted
+and resumed from a non-zero offset. The restart increments the durable
+`clean_restarts` counter; a mismatch on that restart is fatal, even if the
+restart itself was interrupted and the downloader recreated. Behavioural tests
+must cover: interrupt, corrupt one byte in the staged prefix, resume —
+publication is refused with `IntegrityFailure` and the clean restart then
+succeeds; a clean restart that streams from zero, completes, and never later
+resumes — no read-back, asserted through the read counter; a clean restart
+interrupted after some bytes become durable and then resumed from that offset —
+`expected_size` read-back bytes on completion; a crash simulated between the
 truncation and the sidecar update, followed by recreation — the offset resets
 to zero, `clean_restarts` reads one, and the transfer streams from zero; a
 short staged file observed while `clean_restarts` is already one — the transfer
@@ -984,13 +988,14 @@ The resume sequence proptest drives a *sequence* of scripted outcomes through
 the real `decide_resume` and `accept_response` against a model of the written
 byte range, asserting the written set is exactly `[0, final_len)`. It also
 injects the verifier's read source and counts read-back bytes, asserting `0`
-for an uninterrupted transfer and, for an interrupted transfer, the sum of the
-bytes each verification attempt actually reads. It also asserts the sum never
-exceeds `verification_attempts * expected_size`. An interruption inside
-verification restarts the pass rather than resuming it, so the property bounds
-read-back by verification attempts, not transfer resumes. This is what replaces
-the dropped Verus resume proof, and unlike a proof it runs against the shipped
-code.
+for an uninterrupted transfer and for a transfer that restarts from zero and
+never later resumes, and, for a transfer resumed from a non-zero durable
+offset, the sum of the bytes each verification attempt actually reads. It also
+asserts the sum never exceeds `verification_attempts * expected_size`. An
+interruption inside verification restarts the pass rather than resuming it, so
+the property bounds read-back by verification attempts, not transfer resumes.
+This is what replaces the dropped Verus resume proof, and unlike a proof it
+runs against the shipped code.
 
 `chutoro-bench-datasets` is outside the `property-tests` workflow's `paths`
 filter and suite matrix, so these properties run through `make test` only.
