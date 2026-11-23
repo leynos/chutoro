@@ -348,6 +348,15 @@ jobs:
           scripts/install-cargo-deny.sh
           echo "${CARGO_DENY_INSTALL_DIR}" >> "$GITHUB_PATH"
       - name: Check cargo-deny
-        run: cargo deny --version
+        # Printing whatever `cargo deny` answered would not catch a cargo-deny
+        # already on PATH that is a different version and would apply a policy
+        # this pin was never checked against, so the step requires the pin.
+        run: |
+          pinned="$(tr -d '[:space:]' < tools/cargo-deny/VERSION)"
+          reported="$(cargo deny --version)"
+          if [[ "${reported}" != "cargo-deny ${pinned}" ]]; then
+            printf 'expected cargo-deny %s, got %s\n' "${pinned}" "${reported}" >&2
+            exit 1
+          fi
       - name: Check supply chain
         run: make deny

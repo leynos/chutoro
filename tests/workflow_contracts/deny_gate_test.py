@@ -215,7 +215,12 @@ def test_ci_job_installs_the_pinned_tool_before_using_it() -> None:
     assert "GITHUB_PATH" in run_script(install)
 
     version_at = _step_index(
-        job_steps, lambda step: _runs(step, "cargo deny --version")
+        job_steps, lambda step: "cargo deny --version" in run_script(step)
+    )
+    version_run = run_script(job_steps[version_at])
+    assert "tools/cargo-deny/VERSION" in version_run, (
+        "the version step must compare against the pin; printing whatever "
+        "binary answered would accept a different cargo-deny on PATH"
     )
     gate_at = _step_index(job_steps, lambda step: _runs(step, "make deny"))
     assert install_at < version_at < gate_at

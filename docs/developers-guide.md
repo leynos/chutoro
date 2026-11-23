@@ -2642,8 +2642,11 @@ pass mean the same thing. It is an independent job with no `needs`, `if` or
 lane even when every other lane is green. The job installs the pinned tool
 through `scripts/install-cargo-deny.sh` into a job-specific directory and
 appends that directory to `GITHUB_PATH`, because a `cargo-deny` already present
-on the runner image would otherwise shadow the pin. sccache is disabled: the
-check runs `cargo metadata` and never compiles the workspace.
+on the runner image would otherwise shadow the pin. A following step requires
+`cargo deny --version` to match `tools/cargo-deny/VERSION`, so a shadowing
+binary fails the job instead of silently applying a policy the pin was never
+checked against. sccache is disabled: the check runs `cargo metadata` and never
+compiles the workspace.
 
 The policy covers the workspace graph with `--all-features` and no target
 filter, so a dependency reached only from a benchmark, a test-support crate, or
