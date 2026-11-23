@@ -19,7 +19,7 @@
 
 use std::{io, time::Duration};
 
-use chutoro_bench_datasets::{RecipeError, StagingLock};
+use chutoro_bench_datasets::{LockPolicy, RecipeError, StagingLock};
 use rstest::{fixture, rstest};
 use tracing_test::traced_test;
 
@@ -102,6 +102,66 @@ fn second_in_process_acquisition_is_rejected_immediately(root_res: io::Result<St
         logs_contain("staging lock is already held by this process"),
         "an in-process duplicate must explain itself"
     );
+}
+
+#[rstest]
+fn registry_warning_does_not_hold_the_registry_mutex(root_res: io::Result<StagingRoot>) {
+    /// Layer that re-enters the registry from its event callback.
+    struct ReenterOnEvent {
+        /// Lock factory whose acquisition re-enters the registry.
+        lock: StagingLock,
+        /// Whether the callback has already run.
+        entered: std::sync::atomic::AtomicBool,
+    }
+
+    impl<S: tracing::Subscriber> tracing_subscriber::layer::Layer<S> for ReenterOnEvent {
+        fn on_event(
+            &self,
+            _event: &tracing::Event<'_>,
+            _context: tracing_subscriber::layer::Context<'_, S>,
+        ) {
+            if self.entered.swap(true, std::sync::atomic::Ordering::SeqCst) {
+                return;
+            }
+            let reentrant_policy = LockPolicy::new(Duration::from_millis(200))
+                .and_then(|policy| policy.with_poll_interval(Duration::from_millis(2)));
+            if let Ok(valid_policy) = reentrant_policy {
+                let _acquired = self.lock.acquire("reentrant.lock", valid_policy);
+            }
+        }
+    }
+
+    let root = root_res.expect("temporary staging root should be created");
+    let outer = root.lock();
+    let _held = outer
+        .acquire(
+            "outer.lock",
+            policy(Duration::from_millis(50)).expect("policy"),
+        )
+        .expect("outer lock should be acquired");
+    let subscriber = tracing_subscriber::layer::SubscriberExt::with(
+        tracing_subscriber::registry(),
+        ReenterOnEvent {
+            lock: root.lock(),
+            entered: std::sync::atomic::AtomicBool::new(false),
+        },
+    );
+    let (sender, receiver) = std::sync::mpsc::channel();
+    let worker = std::thread::spawn(move || {
+        tracing::subscriber::with_default(subscriber, || {
+            let duplicate = outer.acquire(
+                "outer.lock",
+                policy(Duration::from_millis(50)).expect("policy"),
+            );
+            let _sent = sender.send(duplicate.is_err());
+        });
+    });
+
+    let rejected = receiver
+        .recv_timeout(Duration::from_secs(2))
+        .expect("the registry warning must not hold the registry mutex");
+    assert!(rejected, "the duplicate must still be rejected");
+    worker.join().expect("worker should finish");
 }
 
 #[rstest]

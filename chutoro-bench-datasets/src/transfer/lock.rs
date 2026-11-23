@@ -188,8 +188,14 @@ impl Registration {
     /// unexplained immediate failure sends a caller looking in the wrong
     /// place, so it gets its own warning on every rejected acquisition.
     fn acquire(path: Utf8PathBuf) -> Result<Self, RecipeError> {
-        let mut entries = lock_registry();
-        if !entries.insert(path.clone()) {
+        // The guard must be released before `warn!`: an enabled tracing
+        // subscriber runs inside the event call and may acquire another
+        // staging lock, which would re-enter this mutex and deadlock.
+        let inserted = {
+            let mut entries = lock_registry();
+            entries.insert(path.clone())
+        };
+        if !inserted {
             warn!(
                 path = path.as_str(),
                 "staging lock is already held by this process"

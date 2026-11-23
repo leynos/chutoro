@@ -130,8 +130,10 @@ and validated name makes intra-process double acquisition deterministic. The
 entry is inserted before the first system call; a duplicate is rejected
 immediately with `waited_millis == 0` and a structured `warn!`, because that
 path bypasses the bounded `flock` loop and cannot use the policy's single
-warning slot. The entry is removed on every failure path and when the guard
-drops.
+warning slot. The warning is emitted after the registry mutex is released: an
+enabled tracing subscriber runs inside the event call and may acquire another
+staging lock, which would re-enter that mutex and deadlock. The entry is
+removed on every failure path and when the guard drops.
 
 `StagingLockGuard` owns the only file descriptor, the path, and the registry
 entry. On drop it requests `LOCK_UN`, records a debug event if unlocking fails,
@@ -239,6 +241,10 @@ must reach it are recorded here so the plan and the code cannot drift:
 - **Timeout is a policy choice.** Too short a timeout turns ordinary
   contention into failures; too long a timeout delays diagnosis. The default
   poll interval is 25 ms and callers choose the timeout explicitly.
+- **Tracing subscribers run synchronously inside warnings.** A subscriber that
+  acquires a staging lock or drops a guard from its event callback re-enters
+  the registry. Every warning is therefore emitted with the registry mutex
+  released, and a watchdog-protected test drives that re-entry.
 - **No lock on unsupported targets.** The API exists but returns
   `StagingLockUnsupportedPlatform`; callers needing cross-platform behaviour
   must provide a target-specific transfer adapter.
