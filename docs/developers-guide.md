@@ -1119,9 +1119,10 @@ comment whenever a new boundary is unavoidable.
 A capability root is not a filesystem exception. When `cap-std` lacks an
 operation, borrow the descriptor it already owns (`AsFd`) rather than
 recovering an ambient `std::fs::File` with `into_std()`. The staging lock's
-`rustix::fs::flock` call is the worked example: it needs a lock, gains no new
-dependency, and keeps `chutoro-bench-datasets` out of the exclusion list. Reach
-for `dylint.toml` only when no capability-preserving route exists.
+`rustix::fs::flock` call is the worked example: it needs a lock, declares a
+direct optional dependency whose version is already pinned in the lockfile, and
+keeps `chutoro-bench-datasets` out of the exclusion list. Reach for
+`dylint.toml` only when no capability-preserving route exists.
 
 ## Injected environment access
 
@@ -1554,8 +1555,9 @@ workflow at all.
 Each compile-contract fixture under
 `chutoro-compile-contracts/tests/fixtures/<name>/` keeps its own `Cargo.lock`,
 because each fixture is a standalone workspace. Every package version in a
-fixture lockfile must also appear in the workspace `Cargo.lock`: CI fetches
-only the workspace lockfile, and the fixture checks then run
+fixture lockfile must also appear in the workspace `Cargo.lock`, except the
+fixture's own package, which the contract excludes: CI fetches only the
+workspace lockfile, and the fixture checks then run
 `cargo check --offline --locked`, so a fixture-only version is unavailable and
 fails before compilation starts. Seed the fixture lock from the workspace one
 and let Cargo prune it:

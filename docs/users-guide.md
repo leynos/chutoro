@@ -762,10 +762,11 @@ chutoro-bench-datasets = { version = "0.1.0", features = ["http"] }
 
 `StagingLock` opens or creates a stable `.lock` file under a capability root,
 takes a non-blocking exclusive `flock`, and retries under a `LockPolicy` until
-the lock is granted or the timeout expires. Keep the returned
-`StagingLockGuard` alive while the staging file is written; dropping it
-releases the lock, removes the in-process registry entry, and closes the
-descriptor. The lockfile itself is never removed or renamed.
+the lock is granted or the timeout expires. The root must already exist; the
+lock creates the `.lock` file inside it. Keep the returned `StagingLockGuard`
+alive while the staging file is written; dropping it releases the lock, removes
+the in-process registry entry, and closes the descriptor. The lockfile itself
+is never removed or renamed.
 
 ```rust
 use std::time::Duration;
@@ -788,9 +789,10 @@ returns four staging-lock errors:
 
 - `StagingLockInvalidName`: the name is not one relative UTF-8 `.lock`
   component; pass a stable name such as `mnist.lock`.
-- `StagingLockContended`: this process already holds the lock
-  (`waited_millis == 0`), or another holder outlasted the timeout; retry later
-  or raise the timeout.
+- `StagingLockContended`: this process already holds the lock, rejected
+  immediately with `waited_millis == 0`, or another holder outlasted the
+  timeout, where `waited_millis` is the bounded wait; retry later or raise the
+  timeout.
 - `StagingLockIo`: opening, creating, or locking the file failed; inspect the
   source error.
 - `StagingLockUnsupportedPlatform`: the target has no `flock` binding; no
