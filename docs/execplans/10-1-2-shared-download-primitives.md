@@ -473,14 +473,15 @@ Recorded during planning; extend during implementation.
   when an interruption abandons it — after the final byte is durable and before
   the publishing rename, independent of how many transfer resumes occurred. An
   interruption during verification abandons that pass and starts a fresh one.
-  The one permitted clean restart after a mismatch adds at most one further
-  transfer and one further streaming hash, and the spent restart is recorded as
-  a `clean_restarts` counter in the staging sidecar so a downloader recreated
-  after an interrupted restart cannot spend a second one. Large single-object
-  retries are addressed where they belong, by separately pinned source shards
-  and published per-shard manifests under 10.1.3 and 10.3.13, and by multipart
-  object-store uploads under 10.1.4. Date/Author: 2026-11-23, plan author,
-  after triage of #210.
+  The one permitted clean restart after a mismatch adds one further transfer
+  plus either one streaming hash, when the restart completes uninterrupted, or
+  one full read-back pass of `expected_size` bytes, when the restart is itself
+  interrupted and resumed. The spent restart is recorded as a `clean_restarts`
+  counter in the staging sidecar so a downloader recreated after an interrupted
+  restart cannot spend a second one. Large single-object retries are addressed
+  where they belong, by separately pinned source shards and published per-shard
+  manifests under 10.1.3 and 10.3.13, and by multipart object-store uploads
+  under 10.1.4. Date/Author: 2026-11-23, plan author, after triage of #210.
 - Alternatives deferred: `crypto_common::hazmat::SerializableState`. The
   locked `sha2 0.11.0` does provide it, so a persisted midstate is buildable
   today; it is deferred, not impossible. Three caveats keep it out of this
@@ -903,8 +904,10 @@ read for a pass abandoned by an interruption. An uninterrupted transfer reads
 back nothing, because its streaming digest is the verification. An interruption
 that lands during verification abandons that pass; the next process starts a
 fresh pass from offset zero. A mismatch on a resumed transfer earns the
-existing single clean restart, which adds at most one further transfer and one
-further streaming hash and increments the durable `clean_restarts` counter; a
+existing single clean restart, which adds one further transfer plus either one
+streaming hash, when the restart completes uninterrupted, or one full read-back
+pass of `expected_size` bytes, when the restart is itself interrupted and
+resumed. The restart increments the durable `clean_restarts` counter; a
 mismatch on that restart is fatal, even if the restart itself was interrupted
 and the downloader recreated. Behavioural tests must cover: interrupt, corrupt
 one byte in the staged prefix, resume — publication is refused with
