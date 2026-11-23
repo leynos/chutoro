@@ -46,11 +46,11 @@ new version. It is not, however, a declared dependency of
 through the `testing` feature and its dev-dependency graph. Using `rustix` in
 production code requires a direct, target-scoped optional dependency.
 
-ADR 0005 records the Cranelift development route, ADR 0006 records
-sequential trim scoring, and ADR 0007 records the Fearless SIMD kernel
-boundary, so this decision takes the next free serial, 0008; published ADR
-numbers are not reused. This ADR was first drafted as 0007 and renumbered when
-that serial landed on `main` first.
+ADR 0005 records the Cranelift development route, ADR 0006 records sequential
+trim scoring, and ADR 0007 records the Fearless SIMD kernel boundary, so this
+decision takes the next free serial, 0008; published ADR numbers are not
+reused. This ADR was first drafted as 0007 and renumbered when that serial
+landed on `main` first.
 
 ## Decision drivers
 
