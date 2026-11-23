@@ -895,12 +895,15 @@ Three durability invariants, all load-bearing:
    `clean_restarts + 1`, and the current validator, then continues from zero.
    The counter is not written before the truncation: a crash between those
    writes would otherwise mark a restart spent that never began, wedging the
-   download. A recreated downloader that observes `staged_len < durable_offset`
-   recognizes the restart-in-progress state and completes the transition by
-   setting `durable_offset = 0` and `clean_restarts = 1` in one update before
-   writing any byte. It then streams from zero with no read-back. A mismatch
-   with the counter already at one is fatal even when the restart was
-   interrupted.
+   download. The restart window exists only while `clean_restarts` is zero,
+   because the order truncates before it increments. A recreated downloader
+   that observes `staged_len < durable_offset` with `clean_restarts = 0`
+   completes the interrupted transition by setting `durable_offset = 0` and
+   `clean_restarts = 1` in one update before writing any byte. It then streams
+   from zero with no read-back. A short file observed with the counter already
+   at one cannot be that window; it is a truncated or tampered slot, so the
+   transfer fails rather than restarting again. A mismatch with the counter
+   already at one is fatal even when the restart was interrupted.
 
 The trust boundary: bytes hashed in-process as they are written are trusted;
 bytes read back from disk after an interruption are not. A transfer that starts
@@ -908,13 +911,16 @@ from `durable_offset > 0` therefore never verifies with its streaming digest.
 Resume itself re-hashes no prefix: it truncates the staged file to
 `durable_offset` and validates the sidecar's recorded validator. After the
 final data fsync the transfer re-hashes the whole staged file with
-`verify_file`, under the advisory lock. That lock spans the whole staging-slot
-lifetime on **both** paths: it is taken at slot acquisition, before the first
-staged byte, and released only after the publishing rename or the discard.
-Holding it from the first write is what stops another cooperating writer from
-interleaving between an uninterrupted transfer's streamed digest and its
-rename, a gap no read-back would expose. A transfer resumed from a non-zero
-durable offset therefore reads back the bytes its verification attempt consumes:
+`verify_file`, under the advisory lock held by the current attempt. That lock
+spans one attempt on **both** paths: it is acquired before the attempt inspects
+or modifies the slot, held from before the first staged byte, and released when
+the attempt ends — after the publishing rename, after the discard, or on a
+transient error that returns control to a retry loop. The next attempt
+reacquires it; the operating system releases it if the process dies. Holding it
+from the first write is what stops another cooperating writer from interleaving
+between an uninterrupted transfer's streamed digest and its rename, a gap no
+read-back would expose. A transfer resumed from a non-zero durable offset
+therefore reads back the bytes its verification attempt consumes:
 `expected_size` for a completed pass, and only the partial read for a pass
 abandoned by an interruption. An uninterrupted transfer, and a restart that
 streams again from offset zero, read back nothing because their streaming
@@ -931,13 +937,17 @@ resume — publication is refused with `IntegrityFailure` and the clean restart
 then succeeds; a clean restart that streams from zero and completes — no
 read-back, asserted through the read counter; a crash simulated between the
 truncation and the sidecar update, followed by recreation — the offset resets
-to zero, `clean_restarts` reads one, and the transfer streams from zero; an
-interrupted clean restart followed by recreation and a further mismatch —
-publication is refused and no second restart is granted; an interruption during
-verification followed by recreation — the next attempt reads the whole staged
-file again; an uninterrupted transfer performs no read-back; and at least two
-interruptions with the downloader recreated between attempts, which must still
-produce one verification pass and one read-back of `expected_size` bytes.
+to zero, `clean_restarts` reads one, and the transfer streams from zero; a
+short staged file observed while `clean_restarts` is already one — the transfer
+fails instead of streaming from zero; a transient error inside a live process,
+followed by a retry — the attempt releases the lock, the retry reacquires it,
+and a resumed retry still pays exactly one read-back; an interrupted clean
+restart followed by recreation and a further mismatch — publication is refused
+and no second restart is granted; an interruption during verification followed
+by recreation — the next attempt reads the whole staged file again; an
+uninterrupted transfer performs no read-back; and at least two interruptions
+with the downloader recreated between attempts, which must still produce one
+verification pass and one read-back of `expected_size` bytes.
 
 Locking uses `rustix::fs::flock` on the borrowed file descriptor from
 `cap_std::fs::Dir` — `cap-std` has no `lock`, and `into_std()` returns the
