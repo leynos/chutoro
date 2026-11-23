@@ -1139,11 +1139,12 @@ reads the published text so that no test keeps a copy that could drift.
   literally on GitHub and crates.io. Write a complete program with an explicit
   `fn main` instead.
 - **Every other fence** is checked by a semantic contract in
-  `tests/documentation_examples_tests.rs`. Dependency snippets must name a
-  published crate at the workspace version. Install commands must fetch that
-  version of `chutoro-cli`. Each documented CLI run is parsed by the real
-  `clap` definition, executed against its documented input, and compared with
-  its documented output, byte for byte.
+  `tests/documentation_examples_tests.rs`. Dependency snippets, in
+  `[dependencies]` or `[dev-dependencies]`, must name a published crate at the
+  workspace version and may enable only features that crate declares. Install
+  commands must fetch that version of `chutoro-cli`. Each documented CLI run is
+  parsed by the real `clap` definition, executed against its documented input,
+  and compared with its documented output, byte for byte.
 
 `EXPECTED_EXAMPLE_IDS` in that test is the exact set of markers. To add an
 example, add its marker and its identifier, and give any non-Rust fence a

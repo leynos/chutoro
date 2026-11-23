@@ -85,20 +85,28 @@ pub fn read_repository_file(path: &str) -> Result<String> {
 /// Returns an error when a document cannot be read, a marker is malformed,
 /// a fence is unmarked or unterminated, or an identifier is duplicated.
 pub fn load_documented_examples() -> Result<Vec<DocumentedExample>> {
-    let mut examples = Vec::new();
-    for &path in DOCUMENTS {
-        examples.extend(parse_document(path, &read_repository_file(path)?)?);
-    }
+    let examples = DOCUMENTS
+        .iter()
+        .map(|&path| parse_document(path, &read_repository_file(path)?))
+        .collect::<Result<Vec<_>>>()?
+        .into_iter()
+        .flatten()
+        .collect::<Vec<_>>();
+    ensure_unique_ids(&examples)?;
+    Ok(examples)
+}
 
+/// Reject an identifier used by more than one example across all documents.
+fn ensure_unique_ids(examples: &[DocumentedExample]) -> Result<()> {
     let mut ids = HashSet::new();
-    for example in &examples {
+    for example in examples {
         ensure!(
             ids.insert(example.id.as_str()),
             "duplicate tested-example identifier '{}'",
             example.id
         );
     }
-    Ok(examples)
+    Ok(())
 }
 
 /// Load the documented example identified by `id`.

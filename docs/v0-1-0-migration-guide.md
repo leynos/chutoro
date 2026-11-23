@@ -175,7 +175,7 @@ fn main() {
 
 `parallel_kruskal` now validates edges in a fixed order, so when several edges
 are invalid it always reports the first. The users' guide lists
-[every subsystem code](users-guide.md#look-up-subsystem-error-codes).
+[every subsystem code](users-guide.md#subsystem-error-codes).
 
 ## Expect HNSW parameters to apply to batch runs
 

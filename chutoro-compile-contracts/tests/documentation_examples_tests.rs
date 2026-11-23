@@ -219,8 +219,8 @@ fn check_requirement(id: &str, name: &str, requirement: &toml::Value) -> Result<
     let declared = crate_manifest
         .get("features")
         .and_then(toml::Value::as_table);
-    for feature in features.into_iter().flatten() {
-        let feature = feature.as_str().context("a feature should be a string")?;
+    for value in features.into_iter().flatten() {
+        let feature = value.as_str().context("a feature should be a string")?;
         ensure!(
             declared.is_some_and(|table| table.contains_key(feature)),
             "{id} enables `{feature}`, which `{name}` does not declare"

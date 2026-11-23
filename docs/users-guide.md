@@ -522,7 +522,7 @@ so callers keep the stable codes.
 `ChutoroError`, `DataSourceError`, and their code enums are always available.
 The subsystem errors described next require the default `cpu` feature.
 
-### Look up subsystem error codes
+### Subsystem error codes
 
 The CPU backend is built from three stages, and each reports a typed error with
 its own stable code: `HnswError` from the `CpuHnsw` index, `MstError` from
@@ -559,7 +559,7 @@ slice. The tables classify each code in one of four ways:
 `CpuHnsw::build`, `build_with_edges`, `insert`, `insert_harvesting`, and
 `search` return `HnswError`.
 
-| Code                        | Variant                   | Raised when                                                                                                   | Classification                    |
+| `as_str()` value            | Variant                   | Raised when                                                                                                   | Classification                    |
 | --------------------------- | ------------------------- | ------------------------------------------------------------------------------------------------------------- | --------------------------------- |
 | `EMPTY_BUILD`               | `EmptyBuild`              | `build` or `build_with_edges` was given a source with no items.                                               | Caller input                      |
 | `INVALID_PARAMETERS`        | `InvalidParameters`       | Invalid HNSW parameters or capacity; a batch response of the wrong length; or inconsistent cache bookkeeping. | Caller input, data source, or bug |
@@ -583,7 +583,7 @@ reaches direct callers.
 
 `parallel_kruskal` returns `MstError`.
 
-| Code                  | Variant              | Raised when                                           | Classification |
+| `as_str()` value      | Variant              | Raised when                                           | Classification |
 | --------------------- | -------------------- | ----------------------------------------------------- | -------------- |
 | `EMPTY_GRAPH`         | `EmptyGraph`         | `node_count` is zero.                                 | Caller input   |
 | `INVALID_NODE_ID`     | `InvalidNodeId`      | An edge endpoint is not below `node_count`.           | Caller input   |
@@ -605,7 +605,7 @@ instead.
 
 `extract_labels_from_mst` returns `HierarchyError`.
 
-| Code                         | Variant                   | Raised when                                               | Classification |
+| `as_str()` value             | Variant                   | Raised when                                               | Classification |
 | ---------------------------- | ------------------------- | --------------------------------------------------------- | -------------- |
 | `EMPTY_DATASET`              | `EmptyDataset`            | `node_count` is zero.                                     | Caller input   |
 | `MIN_CLUSTER_SIZE_TOO_LARGE` | `MinClusterSizeTooLarge`  | `min_cluster_size` is larger than `node_count`.           | Caller input   |
@@ -942,8 +942,7 @@ remains as an alias.
 `DuplicateNode` marks an item inserted twice, `DataSource` wraps a failed
 `distance`, `distance_batch`, or `batch_distances` call, and `GraphEmpty` marks
 a search before the first insertion. Table 5, under
-[Look up subsystem error codes](#look-up-subsystem-error-codes), lists every
-code.
+[Subsystem error codes](#subsystem-error-codes), lists every code.
 
 ### Assemble the pipeline yourself
 

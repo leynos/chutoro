@@ -542,6 +542,7 @@ dependencies = [
  "clap",
  "mockable",
  "parquet",
+ "rayon",
  "rstest",
  "tempfile",
  "toml 1.1.4+spec-1.1.0",
