@@ -82,16 +82,23 @@ started after an interrupted restart could spend a second one, breaking the
 limit and the cost bound. A mismatch observed with the counter already at one
 is fatal even if the restart itself was interrupted.
 
-The read-back budget is therefore: `0` bytes for an uninterrupted transfer, and
-one full pass of `expected_size` bytes per verification attempt for a resumed
-transfer. Interruptions that fall in the data-transfer phase do not add passes,
-however many resumes occurred. An interruption during verification abandons
-that pass, and the next process starts a fresh pass from offset zero, because
-resuming a verification would require exactly the hash state this record
-rejects. Total read-back is therefore `verification_attempts * expected_size`,
-linear in the number of interruptions that land inside a verification window
-and independent of the number of transfer resumes. That bound is an acceptance
-property, not only a cost estimate.
+The read-back budget is stated per verification attempt. An uninterrupted
+transfer reads back `0` bytes. A resumed transfer reads back the bytes its
+completed verification pass consumes, which is `expected_size` for a pass that
+runs to the end of the file. Interruptions that fall in the data-transfer phase
+do not add attempts, however many resumes occurred. An interruption during
+verification abandons that attempt part-way, and the next process starts a
+fresh pass from offset zero, because resuming a verification would require
+exactly the hash state this record rejects.
+
+Total read-back is therefore the sum of the bytes each verification attempt
+actually reads. An abandoned attempt contributes only the bytes it read before
+the interruption, not a full pass, so a 100-byte file interrupted after 10
+bytes and then verified costs 110 bytes, not 200. The sum is bounded above by
+`verification_attempts * expected_size`, which is linear in the number of
+interruptions landing inside a verification window and independent of the
+number of transfer resumes. Both the sum and its bound are acceptance
+properties, not only cost estimates.
 
 Per-chunk staging digests are rejected in every hasher generation. A chunk
 digest computed from bytes this process wrote describes the past, cannot be
@@ -115,8 +122,9 @@ The planned `proptest` resume state machine injects the verifier's read source
 and counts read-back bytes. It asserts `0` for an uninterrupted transfer and
 `expected_size` for an interrupted transfer, for any interruption sequence that
 falls in the data-transfer phase. For a sequence that also interrupts
-verification, it asserts one further `expected_size` per abandoned verification
-attempt. This runs against the shipped functions, not a transcription.
+verification, it asserts the sum of the bytes each attempt actually read, and
+that the sum never exceeds `verification_attempts * expected_size`. This runs
+against the shipped functions, not a transcription.
 
 Behavioural scenarios must cover:
 
