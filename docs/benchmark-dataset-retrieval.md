@@ -174,6 +174,9 @@ The evidence is point-in-time and bounded:
 - One request per host does not prove that a host keeps the same validator
   across an hours-long transfer, nor that an intermediary never adds a content
   coding.
+- The probe exercised `Range`, not `If-Range`. It does not demonstrate
+  end-to-end resume, so the re-probe must also cover matching and mismatching
+  validators.
 
 The evidence must be re-probed before roadmap item 10.1.2 relies on it.
 
@@ -191,10 +194,13 @@ integrity consequence of these validators is recorded in
 The following rules are requirements for roadmap item 10.1.2. They describe
 behaviour to implement, not behaviour present in this checkout.
 
-- Use `If-Range` only with a strong validator. RFC 9110
+- Use `If-Range` only with a strong validator, and use an HTTP-date only when
+  the client has no entity tag for the representation. RFC 9110
   [§13.1.5](https://www.rfc-editor.org/rfc/rfc9110.html#section-13.1.5) forbids
-  a weak entity tag in `If-Range`; an HTTP-date is acceptable only when it is
-  itself a strong validator. With no strong validator, start fresh.
+  a weak entity tag in `If-Range`, and permits an HTTP-date only when the
+  client has no entity tag and the date is a strong validator. A client holding
+  a weak `ETag` and a strong `Last-Modified` date must use neither; it starts
+  fresh.
 - Treat `Accept-Ranges` as advisory (RFC 9110
   [§14.3](https://www.rfc-editor.org/rfc/rfc9110.html#section-14.3)). Never
   gate a range request on it, and always handle a full-representation response.
