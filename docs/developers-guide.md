@@ -2630,6 +2630,12 @@ command that applies it:
 cargo deny --locked --config deny.toml check advisories bans licenses
 ```
 
+Install the pinned tool first with `scripts/install-cargo-deny.sh`. It writes to
+`${HOME}/.cargo/bin`, which the Makefile already puts on `PATH`; set
+`CARGO_DENY_INSTALL_DIR` to install elsewhere. The installer always fetches and
+verifies the pinned archive, so running it before a gate costs one small
+download rather than trusting whatever binary is already on `PATH`.
+
 The `cargo-deny` job in `ci.yml` runs the same target, so a local pass and a CI
 pass mean the same thing. It is an independent job with no `needs`, `if` or
 `continue-on-error`: a dependency that trips the policy fails the supply-chain
