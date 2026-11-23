@@ -898,11 +898,15 @@ Three durability invariants, all load-bearing:
    download. The restart window exists only while `clean_restarts` is zero,
    because the order truncates before it increments. A recreated downloader
    that observes `staged_len < durable_offset` with `clean_restarts = 0`
-   completes the interrupted transition by setting `durable_offset = 0` and
-   `clean_restarts = 1` in one update before writing any byte. It then streams
-   from zero with no read-back. A short file observed with the counter already
-   at one cannot be that window; it is a truncated or tampered slot, so the
-   transfer fails rather than restarting again. A mismatch with the counter
+   completes the interrupted transition by applying the full sidecar update in
+   one write before touching any byte: `durable_offset = 0`,
+   `clean_restarts = 1`, and the current validator. It then streams from zero
+   with no read-back. Recording the validator is load-bearing, because a
+   restart is usually earned by an expectation change that includes a validator
+   change; a stale value would make a later non-zero resume reject a prefix
+   written under the current pin. A short file observed with the counter
+   already at one cannot be that window; it is a truncated or tampered slot, so
+   the transfer fails rather than restarting again. A mismatch with the counter
    already at one is fatal even when the restart was interrupted.
 
 The trust boundary: bytes hashed in-process as they are written are trusted;
@@ -927,31 +931,38 @@ streams again from offset zero and never later resumes from a non-zero offset,
 read back nothing because their streaming digest is the verification. An
 interruption before any non-zero offset becomes durable does not change that.
 An interruption that lands during verification abandons that pass; the next
-process starts a fresh pass from zero. A mismatch on a resumed transfer earns
-the existing single clean restart, which adds one further transfer plus either
-one streaming hash, when the restart completes uninterrupted, or one full
-read-back pass of `expected_size` bytes, when the restart is itself interrupted
-and resumed from a non-zero offset. The restart increments the durable
-`clean_restarts` counter; a mismatch on that restart is fatal, even if the
-restart itself was interrupted and the downloader recreated. Behavioural tests
-must cover: interrupt, corrupt one byte in the staged prefix, resume —
-publication is refused with `IntegrityFailure` and the clean restart then
-succeeds; a clean restart that streams from zero, completes, and never later
-resumes — no read-back, asserted through the read counter; a clean restart
-interrupted after some bytes become durable and then resumed from that offset —
-`expected_size` read-back bytes on completion; a crash simulated between the
-truncation and the sidecar update, followed by recreation — the offset resets
-to zero, `clean_restarts` reads one, and the transfer streams from zero; a
-short staged file observed while `clean_restarts` is already one — the transfer
-fails instead of streaming from zero; a transient error inside a live process,
-followed by a retry — the attempt releases the lock, the retry reacquires it,
-and a resumed retry still pays exactly one read-back; an interrupted clean
-restart followed by recreation and a further mismatch — publication is refused
-and no second restart is granted; an interruption during verification followed
-by recreation — the next attempt reads the whole staged file again; an
-uninterrupted transfer performs no read-back; and at least two interruptions
-with the downloader recreated between attempts, which must still produce one
-verification pass and one read-back of `expected_size` bytes.
+process starts a fresh pass from zero. A pass that completes its read and then
+stops before the publishing rename is charged the same way: the staged file it
+leaves is untrusted, so the replacement reads the whole file. The window the
+budget refers to therefore runs from the first verification read to the
+publishing rename, and a stop anywhere inside it costs at most one further
+pass. A mismatch on a resumed transfer earns the existing single clean restart,
+which adds one further transfer plus either one streaming hash, when the
+restart completes uninterrupted, or one full read-back pass of `expected_size`
+bytes, when the restart is itself interrupted and resumed from a non-zero
+offset. The restart increments the durable `clean_restarts` counter; a mismatch
+on that restart is fatal, even if the restart itself was interrupted and the
+downloader recreated. Behavioural tests must cover: interrupt, corrupt one byte
+in the staged prefix, resume — publication is refused with `IntegrityFailure`
+and the clean restart then succeeds; a clean restart that streams from zero,
+completes, and never later resumes — no read-back, asserted through the read
+counter; a clean restart interrupted after some bytes become durable and then
+resumed from that offset — `expected_size` read-back bytes on completion; a
+crash simulated between the truncation and the sidecar update, followed by
+recreation — the offset resets to zero, `clean_restarts` reads one, the current
+validator is recorded, and the transfer streams from zero; a verification pass
+that completes its read but stops before the rename, followed by recreation —
+the next process reads the whole staged file again and the total is charged as
+two passes; a short staged file observed while `clean_restarts` is already one
+— the transfer fails instead of streaming from zero; a transient error inside a
+live process, followed by a retry — the attempt releases the lock, the retry
+reacquires it, and a resumed retry still pays exactly one read-back; an
+interrupted clean restart followed by recreation and a further mismatch —
+publication is refused and no second restart is granted; an interruption during
+verification followed by recreation — the next attempt reads the whole staged
+file again; an uninterrupted transfer performs no read-back; and at least two
+interruptions with the downloader recreated between attempts, which must still
+produce one verification pass and one read-back of `expected_size` bytes.
 
 Locking uses `rustix::fs::flock` on the borrowed file descriptor from
 `cap_std::fs::Dir` — `cap-std` has no `lock`, and `into_std()` returns the
@@ -991,11 +1002,12 @@ injects the verifier's read source and counts read-back bytes, asserting `0`
 for an uninterrupted transfer and for a transfer that restarts from zero and
 never later resumes, and, for a transfer resumed from a non-zero durable
 offset, the sum of the bytes each verification attempt actually reads. It also
-asserts the sum never exceeds `verification_attempts * expected_size`. An
-interruption inside verification restarts the pass rather than resuming it, so
-the property bounds read-back by verification attempts, not transfer resumes.
-This is what replaces the dropped Verus resume proof, and unlike a proof it
-runs against the shipped code.
+asserts the sum never exceeds `verification_attempts * expected_size`, and
+includes a stop after a completed pass but before the rename, which must charge
+that pass plus its replacement. An interruption inside the verification window
+restarts the pass rather than resuming it, so the property bounds read-back by
+verification attempts, not transfer resumes. This is what replaces the dropped
+Verus resume proof, and unlike a proof it runs against the shipped code.
 
 `chutoro-bench-datasets` is outside the `property-tests` workflow's `paths`
 filter and suite matrix, so these properties run through `make test` only.
@@ -1456,7 +1468,13 @@ read-back, against about 2.8 TB of repeated prefix re-reads). The
 workflow inclusion assigned to the 10.1.2 implementation stage.
 `crypto_common::hazmat::SerializableState` is recorded under Alternatives
 deferred with its trust, sensitivity, and `0.x` minor-line compatibility
-caveats.
+caveats. Later review rounds tightened the accounting: the restart counter is
+durable and its recovery update includes the current validator; the advisory
+lock spans one attempt rather than the whole slot; a short staged file is the
+restart window only while the counter is zero; and the verification window runs
+from the first verification read to the publishing rename, so a pass that
+completes its read and then stops before the rename costs that pass and its
+replacement.
 
 2026-11-21 (fifth revision, review of #199): retired the checkpointed hasher
 midstate. Review raised two points. The serialized state of the buffered
