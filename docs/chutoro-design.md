@@ -1636,11 +1636,15 @@ breadth-first search from the entry point over level-0 edges only.
 
 **Known divergence.** Neither the local healer nor the cross-layer
 `reachability()` checker detects a global base-layer split in which every node
-retains at least one level-0 neighbour inside its own component. Such a graph
-passes `check_all()` even though level-0 search cannot cross between its
-components, so recall depends on where descent lands. This is a known gap,
-tracked by [issue #393](https://github.com/leynos/chutoro/issues/393); the
-policy above does not claim more enforcement than the implementation provides.
+retains at least one level-0 neighbour inside its own component and upper-layer
+edges connect those components. Such a graph passes `check_all()`, because the
+cross-layer traversal crosses the bridge, even though level-0 search cannot
+cross between the base components, so recall depends on where descent lands. A
+split with no upper-layer bridge is not a divergence: every component other
+than the entry's is unreachable at every layer, and `reachability()` reports
+it. So the gap is specifically a bridged split, tracked by
+[issue #393](https://github.com/leynos/chutoro/issues/393); the policy above
+does not claim more enforcement than the implementation provides.
 
 #### 6.6. Search correctness property
 

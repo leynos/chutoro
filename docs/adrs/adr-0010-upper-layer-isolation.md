@@ -136,7 +136,9 @@ and reflected in `docs/property-testing-design.md` §2.2.
 - **Base-layer enforcement is local, not global.** `ensure_base_connectivity`
   reacts to an empty level-0 list reported during insertion reconciliation.
   Neither it nor the cross-layer `reachability()` checker detects a base-layer
-  split in which every node still has a neighbour inside its own component.
+  split in which every node still has a neighbour inside its own component and
+  upper-layer edges connect those components. A split with no upper-layer
+  bridge is caught, because the components are then unreachable at every layer.
 - **The cross-layer checker is not the normative check.** A base-layer split
   bridged by an upper-layer edge passes `check_all()`. The test-only base-layer
   oracle exists to make the normative requirement testable.
