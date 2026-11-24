@@ -344,9 +344,9 @@ Recorded during planning; extend during implementation.
   `const _: () = assert!(std::mem::size_of::<RecipeError>() <= 32);` in
   `chutoro-bench-datasets/src/error.rs` remains the only size check on this
   branch, and a comment beside it says so. Stage A lands after #439 merges, so
-  it inherits `recipe_error_size_budget_is_respected` from `main` rather than
-  writing it, while `integrity_failure_boxed_payload_preserves_source` is still
-  Stage A's to add.
+  it inherits both `recipe_error_size_budget_is_respected` and
+  `integrity_failure_boxed_payload_preserves_source` from `main` rather than
+  writing them.
 - Observation (superseded 2026-11-11): the first draft found that
   `sha2 0.10` cannot serialize hasher midstate, and adopted chunked digests in
   response. Two things have since changed. First, `main` resolves `sha2 0.11.0`,
@@ -803,14 +803,13 @@ dependency, `sha2`. This stage should pass every gate first time.
   over arbitrary 32-byte arrays, and a rejection property over arbitrary
   strings that are not valid digests.
 - Extend `chutoro-bench-datasets/tests/error.rs` with
-  `integrity_failure_boxed_payload_preserves_source`. This branch's
-  `tests/error.rs` carries no size-budget test, so add
-  `recipe_error_size_budget_is_respected` asserting
-  `size_of::<RecipeError>() <= 32`, unless the tree has already gained one:
-  `main`'s #439 (issue #208) defines the same test, and Stage A lands after
-  that work is merged, so re-derive the current state before writing it. Keep
-  the `const _` guard in `src/error.rs` as the compile-time enforcement, and
-  never leave two definitions of the test in one tree.
+  `integrity_failure_boxed_payload_preserves_source` and
+  `recipe_error_size_budget_is_respected` (asserting
+  `size_of::<RecipeError>() <= 32`). This branch's `tests/error.rs` has neither
+  test, but `main`'s #439 (issue #208) adds both, and Stage A lands after that
+  work is merged. Re-derive the current state before writing either test: if
+  the tree already carries them, reuse them instead of defining duplicates.
+  Keep the `const _` guard in `src/error.rs` as the compile-time enforcement.
 
 Run them; confirm they fail to compile or fail for the intended reason; capture
 the log.
@@ -1554,8 +1553,10 @@ stack merges into `main`, the duplicate produced a conflict in
 `chutoro-bench-datasets/tests/error.rs`; this layer now keeps only the
 catalogue work. Its `tests/error.rs` has no size-budget test, so the
 compile-time guard in `src/error.rs` is the only size check on this branch, and
-the comment beside it says exactly that. Stage A inherits the test from `main`
-once #439 has merged.
+the comment beside it says exactly that. Stage A inherits both
+`recipe_error_size_budget_is_respected` and
+`integrity_failure_boxed_payload_preserves_source` from `main` once #439 has
+merged.
 
 2026-11-23 (sixth revision, issue #210): re-verified the hash dependency and
 made the read-back bound testable. `cargo tree -i sha2 -e all --workspace` and
@@ -1591,9 +1592,10 @@ from the first verification read to the publishing rename, so a pass that
 completes its read and then stops before the rename costs that pass and its
 replacement.
 
-2026-11-21 (issue #209 catalogue corrections): Stage A now inherits the
-`recipe_error_size_budget_is_respected` test that #439 added to `main` instead
-of defining it again on this branch, and the claim that `tests/error.rs`
+2026-11-21 (issue #209 catalogue corrections): Stage A now inherits
+`recipe_error_size_budget_is_respected` and
+`integrity_failure_boxed_payload_preserves_source` from `main`'s #439 instead
+of defining either again on this branch, and the claim that `tests/error.rs`
 contains only one test is marked as historical. The catalogue also
 distinguishes a hypothetical inhabitation-only change from the M2 change as
 planned, which inhabits `Checksum` and replaces the placeholder parser together.
