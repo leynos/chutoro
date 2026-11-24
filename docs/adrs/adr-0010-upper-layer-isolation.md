@@ -83,8 +83,10 @@ Adopt Option A. The normative requirements are:
 - Every populated node is reachable from the entry point through level-0 edges.
 - Every retained level-0 edge is reciprocated, subject to the level-0 degree
   bound.
-- A populated node is not left with an empty level-0 list by insertion
-  reconciliation.
+- Once the graph holds more than one populated node, insertion reconciliation
+  does not leave a populated node with an empty level-0 list. The first
+  insertion has no other node to connect to, so the requirement starts at the
+  second node.
 - Every retained upper-layer edge is reciprocated and stays within the
   level-specific degree bound.
 - An empty neighbour list at level 1 or above is permitted after an eviction.

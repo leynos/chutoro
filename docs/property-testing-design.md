@@ -242,14 +242,17 @@ difference is stated rather than implied.
     traverses neighbours at every layer, so it is a cross-layer check, not the
     base-layer requirement. A graph with base edges `0`–`1` and `2`–`3` joined
     only by an upper-layer edge `0`–`2` passes the implemented check while its
-    base layer has two components; level-0 search started in one component
-    cannot cross to the other. This "bridged split" is a known divergence,
-    recorded in `docs/chutoro-design.md` §6.5.1 and tracked by
+    base layer has two components. Greedy descent can cross that bridge, so
+    nodes in the second component may still be returned when descent lands
+    there, but level-0 search cannot leave the component it starts in, so
+    reachability from any given entry point is not guaranteed. This
+    "bridged split" is a known divergence, recorded in
+    `docs/chutoro-design.md` §6.5.1 and tracked by
     [issue #393](https://github.com/leynos/chutoro/issues/393). The test-only
     oracle in `chutoro-core/src/hnsw/tests/base_layer_reachability.rs`
-    performs the base-layer-only breadth-first traversal. If a node becomes
-    disconnected, it is no longer searchable, violating the core purpose of
-    the index.
+    performs the base-layer-only breadth-first traversal. A node that becomes
+    disconnected is no longer reliably searchable, violating the core purpose
+    of the index.
 
 - **Invariant 4: Bidirectional Links and permitted upper-layer isolation:**
     Many HNSW implementations rely on symmetric edges for efficient traversal.
@@ -258,7 +261,11 @@ difference is stated rather than implied.
     across the entire graph. Reciprocity is required at every layer for every
     retained edge. Isolation is not symmetric between layers: a node may hold
     an empty neighbour list at level 1 or above after an eviction, but an empty
-    level-0 list violates the contract. See `docs/chutoro-design.md` §6.5.1 and
+    level-0 list violates the contract once the graph holds more than one
+    populated node. The first insertion necessarily leaves its only node with
+    no non-self neighbour, and the base-layer oracle accepts that singleton, so
+    the non-isolation requirement applies from the second node onwards. See
+    `docs/chutoro-design.md` §6.5.1 and
     [ADR 0010](adrs/adr-0010-upper-layer-isolation.md) for the policy and its
     search-quality trade-off.
 
