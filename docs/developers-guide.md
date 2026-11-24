@@ -2711,6 +2711,15 @@ An ignore without an expiry is a permanent hole, and an expired ignore is
 reported as a normal advisory again. Fix the dependency first; ignore only what
 the project cannot fix, and record why in the pull request that adds the entry.
 
+The gate found live work on the day it was introduced. `RUSTSEC-2026-0595`,
+which the RustSec database assigned on 2026-11-23, applies to `parquet` 60.1.0,
+where writing an encrypted file with a bloom filter put the filter's header and
+bitsets in plaintext. The branch had already passed `make deny` that morning;
+the advisory landed afterwards, and the next run failed on it. Moving `parquet`,
+`arrow-array` and `arrow-schema` to 60.2.0 together cleared it. That is the
+behaviour to expect: the database moves under a branch, and a green run is only
+green for the graph and the database it actually saw.
+
 #### Required check
 
 Adding the job does not make it required. A repository maintainer must add the
