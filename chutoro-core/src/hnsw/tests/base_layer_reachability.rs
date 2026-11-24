@@ -160,7 +160,7 @@ mod tests {
         let unreachable =
             unreachable_base_layer_nodes(&graph).expect("an empty graph must be reachable");
 
-        assert!(unreachable.is_empty());
+        assert_eq!(unreachable, Vec::<usize>::new());
     }
 
     #[test]
@@ -196,7 +196,7 @@ mod tests {
         let unreachable =
             unreachable_base_layer_nodes(&graph).expect("a valid singleton must be reachable");
 
-        assert!(unreachable.is_empty());
+        assert_eq!(unreachable, Vec::<usize>::new());
     }
 
     #[test]
