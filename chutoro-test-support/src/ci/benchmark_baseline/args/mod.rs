@@ -7,10 +7,12 @@
 //! spelling can be tested without spawning a process or touching the
 //! filesystem.
 
-use std::collections::BTreeMap;
 use std::path::PathBuf;
 
 use super::BaselineError;
+
+mod options;
+use options::Options;
 
 /// Usage remedy shared by every argument failure.
 const USAGE_REMEDY: &str = "run `benchmark_baseline --help` for the accepted arguments";
@@ -79,52 +81,6 @@ pub struct ClassifyArgs {
     pub failed_stage: Option<String>,
     /// Reason a stage failed, when the workflow is recording a lane defect.
     pub failure_reason: Option<String>,
-}
-
-impl ClassifyArgs {
-    /// Build arguments for a normal classification.
-    ///
-    ///
-    /// # Parameters
-    ///
-    /// - `preflight`: evidence report written by `stage`.
-    /// - `bench`: benchmark target the verdict names.
-    /// - `verdict`: path the verdict is written to.
-    /// - `threshold`: fraction above which a lower bound is a regression.
-    ///
-    /// # Returns
-    ///
-    /// Arguments with no reference reason and no failed stage.
-    /// # Examples
-    ///
-    /// ```
-    /// use chutoro_test_support::ci::benchmark_baseline::args::ClassifyArgs;
-    ///
-    /// let args = ClassifyArgs::new(
-    ///     "/evidence/preflight.json".into(),
-    ///     "hnsw",
-    ///     "/evidence/verdict.json".into(),
-    ///     0.05,
-    /// );
-    /// assert!(args.no_reference.is_none());
-    /// ```
-    #[must_use]
-    pub fn new(
-        preflight: std::path::PathBuf,
-        bench: &str,
-        verdict: std::path::PathBuf,
-        threshold: f64,
-    ) -> Self {
-        Self {
-            preflight,
-            bench: bench.to_owned(),
-            verdict,
-            threshold,
-            no_reference: None,
-            failed_stage: None,
-            failure_reason: None,
-        }
-    }
 }
 
 /// Why the lane had no previous revision to compare against.
@@ -282,95 +238,8 @@ fn parse_classify(arguments: &[String]) -> Result<Command, BaselineError> {
     })))
 }
 
-/// Collected `--name value` options with repeatable values.
-#[derive(Debug, Default)]
-struct Options {
-    /// Option values, keyed by their long name.
-    values: BTreeMap<String, Vec<String>>,
-}
-
-impl Options {
-    /// Parse `--name value` pairs, rejecting unknown or misplaced arguments.
-    fn parse(arguments: &[String]) -> Result<Self, BaselineError> {
-        let mut options = Self::default();
-        let mut remaining = arguments.iter();
-        while let Some(argument) = remaining.next() {
-            let name = if Self::is_known(argument) {
-                argument.clone()
-            } else if argument.starts_with('-') {
-                return Err(usage(&format!("unknown option `{argument}`")));
-            } else {
-                return Err(usage(&format!(
-                    "unexpected positional argument `{argument}`"
-                )));
-            };
-            let value = remaining
-                .next()
-                .ok_or_else(|| usage(&format!("option `{name}` requires a value")))?;
-            options.values.entry(name).or_default().push(value.clone());
-        }
-
-        Ok(options)
-    }
-
-    /// Return whether `name` is an option this helper understands.
-    fn is_known(name: &str) -> bool {
-        matches!(
-            name,
-            "--workspace"
-                | "--bench"
-                | "--baseline"
-                | "--revision"
-                | "--output"
-                | "--fresh-since"
-                | "--bench-argument"
-                | "--reference-manifest"
-                | "--current-manifest"
-                | "--evidence"
-                | "--filter-output"
-                | "--preflight"
-                | "--verdict"
-                | "--threshold"
-                | "--no-reference"
-                | "--failed-stage"
-                | "--failure-reason"
-                | "--help"
-        )
-    }
-
-    /// Return the first value supplied for `name`.
-    fn get(&self, name: &str) -> Option<&String> {
-        self.values.get(name).and_then(|values| values.first())
-    }
-
-    /// Return a required option value.
-    fn required(&self, name: &str) -> Result<String, BaselineError> {
-        self.get(name)
-            .cloned()
-            .ok_or_else(|| usage(&format!("option `{name}` is required")))
-    }
-
-    /// Return every recorded measurement argument in the order supplied.
-    fn bench_arguments(&self) -> Vec<String> {
-        self.values
-            .get("--bench-argument")
-            .cloned()
-            .unwrap_or_default()
-    }
-
-    /// Return a required option value as a path.
-    fn required_path(&self, name: &str) -> Result<PathBuf, BaselineError> {
-        self.required(name).map(PathBuf::from)
-    }
-
-    /// Return an optional option value as a path.
-    fn path(&self, name: &str) -> Option<PathBuf> {
-        self.get(name).map(PathBuf::from)
-    }
-}
-
 /// Build a usage failure.
-fn usage(message: &str) -> BaselineError {
+pub(super) fn usage(message: &str) -> BaselineError {
     BaselineError::Usage {
         message: message.to_owned(),
         remedy: USAGE_REMEDY,

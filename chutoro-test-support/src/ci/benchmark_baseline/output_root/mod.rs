@@ -15,6 +15,10 @@ use serde::Deserialize;
 
 use super::BaselineError;
 
+mod lockfile;
+
+pub use lockfile::lockfile_package_version;
+
 /// Environment variable that names Criterion's output root directly.
 pub const CRITERION_HOME_ENV: &str = "CRITERION_HOME";
 
@@ -226,7 +230,7 @@ pub fn metadata_target_directory(
 /// cache and can block behind other builds on a shared host; the lockfile is
 /// already the resolved answer for a `--locked` build and costs one file read.
 fn criterion_version(workspace: &Path) -> Result<String, BaselineError> {
-    let lock_path = lockfile_path(workspace);
+    let lock_path = lockfile::lockfile_path(workspace);
     let text = std::fs::read_to_string(&lock_path).map_err(|source| BaselineError::Read {
         path: lock_path.clone(),
         source,
@@ -240,59 +244,6 @@ fn criterion_version(workspace: &Path) -> Result<String, BaselineError> {
         ),
         remedy: "add criterion to the benchmark crate and run `cargo update -p criterion`",
     })
-}
-
-/// Find the lockfile that governs `workspace`.
-///
-/// A workspace member has no lockfile of its own, so the search walks up to
-/// the directory that owns one. This keeps `--workspace` usable for either a
-/// package directory or the workspace root.
-fn lockfile_path(workspace: &Path) -> PathBuf {
-    let mut candidate = workspace.to_path_buf();
-    loop {
-        let lockfile = candidate.join("Cargo.lock");
-        if lockfile.is_file() {
-            return lockfile;
-        }
-        let Some(parent) = candidate.parent() else {
-            return workspace.join("Cargo.lock");
-        };
-        candidate = parent.to_path_buf();
-    }
-}
-
-/// Return the version a Cargo lockfile records for `package`.
-///
-/// # Examples
-///
-/// ```
-/// use chutoro_test_support::ci::benchmark_baseline::output_root::lockfile_package_version;
-///
-/// let lockfile = r#"
-/// [[package]]
-/// name = "criterion"
-/// version = "0.5.1"
-/// "#;
-/// assert_eq!(lockfile_package_version(lockfile, "criterion"), Some("0.5.1".to_owned()));
-/// assert_eq!(lockfile_package_version(lockfile, "tempfile"), None);
-/// ```
-#[must_use]
-pub fn lockfile_package_version(lockfile: &str, package: &str) -> Option<String> {
-    let name_line = format!("name = \"{package}\"");
-    let mut lines = lockfile.lines();
-    while let Some(line) = lines.next() {
-        if line.trim() != name_line {
-            continue;
-        }
-        let version_line = lines.next()?;
-        return version_line
-            .trim()
-            .strip_prefix("version = \"")
-            .and_then(|rest| rest.strip_suffix('"'))
-            .map(str::to_owned);
-    }
-
-    None
 }
 
 /// Tool versions recorded in every inventory manifest.

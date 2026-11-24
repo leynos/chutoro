@@ -7,6 +7,37 @@ fn arguments(values: &[&str]) -> Vec<String> {
     values.iter().map(|value| (*value).to_owned()).collect()
 }
 
+/// The `classify` arguments shared by the option-rejection tests.
+const CLASSIFY_BASE: [&str; 6] = [
+    "classify",
+    "--preflight",
+    "/evidence/preflight.json",
+    "--bench",
+    "hnsw",
+    "--verdict",
+];
+
+/// Build a `classify` argument list from the shared base and extra options.
+fn classify_arguments(extra: &[&str]) -> Vec<String> {
+    let mut values: Vec<String> = CLASSIFY_BASE
+        .iter()
+        .map(|value| (*value).to_owned())
+        .collect();
+    values.push("/evidence/verdict.json".to_owned());
+    values.extend(extra.iter().map(|value| (*value).to_owned()));
+    values
+}
+
+/// Parse a vector with the `inventory` subcommand and require a usage error.
+fn parse_error(values: &[&str], expectation: &str) -> BaselineError {
+    parse(&arguments(values)).expect_err(expectation)
+}
+
+/// Parse a full argument list and require a usage error.
+fn parse_usage_error(values: &[&str], expectation: &str) -> BaselineError {
+    parse(&arguments(values)).expect_err(expectation)
+}
+
 #[test]
 fn no_subcommand_is_a_usage_error() {
     let error = parse(&[]).expect_err("an empty command line must fail");
@@ -24,7 +55,7 @@ fn help_is_recognized() {
 
 #[test]
 fn unknown_subcommand_names_the_subcommand() {
-    let error = parse(&arguments(&["summarize"])).expect_err("unknown subcommand must fail");
+    let error = parse_error(&["summarize"], "unknown subcommand must fail");
 
     assert!(error.to_string().contains("summarize"), "{error}");
 }
@@ -67,24 +98,24 @@ fn inventory_collects_required_options_and_repeatable_arguments() {
 
 #[test]
 fn inventory_rejects_a_missing_value() {
-    let error =
-        parse(&arguments(&["inventory", "--workspace"])).expect_err("missing value must fail");
+    let error = parse_error(&["inventory", "--workspace"], "missing value must fail");
 
     assert!(error.to_string().contains("--workspace"), "{error}");
 }
 
 #[test]
 fn unknown_option_is_a_usage_error() {
-    let error =
-        parse(&arguments(&["inventory", "--nope", "value"])).expect_err("unknown option must fail");
+    let error = parse_error(
+        &["inventory", "--nope", "value"],
+        "unknown option must fail",
+    );
 
     assert!(error.to_string().contains("--nope"), "{error}");
 }
 
 #[test]
 fn positional_argument_is_a_usage_error() {
-    let error =
-        parse(&arguments(&["inventory", "stray"])).expect_err("positional argument must fail");
+    let error = parse_error(&["inventory", "stray"], "positional argument must fail");
 
     assert!(error.to_string().contains("stray"), "{error}");
 }
@@ -173,36 +204,16 @@ fn classify_accepts_an_explicit_threshold_and_reason() {
 
 #[test]
 fn classify_rejects_a_negative_threshold() {
-    let error = parse(&arguments(&[
-        "classify",
-        "--preflight",
-        "/evidence/preflight.json",
-        "--bench",
-        "hnsw",
-        "--verdict",
-        "/evidence/verdict.json",
-        "--threshold",
-        "-0.1",
-    ]))
-    .expect_err("negative threshold must fail");
+    let error = parse(&classify_arguments(&["--threshold", "-0.1"]))
+        .expect_err("negative threshold must fail");
 
     assert!(error.to_string().contains("--threshold"), "{error}");
 }
 
 #[test]
 fn classify_rejects_an_unknown_no_reference_reason() {
-    let error = parse(&arguments(&[
-        "classify",
-        "--preflight",
-        "/evidence/preflight.json",
-        "--bench",
-        "hnsw",
-        "--verdict",
-        "/evidence/verdict.json",
-        "--no-reference",
-        "detached",
-    ]))
-    .expect_err("unknown reason must fail");
+    let error = parse(&classify_arguments(&["--no-reference", "detached"]))
+        .expect_err("unknown reason must fail");
 
     assert!(error.to_string().contains("detached"), "{error}");
 }
@@ -211,7 +222,9 @@ fn classify_rejects_an_unknown_no_reference_reason() {
 fn unused_options_are_collected_but_ignored() {
     // `--unused` is not an option name, so this proves the parser rejects
     // any name outside the known set rather than silently accepting it.
-    let error = parse(&arguments(&["classify", "--unused", "value"]))
-        .expect_err("unknown option must fail");
+    let error = parse_usage_error(
+        &["classify", "--unused", "value"],
+        "unknown option must fail",
+    );
     assert!(matches!(error, BaselineError::Usage { .. }));
 }

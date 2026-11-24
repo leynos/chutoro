@@ -76,39 +76,13 @@ pub struct Classification {
 /// let noise = classify_interval(-0.01, 0.20, 0.05).expect("ordered interval");
 /// assert_eq!(noise.class, CaseClass::WithinNoise);
 /// ```
-#[expect(
-    clippy::float_arithmetic,
-    reason = "the policy is defined over Criterion's floating-point change interval"
-)]
 pub fn classify_interval(
     lower_bound: f64,
     upper_bound: f64,
     threshold: f64,
 ) -> Result<Classification, IntervalError> {
-    if !(lower_bound.is_finite() && upper_bound.is_finite() && threshold.is_finite()) {
-        return Err(IntervalError::NonFinite {
-            lower_bound,
-            upper_bound,
-            threshold,
-        });
-    }
-    if threshold <= 0.0 {
-        return Err(IntervalError::Threshold { threshold });
-    }
-    if lower_bound > upper_bound {
-        return Err(IntervalError::Inverted {
-            lower_bound,
-            upper_bound,
-        });
-    }
-    let negative_threshold = -threshold;
-    let class = if lower_bound > threshold {
-        CaseClass::Regressed
-    } else if upper_bound < negative_threshold {
-        CaseClass::Improved
-    } else {
-        CaseClass::WithinNoise
-    };
+    validate_interval(lower_bound, upper_bound, threshold)?;
+    let class = classify_valid(lower_bound, upper_bound, threshold);
 
     Ok(Classification {
         class,
@@ -207,6 +181,53 @@ impl CaseChange {
                 }
             }
         })
+    }
+}
+
+/// Return whether every value is finite.
+fn all_finite(values: [f64; 3]) -> bool {
+    values.iter().all(|value| value.is_finite())
+}
+
+/// Reject an interval the policy cannot classify.
+fn validate_interval(
+    lower_bound: f64,
+    upper_bound: f64,
+    threshold: f64,
+) -> Result<(), IntervalError> {
+    if !all_finite([lower_bound, upper_bound, threshold]) {
+        return Err(IntervalError::NonFinite {
+            lower_bound,
+            upper_bound,
+            threshold,
+        });
+    }
+    if threshold <= 0.0 {
+        return Err(IntervalError::Threshold { threshold });
+    }
+    if lower_bound > upper_bound {
+        return Err(IntervalError::Inverted {
+            lower_bound,
+            upper_bound,
+        });
+    }
+
+    Ok(())
+}
+
+/// Classify an interval whose bounds and threshold have already been validated.
+#[expect(
+    clippy::float_arithmetic,
+    reason = "the policy is defined over Criterion's floating-point change interval"
+)]
+fn classify_valid(lower_bound: f64, upper_bound: f64, threshold: f64) -> CaseClass {
+    let negative_threshold = -threshold;
+    if lower_bound > threshold {
+        CaseClass::Regressed
+    } else if upper_bound < negative_threshold {
+        CaseClass::Improved
+    } else {
+        CaseClass::WithinNoise
     }
 }
 

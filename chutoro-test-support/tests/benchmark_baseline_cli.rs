@@ -9,7 +9,7 @@
 #[path = "benchmark_baseline_cli/support.rs"]
 mod support;
 
-use support::{Sandbox, binary, complete, exit_code, manifest, read, run, sandbox, stderr};
+use support::{Sandbox, binary, complete, exit_code, read, run, run_stage, sandbox, stderr};
 
 use std::fs;
 use std::path::{Path, PathBuf};
@@ -46,44 +46,11 @@ fn missing_reference_sample_exits_incomplete_and_names_the_path(
     sandbox: Result<Sandbox, std::io::Error>,
 ) {
     let workspace = sandbox.expect("sandbox must be created");
-    let reference_root = workspace.evidence.join("reference-criterion");
-    Sandbox::write_baseline(&reference_root, "fixture/alpha", "ci-reference")
-        .expect("reference tree must be written");
-    Sandbox::write_baseline(&workspace.current_root, "fixture/alpha", "ci-current")
-        .expect("current tree must be written");
-    let reference = manifest(
-        &reference_root,
-        "ci-reference",
-        "0.5.1",
-        RequiredFiles {
-            sample: false,
-            ..complete()
-        },
-    );
-    let current = manifest(&workspace.current_root, "ci-current", "0.5.1", complete());
-    let reference_path = workspace
-        .write_manifest("reference-manifest.json", &reference)
-        .expect("reference manifest must be written");
-    let current_path = workspace
-        .write_manifest("current-manifest.json", &current)
-        .expect("current manifest must be written");
-
-    let output = run(
-        &binary,
-        &[
-            "stage",
-            "--bench",
-            "hnsw",
-            "--reference-manifest",
-            &reference_path.display().to_string(),
-            "--current-manifest",
-            &current_path.display().to_string(),
-            "--evidence",
-            &workspace.evidence.display().to_string(),
-        ],
-        &[],
-    )
-    .expect("helper binary must run");
+    let incomplete = RequiredFiles {
+        sample: false,
+        ..complete()
+    };
+    let output = run_stage(&binary, &workspace, ("0.5.1", incomplete), "0.5.1");
 
     assert_eq!(exit_code(&output), 2);
     let message = stderr(&output);
@@ -98,36 +65,7 @@ fn version_mismatch_exits_incompatible_and_names_both_versions(
     sandbox: Result<Sandbox, std::io::Error>,
 ) {
     let workspace = sandbox.expect("sandbox must be created");
-    let reference_root = workspace.evidence.join("reference-criterion");
-    Sandbox::write_baseline(&reference_root, "fixture/alpha", "ci-reference")
-        .expect("reference tree must be written");
-    Sandbox::write_baseline(&workspace.current_root, "fixture/alpha", "ci-current")
-        .expect("current tree must be written");
-    let reference = manifest(&reference_root, "ci-reference", "0.4.0", complete());
-    let current = manifest(&workspace.current_root, "ci-current", "0.5.1", complete());
-    let reference_path = workspace
-        .write_manifest("reference-manifest.json", &reference)
-        .expect("reference manifest must be written");
-    let current_path = workspace
-        .write_manifest("current-manifest.json", &current)
-        .expect("current manifest must be written");
-
-    let output = run(
-        &binary,
-        &[
-            "stage",
-            "--bench",
-            "hnsw",
-            "--reference-manifest",
-            &reference_path.display().to_string(),
-            "--current-manifest",
-            &current_path.display().to_string(),
-            "--evidence",
-            &workspace.evidence.display().to_string(),
-        ],
-        &[],
-    )
-    .expect("helper binary must run");
+    let output = run_stage(&binary, &workspace, ("0.4.0", complete()), "0.5.1");
 
     assert_eq!(exit_code(&output), 3);
     let message = stderr(&output);

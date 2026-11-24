@@ -149,19 +149,7 @@ fn classify_preflight(args: &ClassifyArgs) -> Result<BaselineVerdict, BaselineEr
             remedy: "pass the same --bench to stage and classify",
         });
     }
-    let mut verdict = BaselineVerdict::started(&args.bench, args.threshold);
-    verdict.stage = String::from("classify");
-    verdict.reference_revision = report
-        .reference
-        .as_ref()
-        .map(|summary| summary.revision.clone());
-    verdict.current_revision = report
-        .current
-        .as_ref()
-        .map(|summary| summary.revision.clone());
-    verdict.comparable_count = report.comparable.len();
-    verdict.diagnostics.clone_from(&report.diagnostics);
-
+    let mut verdict = verdict_from_report(args, &report);
     if report.outcome != Outcome::Pass {
         verdict.outcome = report.outcome;
         verdict.reason = report
@@ -185,18 +173,64 @@ fn classify_preflight(args: &ClassifyArgs) -> Result<BaselineVerdict, BaselineEr
         return Ok(verdict);
     };
 
-    let mut unreadable = 0;
-    let mut incompatible = false;
-    for case in &report.comparable {
-        match classify_case(&current_root, case, args.threshold) {
+    let losses = record_classified_cases(&mut verdict, &report.comparable, &current_root, args);
+    let CaseLosses {
+        unreadable,
+        incompatible,
+    } = losses;
+    record_unverified(&mut verdict, &report);
+    verdict.cases.sort_by(|left, right| left.id.cmp(&right.id));
+    verdict.outcome = outcome_for(&verdict, unreadable, incompatible);
+    verdict.reason = reason_for(&verdict, unreadable, incompatible);
+
+    Ok(verdict)
+}
+
+/// Seed a verdict with the facts a preflight report already carries.
+fn verdict_from_report(args: &ClassifyArgs, report: &PreflightReport) -> BaselineVerdict {
+    let mut verdict = BaselineVerdict::started(&args.bench, args.threshold);
+    verdict.stage = String::from("classify");
+    verdict.reference_revision = report
+        .reference
+        .as_ref()
+        .map(|summary| summary.revision.clone());
+    verdict.current_revision = report
+        .current
+        .as_ref()
+        .map(|summary| summary.revision.clone());
+    verdict.comparable_count = report.comparable.len();
+    verdict.diagnostics.clone_from(&report.diagnostics);
+
+    verdict
+}
+
+/// Counts of comparable identifiers that could not be classified.
+#[derive(Clone, Copy, Debug, Default)]
+struct CaseLosses {
+    /// Identifiers whose change estimates were missing or malformed.
+    unreadable: usize,
+    /// Identifiers whose evidence was incompatible with the policy.
+    incompatible: bool,
+}
+
+/// Classify every comparable identifier, recording each failure.
+fn record_classified_cases(
+    verdict: &mut BaselineVerdict,
+    comparable: &[ComparableCase],
+    current_root: &Path,
+    args: &ClassifyArgs,
+) -> CaseLosses {
+    let mut losses = CaseLosses::default();
+    for case in comparable {
+        match classify_case(current_root, case, args.threshold) {
             Ok(case_verdict) => verdict.cases.push(case_verdict),
             Err(error) => {
                 // An incompatible confidence level is a different failure
                 // from unreadable evidence, and carries its own outcome.
                 if error.outcome() == Some(Outcome::Incompatible) {
-                    incompatible = true;
+                    losses.incompatible = true;
                 } else {
-                    unreadable += 1;
+                    losses.unreadable += 1;
                 }
                 verdict
                     .diagnostics
@@ -209,12 +243,8 @@ fn classify_preflight(args: &ClassifyArgs) -> Result<BaselineVerdict, BaselineEr
             }
         }
     }
-    record_unverified(&mut verdict, &report);
-    verdict.cases.sort_by(|left, right| left.id.cmp(&right.id));
-    verdict.outcome = outcome_for(&verdict, unreadable, incompatible);
-    verdict.reason = reason_for(&verdict, unreadable, incompatible);
 
-    Ok(verdict)
+    losses
 }
 
 /// Append identifiers the lane could not compare.

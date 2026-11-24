@@ -177,6 +177,55 @@ pub fn run(
         .output()
 }
 
+/// Stage a synthetic reference and current tree and run the helper's `stage`.
+///
+/// `reference` is the reference side's recorded Criterion version and
+/// required-file set; `current_version` is the current side's version. The
+/// current side always carries every required file.
+pub fn run_stage(
+    binary: &Path,
+    workspace: &Sandbox,
+    reference: (&str, RequiredFiles),
+    current_version: &str,
+) -> Output {
+    let reference_root = workspace.evidence.join("reference-criterion");
+    Sandbox::write_baseline(&reference_root, "fixture/alpha", "ci-reference")
+        .expect("reference tree must be written");
+    Sandbox::write_baseline(&workspace.current_root, "fixture/alpha", "ci-current")
+        .expect("current tree must be written");
+    let (version, files) = reference;
+    let reference_manifest = manifest(&reference_root, "ci-reference", version, files);
+    let current_manifest = manifest(
+        &workspace.current_root,
+        "ci-current",
+        current_version,
+        complete(),
+    );
+    let reference_path = workspace
+        .write_manifest("reference-manifest.json", &reference_manifest)
+        .expect("reference manifest must be written");
+    let current_path = workspace
+        .write_manifest("current-manifest.json", &current_manifest)
+        .expect("current manifest must be written");
+
+    run(
+        binary,
+        &[
+            "stage",
+            "--bench",
+            "hnsw",
+            "--reference-manifest",
+            &reference_path.display().to_string(),
+            "--current-manifest",
+            &current_path.display().to_string(),
+            "--evidence",
+            &workspace.evidence.display().to_string(),
+        ],
+        &[],
+    )
+    .expect("helper binary must run")
+}
+
 /// Return the process exit code, failing when the process was signalled.
 pub fn exit_code(output: &Output) -> i32 {
     output.status.code().unwrap_or_else(|| {

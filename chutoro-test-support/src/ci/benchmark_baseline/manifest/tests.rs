@@ -23,6 +23,24 @@ fn instant(seconds_after_epoch: u64) -> SystemTime {
     SystemTime::UNIX_EPOCH + Duration::from_secs(seconds_after_epoch)
 }
 
+/// Write the default single case into a fresh temporary directory.
+fn single_case(root: &Path) -> PathBuf {
+    write_case(
+        root,
+        "ci-reference",
+        &CaseSpec {
+            full_id: "fixture/alpha/plain",
+            directory_name: "fixture/alpha/plain",
+            required: true,
+        },
+    )
+}
+
+/// Discover with the default reference baseline and an optional marker.
+fn discover_error(root: &Path, marker: Option<&Path>, expectation: &str) -> BaselineError {
+    discover_cases(root, "ci-reference", marker).expect_err(expectation)
+}
+
 /// One case to stage for a discovery test.
 struct CaseSpec<'a> {
     /// Recorded full identifier.
@@ -57,15 +75,7 @@ fn write_case(root: &Path, baseline: &str, spec: &CaseSpec<'_>) -> PathBuf {
 #[test]
 fn discovery_finds_nested_identifiers_and_records_required_files() {
     let directory = TempDir::new().expect("temporary directory");
-    write_case(
-        directory.path(),
-        "ci-reference",
-        &CaseSpec {
-            full_id: "fixture/alpha/plain",
-            directory_name: "fixture/alpha/plain",
-            required: true,
-        },
-    );
+    single_case(directory.path());
     write_case(
         directory.path(),
         "ci-reference",
@@ -122,15 +132,7 @@ fn discovery_ignores_other_baseline_names() {
 #[test]
 fn duplicate_identifiers_fail_discovery() {
     let directory = TempDir::new().expect("temporary directory");
-    write_case(
-        directory.path(),
-        "ci-reference",
-        &CaseSpec {
-            full_id: "fixture/alpha/plain",
-            directory_name: "fixture/alpha/plain",
-            required: true,
-        },
-    );
+    single_case(directory.path());
     write_case(
         directory.path(),
         "ci-reference",
@@ -141,8 +143,7 @@ fn duplicate_identifiers_fail_discovery() {
         },
     );
 
-    let error = discover_cases(directory.path(), "ci-reference", None)
-        .expect_err("duplicate identifiers must fail");
+    let error = discover_error(directory.path(), None, "duplicate identifiers must fail");
 
     assert!(matches!(error, BaselineError::DuplicateId { .. }));
     let message = error.to_string();
@@ -152,20 +153,11 @@ fn duplicate_identifiers_fail_discovery() {
 #[test]
 fn malformed_benchmark_json_names_the_path() {
     let directory = TempDir::new().expect("temporary directory");
-    let baseline_directory = write_case(
-        directory.path(),
-        "ci-reference",
-        &CaseSpec {
-            full_id: "fixture/alpha/plain",
-            directory_name: "fixture/alpha/plain",
-            required: true,
-        },
-    );
+    let baseline_directory = single_case(directory.path());
     fs::write(baseline_directory.join("benchmark.json"), "{not json")
         .expect("malformed benchmark.json must be written");
 
-    let error = discover_cases(directory.path(), "ci-reference", None)
-        .expect_err("malformed metadata must fail");
+    let error = discover_error(directory.path(), None, "malformed metadata must fail");
 
     let message = error.to_string();
     assert!(message.contains("benchmark.json"), "{message}");
@@ -174,15 +166,7 @@ fn malformed_benchmark_json_names_the_path() {
 #[test]
 fn directory_name_mismatch_is_reported() {
     let directory = TempDir::new().expect("temporary directory");
-    write_case(
-        directory.path(),
-        "ci-reference",
-        &CaseSpec {
-            full_id: "fixture/alpha/plain",
-            directory_name: "fixture/alpha/plain",
-            required: true,
-        },
-    );
+    single_case(directory.path());
     let other = directory.path().join("fixture/wrong");
     let other_baseline = other.join("ci-reference");
     fs::create_dir_all(&other_baseline).expect("directory must be created");
@@ -192,8 +176,7 @@ fn directory_name_mismatch_is_reported() {
     )
     .expect("benchmark.json must be written");
 
-    let error = discover_cases(directory.path(), "ci-reference", None)
-        .expect_err("mismatched directory must fail");
+    let error = discover_error(directory.path(), None, "mismatched directory must fail");
 
     let message = error.to_string();
     assert!(message.contains("records directory"), "{message}");
@@ -202,15 +185,7 @@ fn directory_name_mismatch_is_reported() {
 #[test]
 fn stale_baselines_are_rejected_against_the_marker() {
     let directory = TempDir::new().expect("temporary directory");
-    let baseline_directory = write_case(
-        directory.path(),
-        "ci-reference",
-        &CaseSpec {
-            full_id: "fixture/alpha/plain",
-            directory_name: "fixture/alpha/plain",
-            required: true,
-        },
-    );
+    let baseline_directory = single_case(directory.path());
     // Explicit timestamps make the ordering unambiguous whatever the host's
     // filesystem timestamp granularity is.
     for file in ["benchmark.json", "estimates.json", "sample.json"] {
@@ -232,15 +207,7 @@ fn stale_baselines_are_rejected_against_the_marker() {
 #[test]
 fn a_stale_sample_is_rejected_even_when_its_metadata_is_fresh() {
     let directory = TempDir::new().expect("temporary directory");
-    let baseline_directory = write_case(
-        directory.path(),
-        "ci-reference",
-        &CaseSpec {
-            full_id: "fixture/alpha/plain",
-            directory_name: "fixture/alpha/plain",
-            required: true,
-        },
-    );
+    let baseline_directory = single_case(directory.path());
     let marker = directory.path().join("verdict.json");
     fs::write(&marker, "{}").expect("marker must be written");
     set_modified(&marker, instant(1_000));
@@ -262,15 +229,7 @@ fn fresh_baselines_pass_the_marker_check() {
     let marker = directory.path().join("verdict.json");
     fs::write(&marker, "{}").expect("marker must be written");
     set_modified(&marker, instant(1_000));
-    let baseline_directory = write_case(
-        directory.path(),
-        "ci-reference",
-        &CaseSpec {
-            full_id: "fixture/alpha/plain",
-            directory_name: "fixture/alpha/plain",
-            required: true,
-        },
-    );
+    let baseline_directory = single_case(directory.path());
     for file in ["benchmark.json", "estimates.json", "sample.json"] {
         set_modified(&baseline_directory.join(file), instant(2_000));
     }
@@ -284,15 +243,7 @@ fn fresh_baselines_pass_the_marker_check() {
 #[test]
 fn missing_marker_names_the_marker_path() {
     let directory = TempDir::new().expect("temporary directory");
-    write_case(
-        directory.path(),
-        "ci-reference",
-        &CaseSpec {
-            full_id: "fixture/alpha/plain",
-            directory_name: "fixture/alpha/plain",
-            required: true,
-        },
-    );
+    single_case(directory.path());
     let marker = directory.path().join("missing-marker.json");
 
     let error = discover_cases(directory.path(), "ci-reference", Some(&marker))
