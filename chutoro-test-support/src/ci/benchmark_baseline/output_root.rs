@@ -82,6 +82,10 @@ fn resolve_relative(path: &Path, working_directory: &Path) -> PathBuf {
 
 /// Resolve the output root for a workspace, consulting metadata only if needed.
 ///
+/// # Errors
+///
+/// Returns an error when `cargo metadata` fails or a tool version cannot be  read.
+///
 /// # Examples
 ///
 /// ```
@@ -169,6 +173,10 @@ struct MetadataPackage {
 
 /// Parse `cargo metadata` output.
 ///
+/// # Errors
+///
+/// Returns an error when `cargo metadata` fails or a tool version cannot be  read.
+///
 /// # Examples
 ///
 /// ```
@@ -185,6 +193,10 @@ pub fn parse_metadata(bytes: &[u8], workspace: &Path) -> Result<CargoMetadata, B
 }
 
 /// Return Cargo's target directory from `cargo metadata`.
+///
+/// # Errors
+///
+/// Returns an error when `cargo metadata` fails or a tool version cannot be  read.
 ///
 /// # Examples
 ///
@@ -231,6 +243,10 @@ pub struct RecordedTools {
 }
 
 /// Record the tool versions that produced a baseline.
+///
+/// # Errors
+///
+/// Returns an error when `cargo metadata` fails or a tool version cannot be  read.
 ///
 /// # Examples
 ///

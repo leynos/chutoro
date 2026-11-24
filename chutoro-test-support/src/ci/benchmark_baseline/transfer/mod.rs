@@ -295,8 +295,8 @@ fn move_to_backup(parent: &Path, pair: &StagePair<'_>) -> Result<TempDir, Baseli
 
 /// Restore a backed-up destination after a failed rename.
 fn restore_backup(backup: Option<TempDir>, destination: &Path) {
-    if let Some(backup) = backup {
-        let previous = backup.path().join("previous");
+    if let Some(previous_directory) = backup {
+        let previous = previous_directory.path().join("previous");
         let _restore_result = fs::rename(previous, destination);
     }
 }

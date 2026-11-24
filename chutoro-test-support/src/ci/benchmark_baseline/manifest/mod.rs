@@ -121,6 +121,10 @@ pub struct InventoryRequest<'a> {
 
 /// Discover every baseline entry for `request.baseline` beneath the root.
 ///
+/// # Errors
+///
+/// Returns an error when tool versions cannot be recorded, the output root cannot be walked, a baseline file is malformed or stale, or an identifier appears twice.
+///
 /// # Examples
 ///
 /// ```
@@ -191,6 +195,10 @@ pub fn collect_bench_environment(env: &dyn Env) -> BTreeMap<String, String> {
 
 /// Write a manifest as pretty JSON, creating its parent directory.
 ///
+/// # Errors
+///
+/// Returns an error when the manifest cannot be serialized or written.
+///
 /// # Examples
 ///
 /// ```
@@ -224,6 +232,10 @@ pub fn write_manifest(path: &Path, manifest: &BaselineManifest) -> Result<(), Ba
 }
 
 /// Read a manifest, naming the path when it cannot be parsed.
+///
+/// # Errors
+///
+/// Returns an error when the manifest cannot be read or parsed.
 pub fn read_manifest(path: &Path) -> Result<BaselineManifest, BaselineError> {
     read_json(path)
 }
@@ -325,48 +337,65 @@ fn marker_time(marker: &Path) -> Result<SystemTime, BaselineError> {
 
 /// Walk a directory recursively, recording baseline identifiers.
 fn walk(directory: &Path, discovery: &mut Discovery<'_>) -> Result<(), BaselineError> {
-    let entries = fs::read_dir(directory).map_err(|source| BaselineError::Read {
-        path: directory.to_path_buf(),
-        source,
-        remedy: "check that the Criterion output root exists and is readable",
-    })?;
+    let entries = read_directory(directory)?;
 
     for entry in entries {
-        let entry = entry.map_err(|source| BaselineError::Read {
+        let dir_entry = entry.map_err(|source| BaselineError::Read {
             path: directory.to_path_buf(),
             source,
             remedy: "check that the Criterion output root is readable",
         })?;
-        let file_type = entry.file_type().map_err(|source| BaselineError::Read {
-            path: entry.path(),
-            source,
-            remedy: "check that the Criterion output root is readable",
-        })?;
-        if file_type.is_dir() {
-            walk(&entry.path(), discovery)?;
-        } else if file_type.is_file() {
-            consider_file(&entry.path(), discovery)?;
-        }
+        visit(&dir_entry, discovery)?;
     }
 
     Ok(())
 }
 
-/// Record a `benchmark.json` when it sits directly inside the baseline.
-fn consider_file(path: &Path, discovery: &mut Discovery<'_>) -> Result<(), BaselineError> {
-    if path.file_name().is_none_or(|name| name != "benchmark.json") {
-        return Ok(());
+/// Read a directory, naming it when it cannot be read.
+fn read_directory(directory: &Path) -> Result<fs::ReadDir, BaselineError> {
+    fs::read_dir(directory).map_err(|source| BaselineError::Read {
+        path: directory.to_path_buf(),
+        source,
+        remedy: "check that the Criterion output root exists and is readable",
+    })
+}
+
+/// Visit one directory entry, recursing into directories.
+fn visit(entry: &fs::DirEntry, discovery: &mut Discovery<'_>) -> Result<(), BaselineError> {
+    let path = entry.path();
+    let file_type = entry.file_type().map_err(|source| BaselineError::Read {
+        path: path.clone(),
+        source,
+        remedy: "check that the Criterion output root is readable",
+    })?;
+    if file_type.is_dir() {
+        walk(&path, discovery)?;
+    } else if file_type.is_file() {
+        consider_file(&path, discovery)?;
     }
-    let Some(baseline_directory) = path.parent() else {
-        return Ok(());
-    };
+
+    Ok(())
+}
+
+/// Return the identifier directory when `path` is a baseline `benchmark.json`.
+fn identifier_directory<'a>(path: &'a Path, baseline: &str) -> Option<&'a Path> {
+    if path.file_name().is_none_or(|name| name != "benchmark.json") {
+        return None;
+    }
+    let baseline_directory = path.parent()?;
     if baseline_directory
         .file_name()
-        .is_none_or(|name| name != discovery.baseline)
+        .is_none_or(|name| name != baseline)
     {
-        return Ok(());
+        return None;
     }
-    let Some(identifier_directory) = baseline_directory.parent() else {
+
+    baseline_directory.parent()
+}
+
+/// Record a `benchmark.json` when it sits directly inside the baseline.
+fn consider_file(path: &Path, discovery: &mut Discovery<'_>) -> Result<(), BaselineError> {
+    let Some(identifier_directory) = identifier_directory(path, discovery.baseline) else {
         return Ok(());
     };
 
@@ -417,10 +446,11 @@ fn consider_file(path: &Path, discovery: &mut Discovery<'_>) -> Result<(), Basel
         .first_seen
         .insert(record.full_id.clone(), path.to_path_buf());
 
+    let recorded_baseline = path.parent().unwrap_or(path);
     let required_files = RequiredFiles {
         benchmark: true,
-        estimates: baseline_directory.join("estimates.json").is_file(),
-        sample: baseline_directory.join("sample.json").is_file(),
+        estimates: recorded_baseline.join("estimates.json").is_file(),
+        sample: recorded_baseline.join("sample.json").is_file(),
     };
     discovery.cases.push(BaselineCase {
         full_id: record.full_id,

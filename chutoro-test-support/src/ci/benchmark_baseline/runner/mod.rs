@@ -20,7 +20,7 @@ use super::manifest::{
 use super::output_root::resolve_workspace_output_root;
 use super::preflight::{ComparableCase, ManifestSummary, PreflightReport};
 use super::transfer::{StageOutcome, StageRequest, stage};
-use super::verdict::{BaselineVerdict, CaseClass, CaseVerdict};
+use super::verdict::{BaselineVerdict, CaseClass, CaseVerdict, NoComparison};
 use super::{BaselineError, Outcome};
 
 /// Name of the inventory manifest written into the evidence directory.
@@ -166,13 +166,14 @@ fn record_success(
     report.removed.clone_from(&compatibility.removed);
     if !report.new_unverified.is_empty() {
         report.diagnostics.push(super::BaselineDiagnostic {
-            stage: "compatibility".to_owned(),
+            stage: String::from("compatibility"),
             outcome: Outcome::Pass,
             id: None,
             path: None,
             expected: None,
-            remedy: "save a reference baseline for these identifiers before relying on them"
-                .to_owned(),
+            remedy: String::from(
+                "save a reference baseline for these identifiers before relying on them",
+            ),
             message: format!(
                 "{} current-only identifier(s) were not compared",
                 report.new_unverified.len()
@@ -235,7 +236,7 @@ pub fn run_classify(args: &ClassifyArgs) -> Result<BaselineVerdict, BaselineErro
     let mut verdict = match &args.failed_stage {
         Some(stage) => {
             let mut verdict = BaselineVerdict::started(&args.bench, args.threshold);
-            verdict.stage = "classify".to_owned();
+            verdict.stage = String::from("classify");
             record_lane_defect(&mut verdict, stage, args.failure_reason.as_deref());
             verdict
         }
@@ -250,10 +251,10 @@ pub fn run_classify(args: &ClassifyArgs) -> Result<BaselineVerdict, BaselineErro
 
 /// Choose the classification path the supplied arguments ask for.
 fn classify_by_state(args: &ClassifyArgs) -> Result<BaselineVerdict, BaselineError> {
-    match args.no_reference {
-        Some(reason) => Ok(no_reference_verdict(args, reason)),
-        None => classify_preflight(args),
-    }
+    args.no_reference.map_or_else(
+        || classify_preflight(args),
+        |reason| Ok(no_reference_verdict(args, reason)),
+    )
 }
 
 /// Record a lane defect over whatever the preflight report said.
@@ -263,7 +264,7 @@ fn classify_by_state(args: &ClassifyArgs) -> Result<BaselineVerdict, BaselineErr
 /// any classification could run.
 fn record_lane_defect(verdict: &mut BaselineVerdict, stage: &str, reason: Option<&str>) {
     verdict.outcome = Outcome::Incomplete;
-    verdict.stage = "classify".to_owned();
+    verdict.stage = String::from("classify");
     verdict.failed_stage = Some(stage.to_owned());
     let message = reason.map_or_else(
         || format!("stage {stage} failed before a comparison could run"),
@@ -317,15 +318,15 @@ fn no_reference_verdict(args: &ClassifyArgs, reason: NoReferenceReason) -> Basel
         }
     };
     let description = format!("no reference commit exists ({})", reason.as_str());
-    let mut verdict = BaselineVerdict::without_comparison(
-        &args.bench,
-        Outcome::NoReference,
-        "classify",
-        &description,
-        args.threshold,
-    );
+    let mut verdict = BaselineVerdict::without_comparison(&NoComparison {
+        bench: &args.bench,
+        outcome: Outcome::NoReference,
+        stage: "classify",
+        reason: &description,
+        threshold: args.threshold,
+    });
     if let Some(diagnostic) = verdict.diagnostics.first_mut() {
-        diagnostic.remedy = remedy.to_owned();
+        diagnostic.remedy = String::from(remedy);
     }
 
     verdict
@@ -335,7 +336,7 @@ fn no_reference_verdict(args: &ClassifyArgs, reason: NoReferenceReason) -> Basel
 fn classify_preflight(args: &ClassifyArgs) -> Result<BaselineVerdict, BaselineError> {
     let report = PreflightReport::read(&args.preflight)?;
     let mut verdict = BaselineVerdict::started(&args.bench, args.threshold);
-    verdict.stage = "classify".to_owned();
+    verdict.stage = String::from("classify");
     verdict.reference_revision = report
         .reference
         .as_ref()

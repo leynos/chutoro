@@ -53,7 +53,7 @@ impl Sandbox {
     }
 
     /// Write a complete baseline tree for one identifier.
-    fn write_baseline(&self, root: &Path, directory: &str, baseline: &str) -> std::io::Result<()> {
+    fn write_baseline(root: &Path, directory: &str, baseline: &str) -> std::io::Result<()> {
         let path = root.join(directory).join(baseline);
         fs::create_dir_all(&path)?;
         for file in ["benchmark.json", "estimates.json", "sample.json"] {
@@ -149,7 +149,7 @@ fn manifest(
 }
 
 /// A complete required-file set.
-fn complete() -> RequiredFiles {
+const fn complete() -> RequiredFiles {
     RequiredFiles {
         benchmark: true,
         estimates: true,
@@ -158,6 +158,10 @@ fn complete() -> RequiredFiles {
 }
 
 /// Run the helper binary with the supplied arguments and environment.
+#[expect(
+    clippy::expect_used,
+    reason = "a helper that cannot spawn the binary is a broken test harness"
+)]
 fn run(binary: &Path, arguments: &[&str], environment: &[(&str, &Path)]) -> Output {
     Command::new(binary)
         .args(arguments)
@@ -183,6 +187,10 @@ fn stderr(output: &Output) -> String {
 }
 
 /// Return an environment file's text.
+#[expect(
+    clippy::expect_used,
+    reason = "the evidence file must exist for the assertion to mean anything"
+)]
 fn read(path: &Path) -> String {
     fs::read_to_string(path).expect("environment file must be readable")
 }
@@ -214,13 +222,11 @@ fn missing_reference_sample_exits_incomplete_and_names_the_path(
     binary: PathBuf,
     sandbox: Result<Sandbox, std::io::Error>,
 ) {
-    let sandbox = sandbox.expect("sandbox must be created");
-    let reference_root = sandbox.evidence.join("reference-criterion");
-    sandbox
-        .write_baseline(&reference_root, "fixture/alpha", "ci-reference")
+    let workspace = sandbox.expect("sandbox must be created");
+    let reference_root = workspace.evidence.join("reference-criterion");
+    Sandbox::write_baseline(&reference_root, "fixture/alpha", "ci-reference")
         .expect("reference tree must be written");
-    sandbox
-        .write_baseline(&sandbox.current_root, "fixture/alpha", "ci-current")
+    Sandbox::write_baseline(&workspace.current_root, "fixture/alpha", "ci-current")
         .expect("current tree must be written");
     let reference = manifest(
         &reference_root,
@@ -231,11 +237,11 @@ fn missing_reference_sample_exits_incomplete_and_names_the_path(
             ..complete()
         },
     );
-    let current = manifest(&sandbox.current_root, "ci-current", "0.5.1", complete());
-    let reference_path = sandbox
+    let current = manifest(&workspace.current_root, "ci-current", "0.5.1", complete());
+    let reference_path = workspace
         .write_manifest("reference-manifest.json", &reference)
         .expect("reference manifest must be written");
-    let current_path = sandbox
+    let current_path = workspace
         .write_manifest("current-manifest.json", &current)
         .expect("current manifest must be written");
 
@@ -250,7 +256,7 @@ fn missing_reference_sample_exits_incomplete_and_names_the_path(
             "--current-manifest",
             &current_path.display().to_string(),
             "--evidence",
-            &sandbox.evidence.display().to_string(),
+            &workspace.evidence.display().to_string(),
         ],
         &[],
     );
@@ -267,20 +273,18 @@ fn version_mismatch_exits_incompatible_and_names_both_versions(
     binary: PathBuf,
     sandbox: Result<Sandbox, std::io::Error>,
 ) {
-    let sandbox = sandbox.expect("sandbox must be created");
-    let reference_root = sandbox.evidence.join("reference-criterion");
-    sandbox
-        .write_baseline(&reference_root, "fixture/alpha", "ci-reference")
+    let workspace = sandbox.expect("sandbox must be created");
+    let reference_root = workspace.evidence.join("reference-criterion");
+    Sandbox::write_baseline(&reference_root, "fixture/alpha", "ci-reference")
         .expect("reference tree must be written");
-    sandbox
-        .write_baseline(&sandbox.current_root, "fixture/alpha", "ci-current")
+    Sandbox::write_baseline(&workspace.current_root, "fixture/alpha", "ci-current")
         .expect("current tree must be written");
     let reference = manifest(&reference_root, "ci-reference", "0.4.0", complete());
-    let current = manifest(&sandbox.current_root, "ci-current", "0.5.1", complete());
-    let reference_path = sandbox
+    let current = manifest(&workspace.current_root, "ci-current", "0.5.1", complete());
+    let reference_path = workspace
         .write_manifest("reference-manifest.json", &reference)
         .expect("reference manifest must be written");
-    let current_path = sandbox
+    let current_path = workspace
         .write_manifest("current-manifest.json", &current)
         .expect("current manifest must be written");
 
@@ -295,7 +299,7 @@ fn version_mismatch_exits_incompatible_and_names_both_versions(
             "--current-manifest",
             &current_path.display().to_string(),
             "--evidence",
-            &sandbox.evidence.display().to_string(),
+            &workspace.evidence.display().to_string(),
         ],
         &[],
     );
@@ -311,20 +315,19 @@ fn inventory_honours_a_non_default_criterion_home(
     binary: PathBuf,
     sandbox: Result<Sandbox, std::io::Error>,
 ) {
-    let sandbox = sandbox.expect("sandbox must be created");
-    let custom_root = sandbox.evidence.join("custom-criterion");
-    sandbox
-        .write_baseline(&custom_root, "fixture/alpha", "ci-reference")
+    let workspace = sandbox.expect("sandbox must be created");
+    let custom_root = workspace.evidence.join("custom-criterion");
+    Sandbox::write_baseline(&custom_root, "fixture/alpha", "ci-reference")
         .expect("custom criterion tree must be written");
-    let manifest_path = sandbox.evidence.join("reference-manifest.json");
-    let workspace = Path::new(env!("CARGO_MANIFEST_DIR"));
+    let manifest_path = workspace.evidence.join("reference-manifest.json");
+    let crate_directory = Path::new(env!("CARGO_MANIFEST_DIR"));
 
     let output = run(
         &binary,
         &[
             "inventory",
             "--workspace",
-            &workspace.display().to_string(),
+            &crate_directory.display().to_string(),
             "--bench",
             "hnsw",
             "--baseline",
@@ -347,30 +350,45 @@ fn inventory_honours_a_non_default_criterion_home(
     assert_eq!(manifest.tool_versions.criterion, "0.5.1");
 }
 
+/// One expected classification outcome.
+#[derive(Clone, Copy, Debug)]
+struct ClassifyCase {
+    /// Lower bound of the mean change interval.
+    lower: f64,
+    /// Upper bound of the mean change interval.
+    upper: f64,
+    /// Expected process exit code.
+    code: i32,
+    /// Expected outcome name.
+    outcome: &'static str,
+}
+
 #[rstest]
-#[case::regression(0.30, 0.45, 1, "regression")]
-#[case::within_noise(-0.01, 0.01, 0, "pass")]
+#[case::regression(ClassifyCase { lower: 0.30, upper: 0.45, code: 1, outcome: "regression" })]
+#[case::within_noise(ClassifyCase { lower: -0.01, upper: 0.01, code: 0, outcome: "pass" })]
 fn classify_reports_the_expected_outcome(
     binary: PathBuf,
     sandbox: Result<Sandbox, std::io::Error>,
-    #[case] lower: f64,
-    #[case] upper: f64,
-    #[case] expected_code: i32,
-    #[case] expected_outcome: &str,
+    #[case] case: ClassifyCase,
 ) {
-    let sandbox = sandbox.expect("sandbox must be created");
-    sandbox
-        .write_baseline(&sandbox.current_root, "fixture/alpha", "ci-current")
+    let ClassifyCase {
+        lower,
+        upper,
+        code: expected_code,
+        outcome: expected_outcome,
+    } = case;
+    let workspace = sandbox.expect("sandbox must be created");
+    Sandbox::write_baseline(&workspace.current_root, "fixture/alpha", "ci-current")
         .expect("current tree must be written");
-    sandbox
+    workspace
         .write_change("fixture/alpha", lower, upper)
         .expect("change estimates must be written");
-    let preflight = sandbox
+    let preflight = workspace
         .write_preflight()
         .expect("preflight report must be written");
-    let verdict_path = sandbox.evidence.join("verdict.json");
-    let github_output = sandbox.evidence.join("github-output.txt");
-    let step_summary = sandbox.evidence.join("step-summary.md");
+    let verdict_path = workspace.evidence.join("verdict.json");
+    let github_output = workspace.evidence.join("github-output.txt");
+    let step_summary = workspace.evidence.join("step-summary.md");
     fs::write(&github_output, "").expect("output file must be created");
     fs::write(&step_summary, "").expect("summary file must be created");
 
@@ -419,9 +437,9 @@ fn no_reference_exits_four_without_recording_a_pass(
     binary: PathBuf,
     sandbox: Result<Sandbox, std::io::Error>,
 ) {
-    let sandbox = sandbox.expect("sandbox must be created");
-    let verdict_path = sandbox.evidence.join("verdict.json");
-    let github_output = sandbox.evidence.join("github-output.txt");
+    let workspace = sandbox.expect("sandbox must be created");
+    let verdict_path = workspace.evidence.join("verdict.json");
+    let github_output = workspace.evidence.join("github-output.txt");
     fs::write(&github_output, "").expect("output file must be created");
 
     let output = run(
@@ -431,7 +449,7 @@ fn no_reference_exits_four_without_recording_a_pass(
             "--bench",
             "hnsw",
             "--preflight",
-            &sandbox.evidence.join("unused.json").display().to_string(),
+            &workspace.evidence.join("unused.json").display().to_string(),
             "--verdict",
             &verdict_path.display().to_string(),
             "--no-reference",
@@ -453,8 +471,8 @@ fn classify_rejects_an_unreadable_preflight_report(
     binary: PathBuf,
     sandbox: Result<Sandbox, std::io::Error>,
 ) {
-    let sandbox = sandbox.expect("sandbox must be created");
-    let bad = sandbox.evidence.join("bad-preflight.json");
+    let workspace = sandbox.expect("sandbox must be created");
+    let bad = workspace.evidence.join("bad-preflight.json");
     fs::write(&bad, "{not json").expect("malformed report must be written");
 
     let output = run(
@@ -466,7 +484,11 @@ fn classify_rejects_an_unreadable_preflight_report(
             "--preflight",
             &bad.display().to_string(),
             "--verdict",
-            &sandbox.evidence.join("verdict.json").display().to_string(),
+            &workspace
+                .evidence
+                .join("verdict.json")
+                .display()
+                .to_string(),
         ],
         &[],
     );

@@ -29,6 +29,10 @@ pub struct Compatibility {
 
 /// Check that a reference manifest and a current manifest can be compared.
 ///
+/// # Errors
+///
+/// Returns [`BaselineError`] naming the incompatible field, the duplicate identifier, the empty comparable set, or the missing required file.
+///
 /// # Examples
 ///
 /// ```
@@ -254,9 +258,7 @@ fn differing_environment(
 }
 
 /// Build a map from identifier to case, rejecting duplicates.
-fn case_map<'a>(
-    manifest: &'a BaselineManifest,
-) -> Result<HashMap<String, &'a BaselineCase>, BaselineError> {
+fn case_map(manifest: &BaselineManifest) -> Result<HashMap<String, &BaselineCase>, BaselineError> {
     let mut cases: HashMap<String, &BaselineCase> = HashMap::new();
     for case in &manifest.cases {
         match cases.entry(case.full_id.clone()) {
@@ -294,16 +296,18 @@ fn check_required_files(
 ) -> Result<(), BaselineError> {
     let reference_cases = case_lookup(reference);
     let current_cases = case_lookup(current);
-    for case in comparable {
+    for comparable_case in comparable {
         check_one_side(
             reference,
-            reference_cases.get(case.full_id.as_str()).copied(),
-            &case.full_id,
+            reference_cases
+                .get(comparable_case.full_id.as_str())
+                .copied(),
+            &comparable_case.full_id,
         )?;
         check_one_side(
             current,
-            current_cases.get(case.full_id.as_str()).copied(),
-            &case.full_id,
+            current_cases.get(comparable_case.full_id.as_str()).copied(),
+            &comparable_case.full_id,
         )?;
     }
 
@@ -325,17 +329,17 @@ fn check_one_side(
     case: Option<&BaselineCase>,
     full_id: &str,
 ) -> Result<(), BaselineError> {
-    let Some(case) = case else {
+    let Some(recorded) = case else {
         return Err(BaselineError::MissingRequiredFile {
             id: full_id.to_owned(),
             path: manifest.output_root.join(&manifest.baseline),
             remedy: "rerun inventory and staging against the same manifests",
         });
     };
-    let required = case.required_files;
+    let required = recorded.required_files;
     let baseline_directory = manifest
         .output_root
-        .join(&case.relative_directory)
+        .join(&recorded.relative_directory)
         .join(&manifest.baseline);
     for (present, file) in [
         (required.benchmark, "benchmark.json"),
@@ -344,7 +348,7 @@ fn check_one_side(
     ] {
         if !present {
             return Err(BaselineError::MissingRequiredFile {
-                id: case.full_id.clone(),
+                id: recorded.full_id.clone(),
                 path: baseline_directory.join(file),
                 remedy: "delete the partial baseline and rerun the save step",
             });

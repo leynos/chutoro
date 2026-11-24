@@ -7,7 +7,6 @@
 //! opening a log.
 
 use std::collections::BTreeMap;
-use std::fmt::Write as _;
 
 use serde::{Deserialize, Serialize};
 
@@ -116,6 +115,21 @@ impl CaseVerdict {
     }
 }
 
+/// Inputs for a verdict that records an outcome without comparing.
+#[derive(Clone, Copy, Debug)]
+pub struct NoComparison<'a> {
+    /// Benchmark target.
+    pub bench: &'a str,
+    /// Outcome the lane recorded.
+    pub outcome: Outcome,
+    /// Stage that recorded it.
+    pub stage: &'a str,
+    /// Human-readable reason.
+    pub reason: &'a str,
+    /// Regression threshold the lane would have applied.
+    pub threshold: f64,
+}
+
 /// Durable record of one benchmark baseline comparison.
 #[derive(Clone, Debug, Deserialize, PartialEq, Serialize)]
 pub struct BaselineVerdict {
@@ -179,44 +193,41 @@ impl BaselineVerdict {
     /// # Examples
     ///
     /// ```
-    /// use chutoro_test_support::ci::benchmark_baseline::{BaselineVerdict, Outcome};
+    /// use chutoro_test_support::ci::benchmark_baseline::Outcome;
+    /// use chutoro_test_support::ci::benchmark_baseline::verdict::{
+    ///     BaselineVerdict, NoComparison,
+    /// };
     ///
-    /// let verdict = BaselineVerdict::without_comparison(
-    ///     "hnsw",
-    ///     Outcome::NoReference,
-    ///     "classify",
-    ///     "shallow checkout",
-    ///     0.05,
-    /// );
+    /// let verdict = BaselineVerdict::without_comparison(&NoComparison {
+    ///     bench: "hnsw",
+    ///     outcome: Outcome::NoReference,
+    ///     stage: "classify",
+    ///     reason: "shallow checkout",
+    ///     threshold: 0.05,
+    /// });
     /// assert_eq!(verdict.outcome, Outcome::NoReference);
     /// ```
     #[must_use]
-    pub fn without_comparison(
-        bench: &str,
-        outcome: Outcome,
-        stage: &str,
-        reason: &str,
-        threshold: f64,
-    ) -> Self {
+    pub fn without_comparison(request: &NoComparison<'_>) -> Self {
         let diagnostic = BaselineDiagnostic {
-            stage: stage.to_owned(),
-            outcome,
+            stage: request.stage.to_owned(),
+            outcome: request.outcome,
             id: None,
             path: None,
             expected: None,
             remedy: "fetch enough history to compare against the previous commit".to_owned(),
-            message: reason.to_owned(),
+            message: request.reason.to_owned(),
         };
         Self {
             schema_version: SCHEMA_VERSION,
-            bench: bench.to_owned(),
-            outcome,
-            stage: stage.to_owned(),
+            bench: request.bench.to_owned(),
+            outcome: request.outcome,
+            stage: request.stage.to_owned(),
             failed_stage: None,
-            reason: Some(reason.to_owned()),
+            reason: Some(request.reason.to_owned()),
             reference_revision: None,
             current_revision: None,
-            threshold,
+            threshold: request.threshold,
             comparable_count: 0,
             cases: Vec::new(),
             diagnostics: vec![diagnostic],
@@ -240,7 +251,7 @@ impl BaselineVerdict {
     /// ```
     pub fn fail(&mut self, stage: &str, error: &BaselineError) {
         self.outcome = error.outcome().unwrap_or(Outcome::Incomplete);
-        self.stage = stage.to_owned();
+        self.stage.clone_from(&stage.to_owned());
         self.failed_stage = Some(stage.to_owned());
         self.reason = Some(error.to_string());
         self.diagnostics.push(error.diagnostic().with_stage(stage));
@@ -304,6 +315,10 @@ impl BaselineVerdict {
 
     /// Write the verdict as pretty JSON.
     ///
+    /// # Errors
+    ///
+    /// Returns an error when the verdict cannot be read, parsed, or written.
+    ///
     /// # Examples
     ///
     /// ```
@@ -321,6 +336,10 @@ impl BaselineVerdict {
     }
 
     /// Read a verdict, naming the path when it cannot be parsed.
+    ///
+    /// # Errors
+    ///
+    /// Returns an error when the verdict cannot be read or parsed.
     pub fn read(path: &std::path::Path) -> Result<Self, BaselineError> {
         read_json(path)
     }
@@ -336,45 +355,42 @@ impl BaselineVerdict {
     /// assert!(summary.contains("| Outcome | incomplete |"));
     /// ```
     #[must_use]
+    #[expect(
+        clippy::format_push_string,
+        reason = "the summary is assembled from many small labelled rows"
+    )]
     pub fn to_markdown(&self) -> String {
         let mut summary = String::new();
-        let _write_result = writeln!(summary, "## Benchmark baseline: {}", self.bench);
-        let _write_result = writeln!(summary);
-        let _write_result = writeln!(summary, "| Field | Value |");
-        let _write_result = writeln!(summary, "| --- | --- |");
-        let _write_result = writeln!(summary, "| Outcome | {} |", self.outcome.as_str());
-        let _write_result = writeln!(summary, "| Stage | {} |", self.stage);
-        let _write_result = writeln!(
-            summary,
-            "| Reference revision | {} |",
+        summary.push_str(&format!("## Benchmark baseline: {}\n\n", self.bench));
+        summary.push_str("| Field | Value |\n| --- | --- |\n");
+        summary.push_str(&format!("| Outcome | {} |\n", self.outcome.as_str()));
+        summary.push_str(&format!("| Stage | {} |\n", self.stage));
+        summary.push_str(&format!(
+            "| Reference revision | {} |\n",
             self.reference_revision.as_deref().unwrap_or("none")
-        );
-        let _write_result = writeln!(
-            summary,
-            "| Current revision | {} |",
+        ));
+        summary.push_str(&format!(
+            "| Current revision | {} |\n",
             self.current_revision.as_deref().unwrap_or("unknown")
-        );
-        let _write_result = writeln!(summary, "| Threshold | {:.4} |", self.threshold);
-        let _write_result = writeln!(summary, "| Comparable ids | {} |", self.comparable_count);
+        ));
+        summary.push_str(&format!("| Threshold | {:.4} |\n", self.threshold));
+        summary.push_str(&format!("| Comparable ids | {} |\n", self.comparable_count));
         if let Some(reason) = &self.reason {
-            let _write_result = writeln!(summary, "| Reason | {reason} |");
+            summary.push_str(&format!("| Reason | {reason} |\n"));
         }
         if let Some(stage) = &self.failed_stage {
-            let _write_result = writeln!(summary, "| Failed stage | {stage} |");
+            summary.push_str(&format!("| Failed stage | {stage} |\n"));
         }
 
         if !self.cases.is_empty() {
-            let _write_result = writeln!(summary);
-            let _write_result = writeln!(summary, "| Benchmark id | Class | Change interval |");
-            let _write_result = writeln!(summary, "| --- | --- | --- |");
+            summary.push_str("\n| Benchmark id | Class | Change interval |\n| --- | --- | --- |\n");
             for case in &self.cases {
-                let _write_result = writeln!(
-                    summary,
-                    "| {} | {} | {} |",
+                summary.push_str(&format!(
+                    "| {} | {} | {} |\n",
                     case.id,
                     case.class.as_str(),
                     render_interval(case),
-                );
+                ));
             }
         }
 
@@ -386,15 +402,18 @@ impl BaselineVerdict {
     /// # Examples
     ///
     /// ```
-    /// use chutoro_test_support::ci::benchmark_baseline::{BaselineVerdict, Outcome};
+    /// use chutoro_test_support::ci::benchmark_baseline::verdict::{
+    ///     BaselineVerdict, NoComparison,
+    /// };
+    /// use chutoro_test_support::ci::benchmark_baseline::Outcome;
     ///
-    /// let verdict = BaselineVerdict::without_comparison(
-    ///     "hnsw",
-    ///     Outcome::NoReference,
-    ///     "classify",
-    ///     "shallow checkout",
-    ///     0.05,
-    /// );
+    /// let verdict = BaselineVerdict::without_comparison(&NoComparison {
+    ///     bench: "hnsw",
+    ///     outcome: Outcome::NoReference,
+    ///     stage: "classify",
+    ///     reason: "shallow checkout",
+    ///     threshold: 0.05,
+    /// });
     /// assert!(verdict.to_line().contains("outcome=no_reference"));
     /// ```
     #[must_use]

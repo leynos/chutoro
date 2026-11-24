@@ -84,14 +84,24 @@ fn staged_fixture() -> (TempDir, TempDir, TempDir) {
     (reference, current, evidence)
 }
 
+/// The two case lists a staged comparison fixture needs.
+#[derive(Clone, Copy)]
+struct CaseLists<'a> {
+    /// Cases the reference tree recorded.
+    reference: &'a [(&'a str, &'a str)],
+    /// Cases the current tree recorded.
+    current: &'a [(&'a str, &'a str)],
+}
+
 /// Write both manifests and run staging.
 fn stage_fixture(
     reference: &TempDir,
     current: &TempDir,
     evidence: &TempDir,
-    reference_cases: &[(&str, &str)],
-    current_cases: &[(&str, &str)],
+    cases: CaseLists<'_>,
 ) -> PreflightReport {
+    let reference_cases = cases.reference;
+    let current_cases = cases.current;
     let reference_path = evidence.path().join("reference-manifest.json");
     let current_path = evidence.path().join("current-manifest.json");
     write_manifest(
@@ -136,8 +146,10 @@ fn unchanged_measurements_pass() {
         &reference,
         &current,
         &evidence,
-        &[("fixture/alpha", "fixture/alpha")],
-        &[("fixture/alpha", "fixture/alpha")],
+        CaseLists {
+            reference: &[("fixture/alpha", "fixture/alpha")],
+            current: &[("fixture/alpha", "fixture/alpha")],
+        },
     );
     write_change(current.path(), "fixture/alpha", -0.01, 0.01);
 
@@ -161,8 +173,10 @@ fn regressed_measurements_fail_with_the_regressed_id() {
         &reference,
         &current,
         &evidence,
-        &[("fixture/alpha", "fixture/alpha")],
-        &[("fixture/alpha", "fixture/alpha")],
+        CaseLists {
+            reference: &[("fixture/alpha", "fixture/alpha")],
+            current: &[("fixture/alpha", "fixture/alpha")],
+        },
     );
     write_change(current.path(), "fixture/alpha", 0.30, 0.45);
 
@@ -182,11 +196,13 @@ fn current_only_identifier_is_reported_but_does_not_fail() {
         &reference,
         &current,
         &evidence,
-        &[("fixture/alpha", "fixture/alpha")],
-        &[
-            ("fixture/alpha", "fixture/alpha"),
-            ("fixture/beta", "fixture/beta"),
-        ],
+        CaseLists {
+            reference: &[("fixture/alpha", "fixture/alpha")],
+            current: &[
+                ("fixture/alpha", "fixture/alpha"),
+                ("fixture/beta", "fixture/beta"),
+            ],
+        },
     );
     write_change(current.path(), "fixture/alpha", -0.01, 0.01);
 
@@ -204,11 +220,13 @@ fn reference_only_identifier_is_reported_as_removed() {
         &reference,
         &current,
         &evidence,
-        &[
-            ("fixture/alpha", "fixture/alpha"),
-            ("fixture/beta", "fixture/beta"),
-        ],
-        &[("fixture/alpha", "fixture/alpha")],
+        CaseLists {
+            reference: &[
+                ("fixture/alpha", "fixture/alpha"),
+                ("fixture/beta", "fixture/beta"),
+            ],
+            current: &[("fixture/alpha", "fixture/alpha")],
+        },
     );
     write_change(current.path(), "fixture/alpha", -0.01, 0.01);
 
@@ -231,8 +249,10 @@ fn missing_change_estimates_are_incomplete_not_a_pass() {
         &reference,
         &current,
         &evidence,
-        &[("fixture/alpha", "fixture/alpha")],
-        &[("fixture/alpha", "fixture/alpha")],
+        CaseLists {
+            reference: &[("fixture/alpha", "fixture/alpha")],
+            current: &[("fixture/alpha", "fixture/alpha")],
+        },
     );
 
     let verdict = classify(&evidence);
@@ -305,7 +325,7 @@ fn no_reference_produces_a_warning_outcome_without_a_pass() {
 
     assert_eq!(verdict.outcome, Outcome::NoReference);
     assert_eq!(verdict.comparable_count, 0);
-    assert!(verdict.cases.is_empty());
+    assert_eq!(verdict.cases, Vec::new());
     let remedy = verdict
         .diagnostics
         .first()
@@ -321,8 +341,10 @@ fn verdict_is_written_with_the_threshold_and_stage() {
         &reference,
         &current,
         &evidence,
-        &[("fixture/alpha", "fixture/alpha")],
-        &[("fixture/alpha", "fixture/alpha")],
+        CaseLists {
+            reference: &[("fixture/alpha", "fixture/alpha")],
+            current: &[("fixture/alpha", "fixture/alpha")],
+        },
     );
     write_change(current.path(), "fixture/alpha", -0.01, 0.01);
 

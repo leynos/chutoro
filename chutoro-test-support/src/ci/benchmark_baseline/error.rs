@@ -55,7 +55,7 @@ impl BaselineDiagnostic {
     /// ```
     #[must_use]
     pub fn with_stage(mut self, stage: &str) -> Self {
-        self.stage = stage.to_owned();
+        self.stage.clone_from(&stage.to_owned());
         self
     }
 }
@@ -330,7 +330,7 @@ impl BaselineError {
     /// assert_eq!(error.outcome(), None);
     /// ```
     #[must_use]
-    pub fn outcome(&self) -> Option<Outcome> {
+    pub const fn outcome(&self) -> Option<Outcome> {
         match self {
             Self::Incompatible { .. } | Self::Schema { .. } | Self::ConfidenceLevel { .. } => {
                 Some(Outcome::Incompatible)
@@ -454,7 +454,7 @@ impl BaselineError {
     }
 
     /// Return the remedy attached to this failure.
-    fn remedy(&self) -> &'static str {
+    const fn remedy(&self) -> &'static str {
         match self {
             Self::OutputRoot { remedy, .. }
             | Self::MetadataCommand { remedy, .. }

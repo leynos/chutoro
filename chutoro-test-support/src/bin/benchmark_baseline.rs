@@ -79,7 +79,7 @@ fn run(arguments: &[String]) -> Result<u8, BaselineError> {
             let _report = writeln!(std::io::stdout(), "classify {}", verdict.to_line());
             let regressed = verdict.regressed_ids();
             if !regressed.is_empty() {
-                let _report = writeln!(std::io::stdout(), "regressed_ids={}", regressed.join(","));
+                let _ids = writeln!(std::io::stdout(), "regressed_ids={}", regressed.join(","));
             }
             Ok(to_exit_code(exit_code(verdict.outcome)))
         }

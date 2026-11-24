@@ -56,8 +56,8 @@ fn shared_identifiers_are_comparable() {
     .expect("shared identifiers are compatible");
 
     assert_eq!(compatibility.comparable.len(), 1);
-    assert!(compatibility.new_unverified.is_empty());
-    assert!(compatibility.removed.is_empty());
+    assert_eq!(compatibility.new_unverified, Vec::<String>::new());
+    assert_eq!(compatibility.removed, Vec::<String>::new());
 }
 
 #[test]

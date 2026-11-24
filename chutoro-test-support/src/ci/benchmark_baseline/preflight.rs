@@ -166,6 +166,10 @@ impl PreflightReport {
 
     /// Write the report as pretty JSON.
     ///
+    /// # Errors
+    ///
+    /// Returns an error when the report cannot be read, parsed, or written.
+    ///
     /// # Examples
     ///
     /// ```
@@ -183,6 +187,10 @@ impl PreflightReport {
     }
 
     /// Read a report, naming the path when it cannot be parsed.
+    ///
+    /// # Errors
+    ///
+    /// Returns an error when the report cannot be read or parsed.
     pub fn read(path: &Path) -> Result<Self, BaselineError> {
         read_json(path)
     }
