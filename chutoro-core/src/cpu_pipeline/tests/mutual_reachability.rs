@@ -42,7 +42,9 @@ proptest! {
                     ))
                 })?;
             let actual = pool
-                .install(|| mutual_reachability_edges("fixture", &harvest, &core_distances))
+                .install(|| {
+                    mutual_reachability_edges("fixture", harvest.as_slice(), &core_distances)
+                })
                 .map_err(|error| {
                     TestCaseError::fail(format!(
                         "transform failed with {threads} threads: {error}"
@@ -80,8 +82,12 @@ proptest! {
                 })?;
             let (direct, via_harvest) = pool
                 .install(|| -> core::result::Result<_, String> {
-                    let weighted = mutual_reachability_edges("fixture", &harvest, &core_distances)
-                        .map_err(|error| error.to_string())?;
+                    let weighted = mutual_reachability_edges(
+                        "fixture",
+                        harvest.as_slice(),
+                        &core_distances,
+                    )
+                    .map_err(|error| error.to_string())?;
                     let direct = parallel_kruskal_from_edges(node_count, &weighted)
                         .map_err(|error| error.to_string())?;
                     let via_harvest = parallel_kruskal(node_count, &harvest_path)

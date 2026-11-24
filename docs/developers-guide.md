@@ -905,6 +905,8 @@ pub fn refresh_policy(&self) -> &SessionRefreshPolicy;
 // ClusteringSession<D: DataSource + Send + Sync>
 pub fn config(&self) -> &SessionConfig;
 pub fn append(&mut self, indices: &[usize]) -> Result<()>;
+pub fn refresh(&mut self) -> Result<()>;
+pub fn labels(&self) -> std::sync::Arc<Vec<usize>>;
 pub fn recompute_core_distances(&mut self) -> Result<()>;
 pub fn recompute_core_distances_full(&mut self) -> Result<()>;
 pub fn core_distance(&self, point: usize) -> Option<f32>;
@@ -952,6 +954,63 @@ still leaving the index empty. `append` prevalidates each requested index
 against `source.len()` before insertion so early bootstrap cases return a
 `ChutoroError::DataSource` for out-of-bounds indices even when HNSW would not
 need a distance query for the first inserted node.
+
+### Refresh domain boundary
+
+`refresh` is split along a hexagonal seam. The impure adapter step stays in
+`session/refresh_impl.rs`: it recomputes dirty core distances through
+`CpuHnsw::search`, then times the call. Everything between "raw edge buffers
+in" and "labels plus raw MST backbone out" lives in the pure
+`session/refresh.rs` function `rebuild_mst_labels`, which has no HNSW, I/O, or
+clock dependency. Keep that boundary: new policy logic in the refresh belongs
+in the pure function so it stays unit-, property-, and proof-testable, and new
+graph or distance I/O belongs in the adapter.
+
+The rebuild reuses the batch pipeline's own primitives rather than forking them:
+
+- `cpu_pipeline::mutual_reachability_edges` is shared with the batch path. It
+  takes a `&[CandidateEdge]` slice and applies the private
+  `mutual_reachability_weight` scalar, `max(raw, core_u, core_v)`.
+- `crate::mst::parallel_kruskal_from_edges` is the direct slice entry point
+  that the public `parallel_kruskal` delegates to, and that the batch pipeline
+  calls too.
+- `crate::extract_labels_from_mst` supplies the label vector.
+
+The session keeps the MST backbone as **raw** `CandidateEdge` values, not as
+weighted `MstEdge` values. `MstEdge::weight` is a mutual-reachability weight,
+so reweighting a retained `MstEdge` would feed that weight back into `max(...)`
+and ratchet it upward whenever a core distance later falls. Raw retention makes
+the **weight** a pure function of the raw distance and the current core
+distances, so it cannot depend on how many times an edge was reweighted.
+
+That is a narrower claim than whole-refresh history independence, and the
+difference matters. The candidate set a refresh sees still depends on earlier
+refreshes: non-MST candidates are not retained until roadmap 11.2.5, so a later
+refresh can merge a different edge set than a batch run would. Raw retention
+removes the weight ratchet; it does not make incremental and batch results
+identical. The developers' guide's differential suite measures the remaining
+gap on its stated fixture domain, not in general.
+
+The three merged buffers may overlap: an edge selected into the MST can be
+re-harvested by a later insertion. No pre-merge filtering is needed.
+`mst::prepare_edge_list` canonicalizes the edges and then removes only
+**adjacent** duplicates by `(weight, source, target)`, so numerically equal
+triples can survive when another edge sorts between them. Duplicate raw edges
+reweight identically under the same core distances, so overlap still collapses
+in the ordinary case. Backbone recovery matches each accepted key at most once,
+so a duplicated raw edge is retained once.
+
+`refresh` requires appended point ids to form the contiguous prefix
+`[0, point_count)`. HNSW node ids are the source indices, and both
+`core_distances` and `extract_labels_from_mst` are indexed by them. The rebuild
+checks `core_distances.len() == node_count` before any reweight work; a
+mismatch reports `CpuMstFailure` with code `INVALID_NODE_ID`, naming
+`core_distances.len() - 1` as the offending endpoint. Do not replace that guard
+with a panic or a new error variant.
+
+Publication is a single commit block after every fallible call succeeds:
+labels, backbone, pending-edge clearing, and the version bump are applied
+together, so a failed refresh leaves the published snapshot intact.
 
 ### HNSW error conversion boundary
 
@@ -1020,6 +1079,15 @@ Core-distance recompute helpers record:
   incremental recompute fan-out.
 - `chutoro.session.core_distance.recompute_seconds`, recording recompute
   duration.
+
+Refresh records:
+
+- `chutoro.session.refresh.seconds`, recording whole-call duration.
+- `chutoro.session.refresh.errors_total`, labelled by low-cardinality failure
+  reason.
+- `chutoro.session.refresh.candidate_edges`, recording the merged edge count.
+- `chutoro.session.refresh.cluster_count`, recording distinct labels in the
+  published snapshot.
 
 The latency histogram reads time through the internal `MonotonicClock` trait.
 `StdMonotonicClock` is the production implementation. Tests may replace it via
@@ -1313,6 +1381,17 @@ failure with `?`. Panicking and assertion belong at the `#[test]` / `#[rstest]`
 / `proptest!` boundary, where a failure is attributable to the test rather than
 to the helper it called. Whitaker's `no_expect_outside_tests` lint enforces the
 `.expect(...)` half of this rule; the rest is convention.
+
+### Assertion crates
+
+Three test-only crates back the richer assertions: `pretty_assertions` for
+readable vector and edge-list diffs, `googletest` matchers for structural
+claims, and `insta` for committed snapshots of deterministic label vectors.
+They are `[dev-dependencies]` only and must not appear in a `[dependencies]`
+table. Plain `assert!` remains right for a trivial scalar check, and
+`prop_assert!` inside `proptest` blocks; reach for the richer crates when a
+failure would otherwise print two long vectors or when a claim is structural
+rather than scalar.
 
 Test bodies unwrap the `Result` a helper returns with `.expect("...")`, keeping
 the message the helper's assertion used to carry, or they return `Result`
@@ -3587,17 +3666,25 @@ pipeline is described in
 
 ## Verus proofs
 
-Verus is used for formal verification of edge harvest primitives and session
-core-distance logic, in `verus/edge_harvest_proofs.rs` and
-`verus/session_core_distance.rs`. Run proofs via `make verus`, which delegates
-to the pinned `rust-prover-tools` package. Installation is idempotent: it
-probes for the installed executable first and otherwise downloads the pinned
-release archive recorded in `tools/verus/VERSION` and verifies it against
-`tools/verus/SHA256SUMS`. Verus accepts one input filename per invocation, so
-the target passes each proof file in turn, in order, stopping at the first
-failure. Add a proof by naming it in `VERUS_PROOF_FILES` or by extending the
-default list in the `verus` target. Continuous integration verifies a new proof
-only if it is in that default list or is a module of a selected root.
+Verus is used for formal verification of edge harvest primitives, session
+core-distance logic, and the incremental refresh model, in
+`verus/edge_harvest_proofs.rs`, `verus/session_core_distance.rs`, and
+`verus/session_refresh.rs`. The refresh file discharges two obligations from
+the 11.2.1 plan: OBL-1 reweight faithfulness (the weight is the pointwise
+maximum of the raw distance and both current core distances, so it depends on
+nothing else) and OBL-2 merge multiset preservation (the combined sequence's
+length and each buffer's elements at their concatenation offsets). Its header
+states the model-to-production trust boundary: the proof covers an integer
+abstraction of finite `f32`, not a refinement of the Rust functions. Run proofs
+via `make verus`, which delegates to the pinned `rust-prover-tools` package.
+Installation is idempotent: it probes for the installed executable first and
+otherwise downloads the pinned release archive recorded in
+`tools/verus/VERSION` and verifies it against `tools/verus/SHA256SUMS`. Verus
+accepts one input filename per invocation, so the target passes each proof file
+in turn, in order, stopping at the first failure. Add a proof by naming it in
+`VERUS_PROOF_FILES` or by extending the default list in the `verus` target.
+Continuous integration verifies a new proof only if it is in that default list
+or is a module of a selected root.
 
 ### Choosing a verification tool
 

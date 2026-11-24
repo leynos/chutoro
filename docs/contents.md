@@ -69,6 +69,10 @@ open each document.
 - [ADR 009: staging-file locks via rustix
   flock](adrs/adr-0009-staging-lock-via-rustix-flock.md): accepted guidance for
   capability-scoped advisory staging locks and their bounded acquisition policy.
+- [ADR 010: incremental refresh domain
+  boundary](adrs/adr-0010-incremental-refresh-domain-boundary.md): accepted
+  guidance for the pure refresh pipeline, raw MST backbone retention, and the
+  contiguity guard.
 - [ADR 0011: resumable download verification trust
   model](adrs/adr-0011-resumable-download-verification-trust-model.md):
   proposed whole-file re-hash after an interruption, no hash state across
@@ -102,6 +106,9 @@ open each document.
     execplans/11-1-2-define-session-config-carrying-clustering-parameters.md)
   - [11-1-3 Clustering session append](
     execplans/11-1-3-clustering-session-append.md)
+  - [11-2-1 Implement clustering session
+    refresh](execplans/11-2-1-implement-clustering-session-refresh.md):
+    implement `ClusteringSession::refresh` and the published label snapshot.
   - [2-1-1 Benchmark suite](execplans/2-1-1-benchmark-suite.md)
   - [2-1-2 Extend synthetic source generators](
     execplans/2-1-2-extend-synthetic-source-generators.md)

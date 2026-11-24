@@ -1,0 +1,14 @@
+---
+source: chutoro-core/src/session/tests/refresh.rs
+expression: incremental
+---
+[
+    0,
+    0,
+    0,
+    0,
+    1,
+    1,
+    1,
+    1,
+]

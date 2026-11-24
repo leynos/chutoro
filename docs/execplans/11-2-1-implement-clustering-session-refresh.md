@@ -5,7 +5,7 @@ This ExecPlan (execution plan) is a living document. The sections `Constraints`,
 `Outcomes & Retrospective`, `Conformance Basis`, and `Verification Plan` must
 be kept up to date as work proceeds.
 
-Status: APPROVED (2026-11-22)
+Status: COMPLETE (2026-11-23)
 
 This plan delivers roadmap item `11.2.1` (see `docs/roadmap.md` §11.2). It must
 be approved by the user before any implementation begins. It was revised after
@@ -248,19 +248,22 @@ Hard invariants. Violation requires escalation, not a workaround.
 
 ## Progress
 
-- [ ] EP-M1: Pure domain layer — batch mutual-reachability helpers promoted
+- [x] EP-M1: Pure domain layer — batch mutual-reachability helpers promoted
   in `cpu_pipeline/mod.rs`, `rebuild_mst_labels` (with raw-backbone recovery) in
   `chutoro-core/src/session/refresh.rs`, dev-dependency adoption, and the
-  pure-function unit tests (red first, then green).
-- [ ] EP-M2: Session wiring — `refresh` and `labels` methods, field renames,
-  refresh metrics, all-or-nothing publish; unit, error, and BDD suites (red
-  first, then green).
-- [ ] EP-M3: Property suites — `proptest` invariants including the
-  multi-refresh differential property.
-- [ ] EP-M4: Formal verification — Verus lemmas OBL-1 and OBL-2; optional
-  bounded Kani harness (go/no-go).
-- [ ] EP-M5: Documentation — design §12.5, users' guide, developers' guide,
-  the refresh ADR; mark roadmap `11.2.1` done.
+  pure-function unit tests. Committed together with EP-M2 because the
+  workspace's `-D warnings` dead-code gate rejects a pure module with no
+  caller; see Surprises.
+- [x] EP-M2: Session wiring — `refresh` and `labels` methods, field renames,
+  refresh metrics, all-or-nothing publish; unit, error, and BDD suites.
+- [x] EP-M3: Property suites — `proptest` invariants including the
+  multi-refresh differential property, plus both seeded-fault mutation checks
+  (Artefacts records what each one did and did not catch).
+- [x] EP-M4: Formal verification — Verus lemmas OBL-1 and OBL-2 discharged in
+  `verus/session_refresh.rs` (`11 verified, 0 errors`, no `assume`). OBL-8 was
+  dropped at its go/no-go; the Decision Log records why.
+- [x] EP-M5: Documentation — design §12.3–§12.6, users' guide, developers'
+  guide, ADR-010, `docs/contents.md` index, and the roadmap tick.
 
 ## Surprises & discoveries
 
@@ -291,6 +294,48 @@ Hard invariants. Violation requires escalation, not a workaround.
   `ChutoroBuilder::new()`. Impact: tests and examples must set
   `with_min_cluster_size` explicitly (or rely on the degenerate all-noise path)
   so a 4-point session does not error.
+
+- Observation: the planned seven-parameter `rebuild_mst_labels` signature
+  cannot pass the lint gate. Evidence: `clippy.toml` sets
+  `too-many-arguments-threshold = 4`, and the workspace denies warnings.
+  Impact: the inputs are grouped into a documented `RefreshInputs` struct, per
+  the repository's own "group related parameters in meaningfully named structs"
+  rule. The public surface is unchanged; this is an internal helper.
+
+- Observation: a pure module with no caller cannot land as its own gated
+  commit. Evidence: `dead_code` is promoted by the `-D warnings` gate, so
+  `rebuild_mst_labels` and its helpers are reported as never used until
+  `refresh` calls them. Impact: EP-M1 and EP-M2 land in one commit. The pure
+  layer is still independently unit-tested and the milestone split remains in
+  this record.
+
+- Observation: the refresh method pushed `session_impl.rs` past the 400-line
+  cap. Evidence: `wc -l` reported 454 lines after adding `refresh`. Impact: the
+  method, its helpers, and its metrics live in `session/refresh_impl.rs`; the
+  pure domain stays in `session/refresh.rs`. The plan explicitly permits
+  splitting further under that cap.
+
+- Observation: the predicted OBL-6 mutation signal did not appear on the
+  session path, and widening the generator did not recover it. Evidence: with
+  `mutual_reachability_weight` temporarily returning `min`,
+  `refresh_matches_batch_partition` failed only at its `insta` snapshot
+  assertion, its ARI stayed 1.0, and the multi-refresh property passed both
+  before and after its domain widened to 8-64 points and 2-3 rounds. A
+  throwaway experiment over batch-built graphs showed `min` collapsing the same
+  fixture to a single cluster (ARI 0), so the session's incremental core
+  distances keep the partition stable for this fault. Impact: the scalar
+  `mutual_reachability_weight` unit tests and the committed snapshot carry the
+  mutation evidence; the ARI property still discharges OBL-6's partition
+  equivalence claim.
+
+- Observation: unequal cluster densities break the multi-refresh 0.95 bound.
+  Evidence: generating per-cluster spreads of 1-10, instead of equal spacing,
+  drove the incremental/batch ARI to 0.69 on correct code. That is the
+  approximate-MST drift the design's §12.5 caveat and roadmap 11.2.4's
+  `refresh_full` exist to bound, not a defect in this item. Impact: the
+  generator keeps separated, evenly spaced clusters — the domain the plan
+  specifies — and the rationale is recorded on the generator itself so a later
+  change does not silently widen it.
 
 ## Decision log
 
@@ -437,18 +482,95 @@ Hard invariants. Violation requires escalation, not a workaround.
   candidates → reweight by `max` → Kruskal), confirming the design's §12.5
   strategy. Date/Author: 2026-07-22, planning.
 
+- Decision: The ADR took number 0008, then was renumbered twice by rebases.
+  Rationale: `docs/adrs/` ended at 0006 when the file was authored and open PRs
+  #437, #447, and #453 each claimed 0007, so 0008 was free. Main then merged
+  #437 (GloVe, took 0008) and later #447 (rustix staging lock, took 0009), so
+  the refresh ADR is now 0010. Each rebase renumbered it and updated every
+  cross-reference (design, contents index, this plan), so all three ADRs keep
+  distinct numbers. Date/Author: 2026-11-23, implementation; renumbered
+  2026-11-24.
+
+- Decision: Group the rebuild inputs into a `RefreshInputs` struct instead of
+  the seven-parameter signature sketched under Interfaces. Rationale:
+  `too-many-arguments-threshold = 4` and `-D warnings` make the literal
+  signature unmergeable, and the repository guidance is to group related
+  parameters. The struct's fields and function body match the sketch; no
+  behaviour or public surface changes. Date/Author: 2026-11-23, implementation.
+
+- Decision: The BDD scenario reuses the existing `I append source indices`
+  step rather than adding a synonymous `I append points` step. Rationale: the
+  harness already exposes the parsing step; a second step would duplicate it
+  without adding coverage. The scenario text and assertions match the plan.
+  Date/Author: 2026-11-23, implementation.
+
+- Decision: The Scope tolerance increase is accepted. Rationale: the overrun
+  is structural — dead-code gating, the lint policy's argument and line caps,
+  and the plan's own proof and documentation milestones — rather than added
+  functional scope. The user approved the increase on 2026-11-23 after the
+  hosted completeness assessment raised it. Date/Author: 2026-11-23, user
+  decision.
+
+- Decision: Warm-up refreshes retain the merged raw candidate pool as the
+  backbone instead of discarding it. Rationale: HNSW harvests an edge only when
+  the later endpoint is inserted, so an edge harvested during warm-up is never
+  re-harvested; clearing the pending buffer with an empty backbone lost those
+  old-old connections permanently and made the first real rebuild strictly
+  poorer than batch. This corrects the plan's earlier "empty backbone" wording,
+  which the hosted completeness assessment identified as a defect. Labels
+  remain all-noise and no tree is selected below `min_cluster_size`. Evidence:
+  `below_min_cluster_size_retains_the_candidate_pool`,
+  `crossing_min_cluster_size_keeps_the_warm_up_candidates`, and
+  `crossing_min_cluster_size_retains_warm_up_candidates`. Date/Author:
+  2026-11-23, implementation (post-assessment repair).
+
+- Decision: OBL-8 (bounded Kani harness) is dropped at its go/no-go.
+  Rationale: `rebuild_mst_labels` reweights through the batch pipeline's
+  `mutual_reachability_edges`, which dispatches over Rayon's worker pool. Kani
+  does not model Rayon threads, so a harness would need a `cfg(kani)`
+  sequential twin of a shared batch primitive — a duplicated-behaviour fork the
+  plan's constraints forbid. A harness placed under `chutoro-core` would also
+  join the nightly `make kani-full` package sweep, which runs every harness in
+  the package, so the fork would become unattended CI surface. OBL-3, OBL-5,
+  and OBL-7 cover the index arithmetic and error paths with examples plus
+  generated interleavings, and AXM-1 covers Kruskal structural safety, so the
+  bounded check adds little. No harness shipped. Date/Author: 2026-11-23,
+  implementation.
+
 ## Outcomes & retrospective
 
-To be completed at delivery. Note: each refresh rebuilds and re-sorts the whole
-combined candidate set (O(E log E)) even for a no-op refresh; the cut-based
-incremental update sketched in design §12.5 is the future optimization target
-(out of scope here), and the core-distance recompute that `refresh` triggers
-stays serial until #430. Compare the shipped `refresh` against the three
-observable success criteria in Purpose. Before marking this plan `COMPLETE`,
-reconcile every discovery with the Conformance Basis artefacts: the DES-FIG3
-raw-backbone refinement and the §12.4 auto-recompute wording must have landed in
-`docs/chutoro-design.md`, and the refresh ADR must exist and be referenced
-from the design document.
+Delivered 2026-11-23; Status COMPLETE.
+
+All three observable success criteria in Purpose hold. A four-point session
+built with `with_min_cluster_size(2)` publishes four labels and advances the
+version by exactly one. The single-refresh differential reports ARI 1.0 (within
+1e-12) against batch `Chutoro::run`. The property suite shows the per-call
+version counter, label length equal to the live point count, and an empty
+`pending_edges` after every refresh across generated interleavings.
+
+Every discovered item maps to a landed Conformance Basis artefact: design
+Figure 3 and §12.5 carry the raw-backbone refinement, §12.4 records the
+auto-recompute behaviour, and
+[ADR-010](../adrs/adr-0010-incremental-refresh-domain-boundary.md) exists and
+is referenced from the design document.
+
+Tolerance outcome, recorded because it was crossed: the Interface, Dependency,
+and Iteration tolerances were honoured, and the Ambiguity trigger was never
+hit, but the **Scope tolerance was exceeded and the increase was approved**.
+The change touches 32 files (14 was the cap). The causes are structural rather
+than incidental: the workspace's `-D warnings` dead-code gate forces the pure
+domain and its caller into one commit; `clippy.toml` settings and the 400-line
+cap split the implementation into new modules; the plan's own EP-M4 and EP-M5
+add a proof file and four documents; and the mandatory lint gate rejected the
+first layout, requiring a relocated module and a consolidated test fixture. No
+functional scope was added beyond the plan. The user approved the increased
+tolerance on 2026-11-23 after the hosted completeness assessment raised it.
+
+Retrospective: each refresh still rebuilds and re-sorts the whole combined
+candidate set (O(E log E)) even for a no-op, and the core-distance recompute
+stays serial until #430. Both are recorded future work, not defects. The one
+prediction that did not hold is the OBL-6 mutation signal on the ARI property;
+the Surprises section records what replaced it as evidence.
 
 ## Context and orientation
 
@@ -586,12 +708,12 @@ RM-11.2.1 -> DES-12.5 -> EP-M2
   -> session::tests::refresh::refresh_advances_snapshot_version_by_one
 RM-11.2.1 -> DES-12.7 -> EP-M2/EP-M3
   -> session::tests::refresh::refresh_matches_batch_partition
-  -> refresh_properties::multi_refresh_matches_batch_within_ari_bound
+  -> session::tests::refresh_properties::multi_refresh_matches_batch_within_ari_bound
 DES-12.4 (mutual reachability) -> EP-M1 -> OBL-1 (Verus, EP-M4)
 DES-12.5 step 8 (partition output) -> EP-M1
-  -> refresh::tests::backbone_recovery_matches_forest
+  -> session::refresh::tests::backbone_recovery_matches_the_forest_for_canonical_inputs
 DES-12.6 (atomic snapshot publish) -> EP-M2
-  -> refresh_errors::failed_refresh_preserves_snapshot_and_pending
+  -> session::tests::refresh_errors::failed_refresh_preserves_snapshot_and_pending
 ```
 
 Known deviations carried by this plan (each recorded in the Decision Log and
@@ -641,9 +763,14 @@ Non-trivial axioms this plan relies on (not re-verified here):
   fixtures and proptest strategies use distinct coordinates; label length is
   unaffected either way.
 - **AXM-3 `f32::max` semantics.** IEEE-754 `max` on finite inputs is
-  commutative, associative, and idempotent; core distances and raw distances
-  entering the reweight are finite (HNSW rejects non-finite distances;
-  `core_distance` filters non-finite cells).
+  commutative, associative, and idempotent. Finiteness of the values entering
+  the reweight is an **assumption**, not something this plan proves. HNSW
+  rejects non-finite distances on insert and search, but `refresh` passes the
+  raw `core_distances` vector to the rebuild, and `core_distance()`'s
+  finiteness filter is a read accessor, not that path. Kruskal validates the
+  weight *after* reweighting, and `f32::max` returns the numeric operand when
+  one side is NaN, so that check cannot establish input finiteness either. The
+  pure rebuild also accepts directly constructed inputs.
 - **AXM-4 Deterministic fixtures.** Under the fixed proptest seed and the
   deterministic HNSW tie-break rules, identical append sequences produce
   identical harvests, so snapshot-based evidence is stable.
@@ -662,19 +789,27 @@ non-vacuity argument recorded beside it.
   reaching the same `(raw edge set, core distances)` produce identical weighted
   edges regardless of refresh history. Method: formal proof (Verus), per the
   `rust-verification` selection rules — the guarantee must hold for all
-  admissible inputs, not a sampled range. Domain: all finite `f32` triples
-  (modelled as reals in spec; finiteness is AXM-3's precondition, mirrored as a
-  `requires` clause). Artefact: `verus/session_refresh.rs`, run by
-  `make verus`. Evidence:
+  admissible inputs, not a sampled range. Domain: all finite `f32` triples.
+  **Method deviation, accepted by the approver on 2026-11-23:** the spec models
+  distances as unbounded integers, an order-preserving abstraction of finite
+  `f32`, and states the findings as *numeric-order* claims. It is not a
+  refinement proof of the Rust functions, and the proof file's header states
+  the model-to-production trust boundary and its sampled evidence. Two facts
+  the header records explicitly: `f32::max` returns the numeric operand when
+  the other is NaN, so it can mask a non-finite input rather than surface it,
+  and `MstEdge::cmp` orders with `total_cmp` (which separates signed zeros)
+  while Kruskal's dedup and grouping use numeric `partial_cmp`. Finiteness is a
+  precondition, not a proved session invariant. Artefact:
+  `verus/session_refresh.rs`, run by `make verus`. Evidence:
   `prover-tools verus run --proof-file verus/session_refresh.rs` exits 0 with no
-  `assume`; before implementation the proof file's lemma is stated with an
-  open body and fails, which is the red state. Non-vacuity: the `requires`
-  clause (finiteness) is inhabited — witness `(1.0, 2.0, 0.5)` is asserted
-  concretely in the proof body; the history-independence claim is exactly the
-  property the double-weighting bug violated, so a variant lemma modelling the
-  buggy fold (`max(prev_weight, cs, ct)` with `prev_weight > max(d, cs, ct)`)
-  is shown to yield a different result via a concrete counterexample assertion,
-  proving the lemma distinguishes correct from buggy semantics.
+  `assume`, reporting `11 verified, 0 errors`. **Red-state deviation, accepted
+  by the approver on 2026-11-23:** the proof was authored after the
+  implementation, so no verifier red state was captured; the mutation checks
+  and the witnessed counterexamples supply the fault-discrimination evidence
+  instead. Non-vacuity: every arm is inhabited — `(1,2,0)`, `(1,0,3)`,
+  `(5,2,3)`, a three-way tie, and a two-way tie are asserted concretely — and
+  the stale-weight counterexample `max(1,0,0) != max(9,0,0)` shows the lemma
+  distinguishes correct from buggy semantics.
 
 - Obligation: **OBL-2 merge multiset preservation (lemma).** The combined
   candidate sequence has length
@@ -682,15 +817,19 @@ non-vacuity argument recorded beside it.
   reweighting is index-preserving: element `i` of the output has the same
   `source`, `target`, and `sequence` as element `i` of the concatenated input,
   differing only in weight. Method: formal proof (Verus) over unbounded
-  sequences (`Seq<EdgeSpec>`), by induction; a bounded check would not cover
-  all lengths. Domain: all sequences of spec edges. Artefact:
+  sequences (`Seq<EdgeSpec>`). **Method deviation, accepted by the approver on
+  2026-11-23:** the proof uses `Seq`'s concatenation primitives — the length
+  law plus `lemma_merge_membership`, which states each buffer's element at its
+  concatenation offset — rather than a hand-rolled induction. That yields a
+  stronger statement (order and multiplicity, not just length) over the same
+  unbounded domain. Domain: all sequences of spec edges. Artefact:
   `verus/session_refresh.rs` (same proof file, separate lemmas). Evidence: as
   OBL-1; discharge condition is a clean `make verus` run with no `assume`.
-  Non-vacuity: the inductive step is exercised by non-empty witnesses (concrete
-  2-element and 3-buffer instantiations asserted in the proof); the length
-  equality fails on any implementation that filters or dedups during merge,
-  which is a real candidate mistake (dedup belongs to `prepare_edge_list`, not
-  the merge — see Decision Log).
+  Non-vacuity: the witnesses are non-empty and now assert element contents
+  (source, target, sequence, distance), not only counts; the length and offset
+  equalities fail on any implementation that filters, dedups, or reorders
+  during merge, which is a real candidate mistake (dedup belongs to
+  `prepare_edge_list`, not the merge — see Decision Log).
 
 - Obligation: **OBL-3 label-length invariant.** After every successful
   `refresh`, `session.labels().len() == session.point_count()`. Method:
@@ -759,10 +898,23 @@ non-vacuity argument recorded beside it.
   Evidence: red — fails to compile before the API exists; green — passes; the
   snapshot file is committed beside the test. Non-vacuity: fixtures contain ≥ 2
   genuine clusters, so ARI is not trivially 1.0 for degenerate labellings (an
-  all-noise or single-cluster output scores < 1.0 against the batch oracle); a
-  seeded fault replacing `max` with `min` in `mutual_reachability_weight` must
-  drive ARI below the bound — this mutation check is performed once during
-  EP-M3 and recorded in Artefacts.
+  all-noise or single-cluster output scores < 1.0 against the batch oracle).
+
+  **Amended non-vacuity criterion (deviation, accepted by the approver on
+  2026-11-23).** The plan originally required a seeded `max`→`min` fault in
+  `mutual_reachability_weight` to drive ARI below the bound. That prediction
+  was wrong, and the reason is structural: the differential compares the
+  session against batch `Chutoro::run`, and both call the same shared helper.
+  The comparison **can miss** a common-mode weighting fault: the two paths can
+  still supply different candidate edges and different core distances, so
+  sharing the helper does not make the two partitions respond identically to a
+  formula fault. The mutation evidence is carried instead by the scalar
+  `mutual_reachability_weight` unit tests and the committed label snapshot,
+  both of which reject the `min` substitution. The ARI result is evidence for
+  the generated equal-density domain, not a general partition-equivalence
+  claim. A second measured boundary is recorded in Surprises: per-cluster
+  density variation drives multi-round ARI to about 0.69 on correct code, which
+  is approximate-MST drift for roadmap 11.2.4 rather than a fault here.
 
 - Obligation: **OBL-7 overlap tolerance.** Duplicating any input edge across
   two of the three merge buffers leaves the output labels and backbone
@@ -873,8 +1025,11 @@ and Conformance Basis. No edits.
      through `map_cpu_mst_error` on mismatch (no panic; see Risks).
    - Short-circuits `node_count == 0` to an empty `RefreshOutcome`.
    - Short-circuits `node_count < min_cluster_size` to all-noise labels
-     (`vec![0; node_count]`) and an empty backbone (a warm-up session keeps
-     no structure yet).
+     (`vec![0; node_count]`) and returns the merged raw candidates as the
+     backbone. No tree is selected during warm-up, but the harvested edges
+     must survive: HNSW never re-harvests an old-old edge, so discarding the
+     pool would permanently lose those connections. (Corrected during review;
+     see the Decision Log entry of 2026-11-23.)
    - Builds the combined raw `Vec<CandidateEdge>` = `mst_backbone` ++
      `historical_edges` ++ `pending_edges` (all raw).
    - Reweights with `mutual_reachability_edges(source_name, &combined,
@@ -1027,7 +1182,12 @@ harness); apply its go/no-go rule and record the outcome either way.
 - `docs/users-guide.md`: document the `append -> refresh -> labels` workflow
   and the two new public methods in "Incremental clustering sessions", with a
   runnable doctest that sets `with_min_cluster_size` explicitly; state the
-  warm-up (all-noise) behaviour. Extend the "Error handling" section added by
+  warm-up (all-noise) behaviour. **Deviation, accepted 2026-11-23:** the guide
+  is prose and this repository has no Markdown-doctest harness, so the guide's
+  fenced snippet is not compiled. The equivalent runnable evidence is the
+  `ClusteringSession::refresh` doctest (exercised by `make test-doc`) plus
+  `chutoro-core/tests/users_guide_session_refresh.rs`; the guide states that
+  these are independent copies. Extend the "Error handling" section added by
   #207 (#434) rather than restating codes: say which `ChutoroError` wrappers
   `refresh` returns, and add the non-contiguous session to the
   `INVALID_NODE_ID` context paragraph under "MST errors" as a caller-input case
@@ -1154,6 +1314,14 @@ Red-Green-Refactor evidence to record here as work proceeds:
 - Refactor: `make check-fmt && make lint && make test` all pass after
   EP-M1's `cpu_pipeline` DRY refactor and after each subsequent milestone.
 
+Recorded 2026-11-23. The API skeleton was written before its session tests, so
+the plan's compile-error red state was not observed in that order: the
+workspace's `-D warnings` dead-code gate makes an uncalled pure module
+unmergeable, and the tests were authored against the settled API. The two
+seeded-fault mutation checks (Artefacts) are the fault-detection evidence that
+the suites can fail for the right reasons; both were genuinely rejected. The
+sequence is recorded rather than reconstructed.
+
 Acceptance (behaviour a human can verify), matching RM-11.2.1:
 
 1. After `session.append(&[0..N])` then `session.refresh()`,
@@ -1202,10 +1370,52 @@ the remaining dirty core-distance cells and republishes. Snapshot files
 
 ## Artefacts and notes
 
-To be populated during implementation with: the red-state transcript, the green
-nextest summary, the two mutation-check failure transcripts (OBL-3 truncation,
-OBL-6 `min` substitution), the `make verus` output for OBL-1 and OBL-2, and the
-OBL-8 outcome (runtime or drop decision).
+Implementation evidence, recorded 2026-11-23.
+
+- Focused green run, 25/25 tests:
+  `cargo nextest run -p chutoro-core --all-features --no-fail-fast -E
+  'test(refresh) | test(session_append)'`
+  covers the pure rebuild suite, the session unit and error suites, the
+  property suite, and both new BDD scenarios. Summary:
+  `25 tests run: 25 passed, 893 skipped`.
+- OBL-3 mutation check. Temporarily truncating the extracted label vector by
+  one in `rebuild_mst_labels` failed both witnesses:
+  `session::tests::refresh::refresh_publishes_labels_of_point_count_length`
+  (`assertion failed: (left == right)` at `session/tests/refresh.rs:60`) and
+  `session::tests::refresh_properties::refresh_invariants_hold_across_interleavings`
+  (`Test failed: assertion failed: (left == right)`). Code restored.
+- OBL-6 mutation check. Substituting `min` for `max` in
+  `mutual_reachability_weight` was rejected by
+  `session::tests::refresh::refresh_matches_batch_partition`, whose `insta`
+  snapshot assertion failed
+  (`FAIL [0.454s] … snapshot assertion for
+  'refresh_matches_batch_partition' failed in line 143`).
+  Its ARI assertion still reported 1.0, and
+  `multi_refresh_matches_batch_within_ari_bound` passed, so the ARI
+  differential was not the discriminating witness for this fault; the scalar
+  formula tests and the committed snapshot were. The Surprises section records
+  the measurements and why. Code restored, snapshot regenerated from the
+  correct formula.
+- OBL-1/OBL-2 Verus run: `VERUS_PROOF_FILE=verus/session_refresh.rs make verus`
+  reported `verification results:: 11 verified, 0 errors`, with no `assume`.
+- OBL-8 (optional Kani): see the Decision Log entry recording the go/no-go
+  outcome.
+
+- Repository gates against the implementation head: `make check-fmt`,
+  `make lint` (interrogate, rustdoc and Clippy, Whitaker), `make verus`,
+  `make markdownlint` (including the spelling gate), `make nixie`, and
+  `cs delta 051d395 <head>` all exit 0; CodeScene reports "No issues found in
+  checked changes". `make test` ran 835 of 1615 tests with 834 passed, 0
+  failed, 1 skipped, and one timeout:
+  `chutoro-compile-contracts::arrow_parquet_alignment::arrow_parquet_types_share_one_family`
+  hit its 1800 s slow-timeout while its nested Cargo build waited in the
+  host's shared compiler-admission queue. A standalone re-run reproduced the
+  same timeout with the test process consuming 0 CPU, which identifies
+  admission starvation rather than a branch defect. The hosted CI job runs the
+  same suite on a dedicated runner and is the authoritative result.
+  `make test-workflow-contracts` was also attempted locally; its 1045 pytest
+  cases ran at roughly 1% CPU behind the same subprocess contention and did not
+  finish inside the local window, so its hosted run is authoritative too.
 
 ## Interfaces and dependencies
 

@@ -25,7 +25,10 @@ thiserror = "2.0.17"
 tracing = { version = "0.1.41", features = ["attributes"] }
 
 [dev-dependencies]
+googletest = "0.14.4"
+insta = "1.49.0"
 mockable = { workspace = true, features = ["mock"] }
+pretty_assertions = "1.4.1"
 proptest = "1.8.0"
 rstest = "0.28"
 test-strategy = "0.4.3"

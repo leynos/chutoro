@@ -12,5 +12,6 @@ mod fixture;
 #[cfg(feature = "metrics")]
 mod metrics;
 mod mutual_reachability;
+mod mutual_reachability_weight;
 mod pipeline_reference;
 mod reference;

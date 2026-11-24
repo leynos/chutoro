@@ -35,7 +35,11 @@ exit "${FAKE_PROVER_STATUS:-0}"
 """
 
 #: The proofs `make verus` runs when neither override is set, in order.
-DEFAULT_PROOFS = ("verus/edge_harvest_proofs.rs", "verus/session_core_distance.rs")
+DEFAULT_PROOFS = (
+    "verus/edge_harvest_proofs.rs",
+    "verus/session_core_distance.rs",
+    "verus/session_refresh.rs",
+)
 
 #: The Cargo the recipes interpolate into `kani-check`'s command.
 CARGO = "cargo"
