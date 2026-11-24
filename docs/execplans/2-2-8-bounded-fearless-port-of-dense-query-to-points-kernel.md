@@ -123,7 +123,7 @@ These are hard invariants. Violating one requires escalation, not a workaround.
    Separately, the kernel must not call `f32::mul_add`, `SimdFloat::mul_add`,
    or any other fused or relaxed operation: the contract is one separate
    multiply and one separate add per dimension, and `INV-no-contraction` is not
-   satisfied by a hand-written fused call just because the compiler did not
+   satisfied by a handwritten fused call just because the compiler did not
    introduce one. Both prohibitions are enforced by the same source contract as
    the token rules (see `Verification plan`).
 8. **No unrestricted dispatch.** `fearless_simd::dispatch!` must not be used: it
@@ -2473,7 +2473,7 @@ does. The plan's default is stated for each.
     that do change the partition.
   - **`INV-partition` restated** as four precise clauses, replacing a sentence
     that asserted what it then retracted.
-  - **Hand-written `mul_add` is now forbidden**, not merely compiler
+  - **Handwritten `mul_add` is now forbidden**, not merely compiler
     contraction. The earlier draft's "proof of teeth" was itself the defect it
     needed to prohibit.
   - **A permanent golden-bit test replaces the deleted comparison.** EP-M4
