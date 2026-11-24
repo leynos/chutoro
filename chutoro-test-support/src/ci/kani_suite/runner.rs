@@ -255,49 +255,71 @@ impl Parser {
                 reason,
             });
         }
+        let consumed = self.consume_separated(args, index, argument)?;
+        if consumed > index + 1 {
+            return Ok(consumed);
+        }
         match argument.as_str() {
-            "--output-format" => {
-                let value = args
-                    .get(index + 1)
-                    .ok_or_else(|| CommandError::MissingValue {
-                        flag: "--output-format".to_owned(),
-                    })?;
-                check_output_format(value)?;
-                return Ok(index + 2);
-            }
-            "-p" | "--package" => {
-                let value = args
-                    .get(index + 1)
-                    .ok_or_else(|| CommandError::MissingValue {
-                        flag: argument.clone(),
-                    })?;
-                self.packages.push(value.clone());
-                return Ok(index + 2);
-            }
-            "--harness" => {
-                let value = args
-                    .get(index + 1)
-                    .ok_or_else(|| CommandError::MissingValue {
-                        flag: "--harness".to_owned(),
-                    })?;
-                self.selectors.push(value.clone());
-                return Ok(index + 2);
-            }
             "--exact" => self.exact = true,
             "--lib" => self.lib = true,
-            _ => {}
+            _ => self.consume_attached(argument)?,
         }
+        Ok(index + 1)
+    }
+
+    /// Consume an option whose value is the following argument.
+    ///
+    /// Returns the index to read next, which is `index + 1` when this option is
+    /// not one of them, so the caller can fall through to the attached
+    /// spellings and the flags.
+    fn consume_separated(
+        &mut self,
+        args: &[String],
+        index: usize,
+        argument: &str,
+    ) -> Result<usize, CommandError> {
+        let (records, store): (bool, fn(&mut Self, String)) = match argument {
+            "--output-format" => (false, |_, _| {}),
+            "-p" | "--package" => (true, Self::push_package),
+            "--harness" => (true, Self::push_selector),
+            _ => return Ok(index + 1),
+        };
+        let Some(value) = args.get(index + 1) else {
+            return Err(CommandError::MissingValue {
+                flag: argument.to_owned(),
+            });
+        };
+        if !records {
+            check_output_format(value)?;
+        } else {
+            store(self, value.clone());
+        }
+        Ok(index + 2)
+    }
+
+    /// Consume an option whose value is attached with `=`.
+    fn consume_attached(&mut self, argument: &str) -> Result<(), CommandError> {
         if let Some(value) = argument.strip_prefix("--output-format=") {
             check_output_format(value)?;
         } else if let Some(value) = argument.strip_prefix("--harness=") {
-            self.selectors.push(value.to_owned());
+            self.push_selector(value.to_owned());
         } else if let Some(value) = argument
             .strip_prefix("-p=")
             .or_else(|| argument.strip_prefix("--package="))
         {
-            self.packages.push(value.to_owned());
+            self.push_package(value.to_owned());
         }
-        Ok(index + 1)
+        Ok(())
+    }
+
+    /// Record one selected package.
+    fn push_package(&mut self, package: String) {
+        self.packages.push(package);
+    }
+
+    /// Record one selected harness.
+    fn push_selector(&mut self, selector: String) {
+        self.selectors.push(selector);
     }
 
     /// Check the collected state and build the delegated command.

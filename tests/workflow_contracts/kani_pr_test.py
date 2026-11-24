@@ -146,6 +146,17 @@ def test_the_kani_job_cannot_be_skipped(workflow: dict[str, object]) -> None:
     assert "if" not in job, (
         f"jobs.kani must carry no condition, got {job.get('if')!r}"
     )
+    # `continue-on-error` marks the run's conclusion as success while the step
+    # itself failed, which is a green required context over a broken proof.
+    tolerant = [
+        step.get("name")
+        for step in _steps(workflow)
+        if step.get("continue-on-error") is not None
+    ]
+    assert not tolerant, (
+        "no step of the Kani gate may set continue-on-error; a failed proof "
+        f"must fail the job. Found {tolerant!r}"
+    )
     conditional = [
         (step.get("name"), step.get("if"))
         for step in _steps(workflow)

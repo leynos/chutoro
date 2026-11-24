@@ -91,6 +91,10 @@ case "${FAKE_KANI_MODE:-ok}" in
   incomplete)
     printf 'Checking harness proofs::verify_one...\n'
     ;;
+  no-summary)
+    printf 'Checking harness proofs::verify_one...\n'
+    printf 'SUMMARY:\n ** 0 of 3 failed\n\nVERIFICATION:- SUCCESSFUL\n'
+    ;;
   silent)
     ;;
 esac
@@ -254,64 +258,58 @@ fn accepts_an_exact_successful_run(case: Case) {
     );
 }
 
-#[rstest]
-fn rejects_a_missing_harness(case: Case) {
-    let output = case
-        .run(
-            &[],
-            &["proofs::verify_one", "proofs::verify_two"],
-            &[("FAKE_KANI_MODE", "missing")],
-        )
-        .expect("the checker must run");
-    assert_rejected(&output, "did not complete these expected harnesses");
+/// One rejection case: what the fake prints, and the diagnostic it must earn.
+#[derive(Debug, Clone, Copy)]
+struct Rejection {
+    /// The `FAKE_KANI_MODE` the fake verifier runs.
+    mode: &'static str,
+    /// The selectors the checker is asked for.
+    selectors: &'static [&'static str],
+    /// The diagnostic fragment that must name the defect.
+    needle: &'static str,
 }
 
 #[rstest]
-fn rejects_an_unexpected_harness(case: Case) {
+#[case::missing(Rejection {
+    mode: "missing",
+    selectors: &["proofs::verify_one", "proofs::verify_two"],
+    needle: "did not complete these expected harnesses",
+})]
+#[case::unexpected(Rejection {
+    mode: "unexpected",
+    selectors: &["proofs::verify_one"],
+    needle: "outside the requested scope",
+})]
+#[case::duplicate(Rejection {
+    mode: "duplicate",
+    selectors: &["proofs::verify_one"],
+    needle: "more than once",
+})]
+#[case::failed(Rejection {
+    mode: "failed",
+    selectors: &["proofs::verify_one"],
+    needle: "failed or undetermined outcome",
+})]
+#[case::incomplete(Rejection {
+    mode: "incomplete",
+    selectors: &["proofs::verify_one"],
+    needle: "never reported an outcome",
+})]
+#[case::no_summary(Rejection {
+    mode: "no-summary",
+    selectors: &["proofs::verify_one"],
+    needle: "carries no manual harness summary",
+})]
+/// Every way a run can fail the expected set is reported as its own defect.
+fn rejects_a_run_that_does_not_match_the_expected_set(case: Case, #[case] rejection: Rejection) {
     let output = case
         .run(
             &[],
-            &["proofs::verify_one"],
-            &[("FAKE_KANI_MODE", "unexpected")],
+            rejection.selectors,
+            &[("FAKE_KANI_MODE", rejection.mode)],
         )
         .expect("the checker must run");
-    assert_rejected(&output, "outside the requested scope");
-}
-
-#[rstest]
-fn rejects_a_duplicate_harness(case: Case) {
-    let output = case
-        .run(
-            &[],
-            &["proofs::verify_one"],
-            &[("FAKE_KANI_MODE", "duplicate")],
-        )
-        .expect("the checker must run");
-    assert_rejected(&output, "more than once");
-}
-
-#[rstest]
-fn rejects_a_failed_harness(case: Case) {
-    let output = case
-        .run(
-            &[],
-            &["proofs::verify_one"],
-            &[("FAKE_KANI_MODE", "failed")],
-        )
-        .expect("the checker must run");
-    assert_rejected(&output, "failed or undetermined outcome");
-}
-
-#[rstest]
-fn rejects_an_incomplete_block(case: Case) {
-    let output = case
-        .run(
-            &[],
-            &["proofs::verify_one"],
-            &[("FAKE_KANI_MODE", "incomplete")],
-        )
-        .expect("the checker must run");
-    assert_rejected(&output, "never reported an outcome");
+    assert_rejected(&output, rejection.needle);
 }
 
 #[rstest]

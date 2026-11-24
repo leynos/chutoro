@@ -174,18 +174,39 @@ def _selectors(argv: list[str]) -> list[str]:
     ]
 
 
-def test_make_kani_runs_the_checker_for_each_selector_in_order(
-    tmp_path: Path, fast_recipe: str
+@pytest.mark.parametrize(
+    ("target", "recipe_fixture", "scope"),
+    (("kani", "fast_recipe", "fast"), ("kani-full", "full_recipe", "full")),
+)
+def test_make_tier_runs_the_checker_for_each_command_in_order(
+    tmp_path: Path,
+    target: str,
+    recipe_fixture: str,
+    scope: str,
+    request: pytest.FixtureRequest,
 ) -> None:
-    """The six checked calls run in recipe order, one per selector."""
+    """Each tier's checked calls run in recipe order, one per command.
+
+    The expected count comes from the recipe rather than a literal, so a tier
+    that gains or loses a command moves this contract with it instead of
+    failing on a number nobody meant to pin.
+    """
+    recipe = request.getfixturevalue(recipe_fixture)
     tool, log = _recorder(tmp_path)
-    completed = _run_tier(tool, log, None, "kani")
+    completed = _run_tier(tool, log, None, target)
     assert completed.returncode == 0, (
-        f"make kani failed: stdout={completed.stdout!r} stderr={completed.stderr!r}"
+        f"make {target} failed: stdout={completed.stdout!r} "
+        f"stderr={completed.stderr!r}"
     )
+    commands = selections(recipe)
     recorded = _recorded(log)
-    assert len(recorded) == 6, f"expected six checked calls, got {recorded!r}"
-    expected = [name for _, names in selections(fast_recipe) for name in names]
+    assert len(recorded) == len(commands), (
+        f"expected {len(commands)} checked calls for {target}, got {recorded!r}"
+    )
+    assert all(f"--scope\t{scope}" in "\t".join(argv) for argv in recorded), (
+        f"every {target} call must name the {scope} scope: {recorded!r}"
+    )
+    expected = [name for _, names in commands for name in names]
     actual = [selector for argv in recorded for selector in _selectors(argv)]
     assert actual == expected, (
         "the checked selectors must run in recipe order: "

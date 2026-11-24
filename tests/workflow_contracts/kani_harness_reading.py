@@ -238,9 +238,19 @@ class _Reader:
             return
         self._visited[resolved] = module
         source = _parse(file)
-        if source is None:
-            return
         relative = file.relative_to(self._repo_root).as_posix()
+        if source is None:
+            # A file the sweep reached but could not decode is not the same as
+            # one with no declarations: skipping it would shrink the inventory
+            # silently, which is exactly the loss this contract exists to catch.
+            self._report(
+                "unreadable",
+                relative,
+                1,
+                "the module resolves to this source, but it cannot be read as "
+                "UTF-8, so its declarations cannot be checked",
+            )
+            return
         self._record_proofs(source, module, relative)
         self._follow(file, source, module, is_crate_root)
 

@@ -174,7 +174,14 @@ KANI_ENV ?= LD_LIBRARY_PATH="$(KANI_LIB_PATH):$(LD_LIBRARY_PATH)"
 # environment value cannot repoint the gate; the contract tests substitute a
 # recorder there.
 KANI_MANIFEST ?= tools/kani/harnesses.toml
-KANI_SUITE_BINARY := target/debug/kani_suite
+# The checker is built into a directory named here rather than into whatever
+# `target` Cargo would otherwise choose, so the recipe that runs it knows where
+# it is. `CARGO_TARGET_DIR` is honoured, because a caller that redirects the
+# build directory would otherwise leave the proofs executing a path Cargo never
+# wrote; the default is the profile directory every other target uses.
+CARGO_TARGET_DIR ?= target
+override KANI_SUITE_TARGET_DIR := $(CARGO_TARGET_DIR)
+KANI_SUITE_BINARY := $(KANI_SUITE_TARGET_DIR)/debug/kani_suite
 KANI_SUITE_PREREQ :=
 ifeq ($(origin KANI_SUITE),command line)
 else
@@ -190,7 +197,7 @@ endif
 
 .PHONY: kani-suite-build
 kani-suite-build: ## Build the Kani suite checker
-	$(CARGO) build --package chutoro-test-support --bin kani_suite
+	CARGO_TARGET_DIR="$(KANI_SUITE_TARGET_DIR)" $(CARGO) build --package chutoro-test-support --bin kani_suite
 
 # The development build standard (concordat rule `rust-build-defaults`):
 # the mold linker on Linux. The pin is stable, so the nightly-only parallel

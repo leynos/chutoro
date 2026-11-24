@@ -18,6 +18,8 @@ from pathlib import Path
 
 import pytest
 
+from kani_recipe_reading import logical_lines
+
 REPO_ROOT = Path(__file__).resolve().parents[2]
 MAKEFILE_PATH = REPO_ROOT / "Makefile"
 DEV_FAST_TOOLCHAIN_PATH = REPO_ROOT / "tools" / "dev-fast" / "TOOLCHAIN"
@@ -63,18 +65,12 @@ def _logical_lines(output: str) -> list[str]:
     `shlex` rejects a lone trailing backslash outright. Joining first is
     therefore both the faithful reading and the one that cannot raise on a
     multi-line recipe.
+
+    This delegates to the tier contract's joiner, which reads the same Make
+    output for the same reason. One implementation is what keeps the two from
+    disagreeing about where a command ends.
     """
-    joined: list[str] = []
-    pending = ""
-    for line in output.splitlines():
-        continued = line.endswith("\\")
-        pending += line[:-1] if continued else line
-        if not continued:
-            joined.append(pending)
-            pending = ""
-    if pending:
-        joined.append(pending)
-    return joined
+    return logical_lines(output)
 
 
 def _cargo_invocations(output: str) -> list[tuple[str, list[str]]]:

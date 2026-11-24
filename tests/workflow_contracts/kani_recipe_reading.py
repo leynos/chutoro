@@ -27,25 +27,32 @@ from workflow_support import ROOT
 MAKEFILE_PATH = ROOT / "Makefile"
 
 #: The ``kani:`` target header and its immediately following tab-indented
-#: recipe lines; the capture stops at the first line that is not tab-indented.
+#: recipe lines. The capture stops at the first line that is not tab-indented,
+#: and deliberately does not stop at a blank line: make permits a blank line
+#: between recipe lines, and a comment line inside a recipe is recipe text the
+#: shell runs. Ending the capture at either would silently read a shorter tier.
 KANI_TARGET_RE = re.compile(
-    r"^kani:[^\n]*\n(?P<recipe>(?:\t[^\n]*(?:\n|$))*)",
+    r"^kani:[^\n]*\n(?P<recipe>(?:(?:\t[^\n]*)?(?:\n|$))*)",
     re.MULTILINE,
 )
 
 #: The same shape for the ``kani-full:`` target.
 KANI_FULL_TARGET_RE = re.compile(
-    r"^kani-full:[^\n]*\n(?P<recipe>(?:\t[^\n]*(?:\n|$))*)",
+    r"^kani-full:[^\n]*\n(?P<recipe>(?:(?:\t[^\n]*)?(?:\n|$))*)",
     re.MULTILINE,
 )
 
 #: An executable Kani command in a tier recipe. The optional make-variable
 #: prefixes cover the environment and the checker wrapper; a ``#`` comment, an
-#: ``echo``, or a ``printf`` cannot satisfy the pattern. A leading ``-``, which
-#: tells make to ignore the recipe's failure, is captured so the caller can
-#: reject it.
+#: ``echo``, or a ``printf`` cannot satisfy the pattern.
+#:
+#: The leading flags are make's recipe prefixes, each of which changes how the
+#: line runs. ``-`` tells make to ignore the failure and is captured so the
+#: caller can reject it. ``@`` runs the line without echoing it, and ``+`` runs
+#: it even under ``make -n``; neither changes whether the command runs, so both
+#: are consumed here rather than refused.
 KANI_COMMAND_RE = re.compile(
-    r"^\t(?P<ignore>-)?(?:\$\([A-Z_]+\)\s+)*"
+    r"^\t(?P<prefixes>[-@+]*)(?:\$\([A-Z_]+\)\s+)*"
     r"(?:\$\(KANI_SUITE\)\s+.*?\s--\s+)?"
     r"(?:\$\([A-Z_]+\)\s+)*\$\(CARGO\)\s+kani\b(?P<arguments>.*)$"
 )
@@ -134,7 +141,7 @@ def selections(text: str) -> list[tuple[str, list[str]]]:
     selected: list[tuple[str, list[str]]] = []
     for match in executable_commands(text):
         arguments = match["arguments"]
-        if match["ignore"] is not None:
+        if "-" in match["prefixes"]:
             raise RecipeError(
                 f"a Kani recipe line is prefixed with '-' so its failure is "
                 f"ignored: {arguments.strip()!r}"

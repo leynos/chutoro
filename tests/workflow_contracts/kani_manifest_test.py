@@ -211,19 +211,27 @@ def test_source_scan_reports_no_unresolved_declaration(inventory: Inventory) -> 
 def test_scan_finds_the_inline_distance_proofs(inventory: Inventory) -> None:
     """Guard the derivation against regressing to a filename-only inventory.
 
-    The six distance proofs sit in an inline module inside ``distance/mod.rs``.
-    A scan that only looked for ``kani_*.rs`` files would miss all six, and
-    every other assertion here would still pass because both sides would be
-    equally blind.
+    The distance proofs sit in an inline module inside ``distance/mod.rs``, a
+    filename no ``kani_*.rs`` pattern would match. A scan that only looked at
+    filenames would miss every one of them, and the manifest comparison would
+    still pass because both sides would be equally blind — so the count is
+    taken from the manifest's own distance entries rather than restated here.
     """
     distance = [
         proof
         for proof in inventory.proofs
         if proof.path == "chutoro-core/src/distance/mod.rs"
     ]
-    assert len(distance) == 6, (
-        "the scan must find the six proofs declared in the inline "
-        f"distance::kani_proofs module, found {len(distance)}"
+    listed = [
+        entry
+        for entry in _entries()
+        if entry["pretty_name"].startswith("distance::kani_proofs::")
+    ]
+    assert listed, "the manifest must classify the distance proofs"
+    assert len(distance) == len(listed), (
+        "the scan must find every proof the manifest lists in the inline "
+        f"distance::kani_proofs module: found {len(distance)}, listed "
+        f"{len(listed)}"
     )
     assert {proof.package for proof in distance} == {"chutoro-core"}, (
         f"the distance proofs must be attributed to chutoro-core, got {distance!r}"

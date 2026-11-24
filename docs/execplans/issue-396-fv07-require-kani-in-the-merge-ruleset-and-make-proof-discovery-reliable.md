@@ -155,6 +155,19 @@ issue text and the repository's documentation are the authority.
       assertion, a display-name collision check, a bare `pull_request:` trigger,
       a required final summary, Result-returning fixtures, a Unix gate, and
       `pipefail` in the documented commands.
+- [x] Second CodeRabbit review, all 16 findings actioned. Two were real
+      defects: the checker's binary path was hardcoded to `target/debug`, so a
+      `CARGO_TARGET_DIR` override built it where the recipes did not look for
+      it, and the required-context contract did not reject a `needs:` or
+      `continue-on-error` through which a required job can report skipped or
+      tolerant. A third tightened the checker: a run with no `Complete - ...`
+      summary is now rejected, because a record truncated after the last
+      expected block would otherwise look complete. The rest accepted make's
+      `@` and `+` recipe prefixes, kept blank and comment recipe lines, reused
+      one continuation joiner across two modules, reported an unreadable source,
+      derived the inline-module count and the tier call counts from their
+      sources, parameterised the checker's rejection cases, and corrected the
+      guide's checker path and the enforcement test's proof tier.
 - [ ] Push the branch and create the draft pull request.
 
 ## Surprises & discoveries

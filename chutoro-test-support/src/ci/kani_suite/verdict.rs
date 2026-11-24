@@ -73,7 +73,8 @@ pub enum VerdictError {
     },
     /// The output carried no `Complete - ...` line at all.
     #[error(
-        "Kani's output carries no manual harness summary; a complete run ends          with its totals, so a truncated or redirected record cannot be accepted"
+        "Kani's output carries no manual harness summary; a complete run ends \
+         with its totals, so a truncated or redirected record cannot be accepted"
     )]
     MissingSummary,
 }

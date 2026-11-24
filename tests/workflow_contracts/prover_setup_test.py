@@ -151,3 +151,14 @@ def test_setup_install_and_run_are_unconditional_and_ordered(
         f"a green job means the proof was executed; found conditions "
         f"{conditional!r}"
     )
+    # A tolerant proof step reports success over a failed run, which is the
+    # same defect as a condition: the job concludes without the guarantee.
+    tolerant = {
+        name: job_steps[index].get("continue-on-error")
+        for name, index in positions.items()
+        if "continue-on-error" in job_steps[index]
+    }
+    assert not tolerant, (
+        f"{workflow_name}:{job_name} must not tolerate a failing proof step; "
+        f"found continue-on-error on {tolerant!r}"
+    )

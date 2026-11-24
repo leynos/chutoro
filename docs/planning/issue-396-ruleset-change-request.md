@@ -110,8 +110,16 @@ Then confirm enforcement rather than configuration:
 
 - have an administrator review the `bypass_actors` list, which currently gives
   `RepositoryRole` id 5 `always` bypass;
-- from a non-bypass account, open a pull request that breaks one Kani proof and
-  confirm the `kani` check fails and the merge button is blocked;
+- from a non-bypass account, open a pull request that breaks one **fast-tier**
+  proof and confirm the `kani` check fails and the merge button is blocked. The
+  fast tier is what the pull-request job runs, so a full-tier proof would be
+  broken without that job noticing. Any `fast` entry in
+  `tools/kani/harnesses.toml` will do;
+  `hnsw::kani_proofs::bidirectional::
+  verify_bidirectional_links_smoke_2_nodes_1_layer`
+  is the quickest, because it verifies in seconds. Confirm the `kani` check
+  itself is red, not merely that the merge is blocked: another failing check
+  would block the merge too;
 - restore the proof and confirm the check passes and the merge is unblocked.
 
 ### Rollback

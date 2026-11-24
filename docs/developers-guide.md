@@ -2972,18 +2972,20 @@ with the manifest in both directions.
 `tests/workflow_contracts/kani_fast_tier_test.py` compares the exact fast
 selectors and package-scoped full sweeps in the `Makefile` with the manifest.
 
-Every Kani invocation runs through the `kani_suite` checker in
-`chutoro-test-support/src/ci/kani_suite.rs`, so a run is successful only when
-it completed exactly the manifest's harnesses for that package and tier. Kani's
-own exit status is not a proof count: it succeeds when a filter matches a
-subset of what was asked, and a proof that stops being declared simply stops
+Every Kani invocation runs through the `kani_suite` checker, whose module root
+is `chutoro-test-support/src/ci/kani_suite/mod.rs` and whose command-line front
+end is `chutoro-test-support/src/bin/kani_suite.rs`. A run is successful only
+when it completed exactly the manifest's harnesses for that package and tier.
+Kani's own exit status is not a proof count: it succeeds when a filter matches
+a subset of what was asked, and a proof that stops being declared simply stops
 appearing. The checker refuses a delegated command that suppresses or redirects
 its output (`--quiet`, `--output-format` other than `regular`,
 `--output-into-files`, `--no-codegen`, `--only-codegen`, `--log-file`,
 `--tests`, or `-j`), that names another package, that omits `--lib`, or that
 selects harnesses without `--exact`. It then requires the exact successful
 multiset, rejecting a missing, unexpected, duplicated, failed or incomplete
-harness and cross-checking the run's own summary totals.
+harness, requiring the run's own `Complete - ...` summary, and cross-checking
+that summary's totals against the parsed blocks.
 
 To add a proof:
 

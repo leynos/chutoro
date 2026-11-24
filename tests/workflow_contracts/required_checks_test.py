@@ -41,8 +41,11 @@ DOCUMENTED_RE = re.compile(
 )
 
 #: Keys that would stop a job being a plain, always-present check. ``name``
-#: changes the reported context; the rest change whether or how it reports.
-FORBIDDEN_JOB_KEYS = ("if", "strategy", "uses")
+#: changes the reported context; ``strategy`` multiplies it; ``uses`` makes the
+#: identifier an indirection; ``if`` skips it outright. ``needs`` is here
+#: because a job whose dependency fails or is skipped is itself reported
+#: skipped, and a skipped required check is neither a pass nor a run.
+FORBIDDEN_JOB_KEYS = ("if", "strategy", "uses", "needs", "continue-on-error")
 
 
 class CheckError(ValueError):
