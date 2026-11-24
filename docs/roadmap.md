@@ -3,6 +3,37 @@
 _This roadmap references sections of the revised design document (e.g., §6.2)
 rather than external sources._
 
+## Phase dependencies
+
+Phase numbers identify workstreams; they are not a strict delivery order.
+Phases whose prerequisites are met may proceed in parallel. In particular, the
+first public preview (8.2.1) requires only phases 0 and 1: it ships the CPU
+baseline without the GPU, streaming, plugin, and DataFusion features of phases
+3–7, which may proceed before or after it. Incremental clustering (phase 11)
+also proceeds alongside them. Task-level `Requires` citations remain
+authoritative; Table 1 summarizes the phase-level picture.
+
+| Phase | Workstream                              | Requires                                          |
+| ----- | --------------------------------------- | ------------------------------------------------- |
+| 0     | Walking skeleton                        | —                                                 |
+| 1     | CPU HNSW, edge harvest, and Kruskal MST | Phase 0                                           |
+| 2     | Benchmarking and profiling (CPU)        | Phase 1                                           |
+| 3     | GPU MST offload                         | Phase 1                                           |
+| 4     | Hybrid HNSW distance offload            | Step 3.1                                          |
+| 5     | Async orchestration and streams         | Phases 3 and 4                                    |
+| 6     | Dynamic plugin loader                   | Phase 0 (6.2.3 also informs GPU-aware providers)  |
+| 7     | DataFusion and `object_store` provider  | Phase 0                                           |
+| 8     | Documentation, examples, and release    | 8.2.1: phases 0 and 1; 8.2.2: phase 3, 6.2.2, 8.1 |
+| 9     | Hardening and enhancements              | Phase 1; 9.2.1 also step 6.1                      |
+| 10    | Benchmark dataset operations            | Step 2.1                                          |
+| 11    | Incremental clustering                  | Phase 1                                           |
+| 12    | Persistent snapshots and lineage        | Step 11.2                                         |
+| 13    | Local reclustering and diagnostics      | Steps 11.2, 12.1, and 12.2                        |
+| 14    | Mutability and long-lived maintenance   | Steps 11.2 and 12.1                               |
+| 15    | Streaming text validation               | Steps 10.1, 11.2, 11.3, 12.3, and 12.4            |
+
+_Table 1: Phase-level dependencies._
+
 ______________________________________________________________________
 
 ## Benchmark dataset suite
@@ -124,8 +155,8 @@ ______________________________________________________________________
 - [x] 0.3.3. Define error taxonomy; adopt `thiserror` for a unified
   `ChutoroError` in public APIs and use `anyhow` in binaries; return
   `Result<T, ChutoroError>` with stable, documented error codes. (See §10.6)
-- [ ] 0.3.4. Establish Continuous Integration (CI) (fmt, clippy, test),
-  feature gates (`cpu`, `gpu` off by default), and reproducible toolchain
+- [x] 0.3.4. Establish Continuous Integration (CI) (fmt, clippy, test),
+  feature gates (`cpu` on and `gpu` off by default), and reproducible toolchain
   (`rust-toolchain.toml`). (See §11)
 
 **Exit criteria:** compile+run on small datasets; end-to-end smoke test
@@ -396,7 +427,7 @@ ______________________________________________________________________
   `docs/chutoro-design.md` §6.3)
 - [ ] 2.2.8. Evaluate and, if accepted, adopt a bounded Fearless SIMD port of
   the dense query-to-points Euclidean kernel.
-  - [ ] Requires 2.2.2, 2.2.3, 2.2.6, and 2.2.7. Retain the packed layout,
+  - Requires 2.2.2, 2.2.3, 2.2.6, and 2.2.7. Retain the packed layout,
     scalar reference, public feature controls, and pairwise kernels.
   - [ ] Follow [RFC 0001](rfcs/rfc-0001-fearless-simd-query-to-points.md),
     [ADR-0007](adrs/adr-0007-fearless-simd-kernel-boundary.md), and
@@ -459,29 +490,37 @@ ______________________________________________________________________
 - [ ] 3.1.2. Implement `chutoro-backend-cuda` using `cust`/`cudarc`,
   `cuda_std`, `rustc_codegen_nvvm`, `cuda_builder`; gate behind `backend-cuda`.
   (See §7.1)
+  - Requires 3.1.1.
 - [ ] 3.1.3. Stub `chutoro-backend-cubecl` and optional
   `chutoro-backend-sycl` crates with features `backend-portable` and
   `backend-sycl`. (See §7.1)
+  - Requires 3.1.1.
 
 ### 3.2. Device data structures and kernels
 
 - [ ] 3.2.1. Define device data structures: global edge list, Disjoint
   Set Union (DSU) parent array, MST output buffer. (See §8.2)
+  - Requires 3.1.2.
 - [ ] 3.2.2. Implement Kernel 1: per-component (or per-vertex) min
   outgoing edge selection. (See §8.2)
+  - Requires 3.2.1.
 - [ ] 3.2.3. Implement Kernel 2: parallel union (atomic
   Compare-And-Swap (CAS)) and component compaction; host loop rounds until one
   component remains. (See §8.2)
+  - Requires 3.2.1.
 
 ### 3.3. Host integration and validation
 
 - [ ] 3.3.1. Add host-side adapter: copy candidate edges once to
   device, run Borůvka, copy MST back. (See §9.1)
+  - Requires 3.2.2 and 3.2.3.
 - [ ] 3.3.2. Gate backends behind features (`backend-cuda`,
   `backend-portable`, `backend-sycl`); fall back cleanly to CPU when
   unavailable. (See §7.1, §11)
+  - Requires 3.1.2 and 3.1.3.
 - [ ] 3.3.3. Verify correctness vs CPU Kruskal on random graphs;
   benchmark speedup. (See §11)
+  - Requires 3.3.1 and 3.3.2.
 - [ ] 3.3.4. Add a property-based differential suite for GPU Borůvka on small
   connected and disconnected graphs, including equal-weight ties; compare
   device output against the CPU reference under a canonical edge-equivalence
@@ -499,15 +538,19 @@ ______________________________________________________________________
 
 - [ ] 4.1.1. Implement CUDA distance kernel operating on row-major
   `f32` matrix (one thread per candidate). (See §8.1)
+  - Requires 3.1.2.
 - [ ] 4.1.2. Add host orchestration hook in HNSW insertion to batch
   candidate distance evaluations to GPU. (See §8.1)
+  - Requires 4.1.1.
 - [ ] 4.1.3. Introduce a small pinned host/device ring buffer for
   batched copies. (See §9.2)
+  - Requires 4.1.2.
 
 ### 4.2. Validation
 
 - [ ] 4.2.1. Measure build-time reduction vs CPU-only HNSW; ensure
   identical neighbour selections under deterministic seeds. (See §8.1, §11)
+  - Requires 4.1.2 and 4.1.3.
 - [ ] 4.2.2. Add a property-based differential suite for hybrid distance
   offload: generate batched candidate lists and assert that GPU scoring
   preserves CPU neighbour selection under fixed seeds and the shared
@@ -525,15 +568,19 @@ ______________________________________________________________________
 
 - [ ] 5.1.1. Introduce multi-stream pipeline: Stream 1 (mem ops),
   Stream 2 (HNSW distance), Stream 3 (MST). (See §9.2)
+  - Requires phases 3 and 4.
 - [ ] 5.1.2. Overlap dataset upload with initial compute; enforce
   dependencies via events/stream waits. (See §9.2)
+  - Requires 5.1.1.
 - [ ] 5.1.3. Keep large buffers resident on device; copy back only
   final labels/hierarchy. (See §9.1)
+  - Requires 5.1.1.
 
 ### 5.2. Observability
 
 - [ ] 5.2.1. Add tracing/logging around stream scheduling to validate
   overlap. (See §9.2)
+  - Requires 5.1.1.
 - [ ] 5.2.2. Add a mocked-stream property suite for the host-side async planner
   and pinned ring buffer: generate bounded enqueue, completion, cancellation,
   and error traces; assert no slot reuse before completion, no read-before-
@@ -556,8 +603,11 @@ ______________________________________________________________________
 - [ ] 6.1.1. Freeze `chutoro_v1` `#[repr(C)]` v-table with
   `abi_version`, `caps`, `state`, and function pointers; include optional
   `distance_batch`. (See §5.3)
-- [ ] 6.1.2. Add mandatory `destroy` callback to the v-table and ensure
-  the `PluginManager` calls it when unloading plugins. (See §5.3)
+  - Requires 6.1.2; the v-table is frozen only once it carries the mandatory
+    `destroy` callback.
+- [ ] 6.1.2. Add the mandatory `destroy` callback to the v-table and specify
+  the host's unload contract for it; 6.2.1 implements that contract in the
+  `PluginManager`. (See §5.3)
   - ABI: `extern "C" fn destroy(state: *mut c_void)`; no panics across
     Foreign Function Interface (FFI).
   - Ordering: drop all host-side wrappers/handles; call `destroy`, wait
@@ -571,24 +621,29 @@ ______________________________________________________________________
   - Timeouts: enforce a configurable quiescence timeout (e.g., 30s) and
     log at WARN on expiry before proceeding to unload.
   - Safety: add logs at INFO with plugin name and timing.
-  - Tests: load→use→quiesce→destroy→unload cycle under leak detectors
-    and ASAN/UBSAN.
 
 ### 6.2. Plugin management
 
 - [ ] 6.2.1. Implement `PluginManager` using `libloading` to locate
   `_plugin_create`, validate `abi_version`, wrap as safe `DataSource`. (See
   §5.2, §5.3)
+  - Requires 6.1.1 and 6.1.2.
+  - Call `destroy` on unload following the 6.1.2 contract.
+  - Success: a load→use→quiesce→destroy→unload cycle passes under leak
+    detectors and ASAN/UBSAN.
 - [ ] 6.2.2. Ship example plugin `chutoro-plugin-csv` and
   `chutoro-plugin-parquet`; document build and loading. (See §5)
+  - Requires 6.2.1.
 - [ ] 6.2.3. Add capability flags (`HAS_DISTANCE_BATCH`,
   `HAS_DEVICE_VIEW`, `HAS_NATIVE_KERNELS`) for GPU-aware providers. (See §5.3,
   §7.1)
+  - Requires 6.1.1.
 
 ### 6.3. Safety and hardening
 
 - [ ] 6.3.1. Fuzz and harden FFI boundaries (lengths, nulls, lifetime
   ownership); ensure host remains robust on plugin failure. (See §5.1)
+  - Requires 6.2.1.
 - [ ] 6.3.2. Add a property-based plugin lifecycle suite: generate synthetic
   v-tables, capability masks, version mismatches, and load → use → quiesce →
   destroy → unload traces; verify structured host failures and that unsupported
@@ -614,11 +669,13 @@ ______________________________________________________________________
   §10.6)
 - [ ] 7.1.2. Support `s3://`, `gs://`, `azure://` via `object_store`;
   add sampling options for large tables. (See §5)
+  - Requires 7.1.1.
 
 ### 7.2. Documentation
 
 - [ ] 7.2.1. Document schema contract (single `features`
   `FixedSizeList<Float32,D>` column) and error messages. (See §5)
+  - Requires 7.1.1.
 
 **Exit criteria:** users can point at local/cloud Parquet and run queries that
 materialize into chutoro's fast path.
@@ -631,14 +688,26 @@ ______________________________________________________________________
 
 - [ ] 8.1.1. Write `README` with architecture diagram and quickstart;
   add API docs via `cargo doc`. (See §4, §10)
+  - The quick start and tested examples are in place; the architecture
+    diagram remains.
 - [ ] 8.1.2. Provide end-to-end examples: numeric embeddings and string
   clustering. (See §1.3)
 
 ### 8.2. Release
 
-- [ ] 8.2.1. Publish `v0.1.0` (CPU baseline), feature-gated GPU, and
+- [ ] 8.2.1. Publish `0.1.0-beta1` of `chutoro-core`, `chutoro-cli`,
+  `chutoro-providers-dense`, and `chutoro-providers-text` to crates.io as the
+  first public preview of the CPU baseline, following the developers' guide
+  publishing checklist. (See §11)
+  - Requires phases 0 and 1.
+  - Success: `cargo install chutoro-cli@0.1.0-beta1` and a
+    `chutoro-core = "0.1.0-beta1"` dependency both resolve, and every tested
+    example in `README.md` and the users' guide runs against the published
+    crates.
+- [ ] 8.2.2. Publish `v0.1.0` (CPU baseline), feature-gated GPU, and
   example plugin crates; tag and create release notes with benchmark tables.
   (See §11)
+  - Requires 8.1.1, 8.1.2, 8.2.1, phase 3, and 6.2.2.
 
 **Exit criteria:** documented, installable release; examples reproduce reported
 benchmarks.
@@ -651,7 +720,7 @@ ______________________________________________________________________
 
 - [ ] 9.1.1. Parallelize parts of hierarchy extraction if profiling
   justifies. (See §8.3)
-- [ ] 9.1.2. Add metrics/telemetry hooks (timings, memory) behind a
+- [x] 9.1.2. Add metrics/telemetry hooks (timings, memory) behind a
   feature flag. (See §11)
 
 ### 9.2. Plugin ABI evaluation
@@ -708,20 +777,25 @@ ______________________________________________________________________
   entries and orchestrate Criterion benchmark invocations per tuple; preserve
   deterministic seeds and run metadata. See
   `docs/benchmark-dataset-retrieval.md` §4.1.
+  - Requires 10.2.1.
 - [ ] 10.2.3. Add backend capability discovery so unsupported tuples (for
   example GPU-only backends on CPU hosts) are skipped with structured reasons
   instead of hard failures. See `docs/benchmark-dataset-retrieval.md` §4.1.
+  - Requires 10.2.2.
 - [ ] 10.2.4. Standardize result artefacts (`results.jsonl`,
   `summary.parquet`, `report.md`) with tuple identifiers:
   dataset/version/backend/metric/profile/git SHA. See
   `docs/benchmark-dataset-retrieval.md` §4.2.
+  - Requires 10.2.2.
 - [ ] 10.2.5. Add object-store write-back for benchmark results and baselines
   under immutable keys (for example `bench-results/<run-id>/...`) and maintain
   a mutable pointer to latest baseline per tuple. See
   `docs/benchmark-dataset-retrieval.md` §4.3.
+  - Requires 10.1.4 and 10.2.4.
 - [ ] 10.2.6. Integrate scheduled CI jobs that run matrix profiles, publish
   artefacts, and compare against stored baselines for regression alerts.
-  Requires 2.1.7. See `docs/benchmark-dataset-retrieval.md` §4.3.
+  Requires 2.1.7, 10.2.4, and 10.2.5. See `docs/benchmark-dataset-retrieval.md`
+  §4.3.
 - [ ] 10.2.7. Add property-based verification for matrix expansion and result
   publication: tuple identifiers, immutable result keys, and profile-filtered
   matrix expansion must be deterministic across reordered specs and repeated
@@ -733,32 +807,41 @@ ______________________________________________________________________
 - [ ] 10.3.1. `make_blobs`: add deterministic recipe catalogue (seeded
   separation/noise/imbalance profiles), emit labels, and publish smoke profile
   manifests. See `docs/benchmark-dataset-retrieval.md` §7.1.
+  - Requires 10.1.3 and 10.2.1.
 - [ ] 10.3.2. MNIST digits: implement pinned IDX fetch + checksum validation,
   convert to canonical dense format, and register `smoke` and `cpu` matrix
   tuples with ARI/NMI scoring. See `docs/benchmark-dataset-retrieval.md` §7.2.
+  - Requires 10.1.2, 10.1.3, and 10.2.1.
 - [ ] 10.3.3. Fashion-MNIST: mirror MNIST pipeline with separate provenance and
   checksums, then register as a harder small-scale baseline in matrix profiles.
   See `docs/benchmark-dataset-retrieval.md` §7.3.
+  - Requires 10.3.2.
 - [ ] 10.3.4. CIFAR-10/100: add fixed embedding pipeline (frozen model and
   versioned preprocessing), cache vectors + labels, and expose both coarse and
   fine class evaluation tuples. See `docs/benchmark-dataset-retrieval.md` §7.4.
+  - Requires 10.1.2, 10.1.3, and 10.2.1.
 - [ ] 10.3.5. 20 Newsgroups: add deterministic text normalization and embedding
   recipe, cache vectors + topic labels, and register CPU profile tuples with
   topic recovery metrics. See `docs/benchmark-dataset-retrieval.md` §7.5.
+  - Requires 10.1.2, 10.1.3, and 10.2.1.
 - [ ] 10.3.6. RCV1-v2: add multilabel fetch and normalization pipeline with
   sparse-to-dense projection recipe, publish reproducible train/test manifests,
   and enable long-running CPU matrix tuples. See
   `docs/benchmark-dataset-retrieval.md` §7.6.
+  - Requires 10.1.2, 10.1.3, and 10.2.1.
 - [ ] 10.3.7. SNAP com-Amazon: add graph ingest + node embedding recipe with
   pinned hyperparameters, cache vectors + community labels, and enable graph
   quality tuple scoring. See `docs/benchmark-dataset-retrieval.md` §7.7.
+  - Requires 10.1.2, 10.1.3, and 10.2.1.
 - [ ] 10.3.8. SNAP com-DBLP: implement parallel graph pipeline to com-Amazon
   with overlapping-community handling and dedicated matrix tuple definitions.
   See `docs/benchmark-dataset-retrieval.md` §7.8.
+  - Requires 10.3.7.
 - [ ] 10.3.9. PBMC 68k (10x): define controlled-source ingestion path from an
   internally mirrored artefact, add PCA/normalization recipe checks, and gate
   matrix use behind provenance confirmation. See
   `docs/benchmark-dataset-retrieval.md` §7.9.
+  - Requires 10.1.2, 10.1.3, 10.1.6, and 10.2.1.
 - [ ] 10.3.10. GloVe vectors: ingest the four ANN-Benchmarks HDF5 files
   (`glove-{25,50,100,200}-angular.hdf5`), which carry the Twitter 27B
   (1.2M-vocabulary) vectors. Validate 1,183,514 train rows, 10,000 test rows,
@@ -783,13 +866,16 @@ ______________________________________________________________________
 - [ ] 10.3.11. SIFT1M: integrate ANN-Benchmarks HDF5 ingestion, validate
   provided nearest-neighbour ground truth, and register recall@{1,10,100}
   matrix tuples. See `docs/benchmark-dataset-retrieval.md` §7.11.
+  - Requires 10.1.2, 10.1.3, 10.2.1, and 10.3.10.1.
 - [ ] 10.3.12. GIST1M: add high-dimensional ingest validation plus memory guard
   assertions, and gate tuples to hosts that satisfy documented memory
   thresholds. See `docs/benchmark-dataset-retrieval.md` §7.12.
+  - Requires 10.1.2, 10.1.3, 10.2.1, and 10.3.10.1.
 - [ ] 10.3.13. DEEP1B/BigANN: implement sharded subset ingestion
   (1M/10M/100M/1B), resumable object-store uploads, and profile-aware matrix
   partitioning so billion-scale jobs run only on dedicated scale runners. See
   `docs/benchmark-dataset-retrieval.md` §7.13.
+  - Requires 10.1.2, 10.1.3, 10.1.4, and 10.2.1.
 
 ______________________________________________________________________
 
@@ -960,11 +1046,12 @@ ______________________________________________________________________
   `SessionConfig`, and all public methods including examples demonstrating the
   seed → append → refresh → read lifecycle. (See `docs/chutoro-design.md`
   §12.3, §12.6)
+  - Requires 11.2.1, 11.2.2, and 11.3.1.
 - [ ] 11.5.2. Extend the CLI with an optional `--incremental` mode (or
   subcommand) that creates a `ClusteringSession`, reads an initial dataset,
   then accepts appended data from stdin or a secondary file and prints updated
-  labels after each refresh. Requires 11.3.1. (See `docs/chutoro-design.md`
-  §12.3, §12.6, §12.7)
+  labels after each refresh. Requires 11.2.1, 11.2.2, and 11.3.1. (See
+  `docs/chutoro-design.md` §12.3, §12.6, §12.7)
 - [ ] 11.5.3. Document limitations of v1 incremental clustering in the
   design document: append-only, no stable cluster identity across snapshots,
   micro-batched rather than per-point, potential relabelling of existing points
@@ -988,6 +1075,10 @@ ______________________________________________________________________
   `ClusterStats`, snapshot version, and `SnapshotLineage` linking it to its
   predecessor. Gate the probabilities field behind a non-default
   `probabilities` Cargo feature. (See `docs/chutoro-design.md` §13.1)
+  - Requires 11.2.1 and 11.2.2, and the noise-representation ADR tracked in
+    [#462](https://github.com/leynos/chutoro/issues/462). Align with the
+    root-selection decision in
+    [#460](https://github.com/leynos/chutoro/issues/460).
   - Acceptance criteria: `ClusteringSnapshot` is constructible from the
     output of `extract_labels_from_mst`; snapshot version is monotonic;
     `labels.len()` equals the session's total point count.
@@ -1023,6 +1114,7 @@ ______________________________________________________________________
   assignments, insertion sequence counter), MST edges, pending delta edges,
   core distances, current `ClusteringSnapshot`, and `SessionConfig`. (See
   `docs/chutoro-design.md` §13.2)
+  - Requires 11.2.1 and 12.1.1.
 - [ ] 12.2.2. Implement `ClusteringSession::checkpoint` serializing
   session state to the binary format. Requires 12.2.1. (See
   `docs/chutoro-design.md` §13.2)
@@ -1053,6 +1145,7 @@ ______________________________________________________________________
   Unmatched new clusters receive fresh identifiers; unmatched old clusters are
   recorded as extinct. Gate behind an opt-in `SessionConfig` flag. (See
   `docs/chutoro-design.md` §13.3)
+  - Requires 11.2.1 and 12.1.1.
   - Acceptance criteria: on a no-change refresh (no new points), every
     cluster retains its previous `ClusterId`. On a small append (1%),
     ≥ 90% of clusters retain identity.
@@ -1104,6 +1197,7 @@ ______________________________________________________________________
   the specified indices (using the session's HNSW index for neighbour lookup)
   and runs hierarchy extraction. The global session state is not modified. (See
   `docs/chutoro-design.md` §14.2)
+  - Requires 11.2.1 and 12.1.1.
   - Acceptance criteria: `recluster_subset` on all points produces
     labels with ARI ≥ 0.95 against the session's current global labels.
     The global snapshot is unchanged after the call.
@@ -1124,6 +1218,7 @@ ______________________________________________________________________
   accepting a slice of point indices and returning a `Vec<MstEdge>` containing
   MST edges where at least one endpoint belongs to the specified index set. (See
   `docs/chutoro-design.md` §14.3)
+  - Requires 11.2.1.
 - [ ] 13.2.3. Add tests verifying that exported slices are read-only
   copies (mutating the returned vectors does not affect session state) and that
   edge counts are consistent with the global MST. Requires 13.2.1, 13.2.2.
@@ -1151,6 +1246,7 @@ ______________________________________________________________________
   `ClusteringSession` tracking tombstoned point indices. Implement
   `ClusteringSession::delete(indices)` marking points as tombstoned. (See
   `docs/chutoro-design.md` §15.1)
+  - Requires 12.1.1 and 12.1.3.
   - Acceptance criteria: tombstoned points are excluded from the next
     snapshot's labels and `ClusterStats`. Tombstoned indices appear in
     the snapshot's lineage delta.
@@ -1174,6 +1270,7 @@ ______________________________________________________________________
 - [ ] 14.2.1. Implement `compaction_recommended` on
   `ClusteringSession`, returning `true` when the tombstone ratio exceeds a
   configurable threshold (default 20%). (See `docs/chutoro-design.md` §15.3)
+  - Requires 14.1.1.
 - [ ] 14.2.2. Implement `compact` on `ClusteringSession`: rebuild the
   HNSW index from scratch over surviving points with full edge harvesting,
   recompute all core distances, run a full `parallel_kruskal` and
@@ -1203,6 +1300,7 @@ ______________________________________________________________________
   `session_refresh_duration_seconds` (histogram), and
   `session_compaction_duration_seconds` (histogram). (See
   `docs/chutoro-design.md` §15.4)
+  - Requires 11.2.1, 14.1.1, and 14.2.2.
 - [ ] 14.3.2. Add integration tests verifying that metric values are
   consistent with session state after append, delete, refresh, and compact
   operations. Requires 14.3.1.
@@ -1248,6 +1346,7 @@ ______________________________________________________________________
   `ClusteringSession` from an initial batch, append documents in micro-batches
   with periodic refreshes, and record per-refresh metrics. (See
   `docs/chutoro-design.md` §16.3)
+  - Requires 11.2.1, 11.3.1, and 15.1.3.
 - [ ] 15.2.2. Instrument the following per-refresh metrics: ARI/NMI
   against ground-truth topic labels, label churn (fraction of existing points
   whose assignment changed), append p95 latency, refresh wall-time, cluster
