@@ -1567,21 +1567,20 @@ roles in search.
 graph entry point using level-0 edges alone. The base layer stores every node
 and carries the best-first search that produces the result set. Level-0 search
 can only explore the component it starts in, so a node outside that component
-is returned only if descent lands in its component or the query itself is
-added to the candidate set by `ensure_query_present`. A split that descent
-happens to bridge therefore costs reachability from some entry points rather
-than making the node permanently unreturnable, but it is still a defect
-because which component search starts in depends on the query. The normative
-requirements are:
+is returned only if descent lands in its component or the query itself is added
+to the candidate set by `ensure_query_present`. A split that descent happens to
+bridge therefore costs reachability from some entry points rather than making
+the node permanently unreturnable, but it is still a defect because which
+component search starts in depends on the query. The normative requirements are:
 
 - Base-layer reachability: every populated node is reachable from the entry
   point through level-0 edges.
 - Base-layer reciprocity: every retained level-0 edge `u -> v` has a matching
   `v -> u` edge, subject to the degree bound.
 - Base-layer isolation is not permitted: once the graph holds more than one
-  populated node, insertion reconciliation must not leave a populated node
-  with an empty level-0 neighbour list. The first insertion has no other node
-  to link to, so the requirement starts at the second node.
+  populated node, insertion reconciliation must not leave a populated node with
+  an empty level-0 neighbour list. The first insertion has no other node to
+  link to, so the requirement starts at the second node.
 
 **Upper layers (levels 1 and above).** Upper layers are a navigation
 accelerator, not a search-completeness requirement. Their requirements are
