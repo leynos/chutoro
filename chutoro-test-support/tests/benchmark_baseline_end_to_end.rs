@@ -16,12 +16,14 @@ use std::error::Error;
 use std::fs;
 use std::path::{Path, PathBuf};
 use std::process::{Command, Output};
+use std::sync::OnceLock;
 
 use chutoro_test_support::ci::benchmark_baseline::args::{ClassifyArgs, StageArgs};
 use chutoro_test_support::ci::benchmark_baseline::compatibility;
 use chutoro_test_support::ci::benchmark_baseline::manifest::{
     BaselineManifest, InventoryRequest, inventory, write_manifest,
 };
+use chutoro_test_support::ci::benchmark_baseline::output_root;
 use chutoro_test_support::ci::benchmark_baseline::preflight::PreflightReport;
 use chutoro_test_support::ci::benchmark_baseline::runner::{
     PREFLIGHT_FILE, run_classify, run_stage,
@@ -30,7 +32,7 @@ use chutoro_test_support::ci::benchmark_baseline::transfer::{StageRequest, stage
 use chutoro_test_support::ci::benchmark_baseline::{
     BaselineError, BaselineVerdict, CaseClass, Outcome,
 };
-use mockable::DefaultEnv;
+use mockable::{DefaultEnv, MockEnv};
 use tempfile::TempDir;
 
 /// Convenient result type for these helpers.
@@ -51,15 +53,53 @@ fn workspace_target_directory() -> TestResult<PathBuf> {
 
 /// Create a temporary root beneath the workspace target directory.
 ///
-/// The fixture's target directories live under the workspace `target/` so a
-/// dedicated `target`-shaped directory is reused rather than indexed, and so
-/// a full disk is visible where the repository's build output already lives.
+/// Per-run Criterion roots live under the workspace `target/` so the evidence
+/// is on the same filesystem as the build output and never lands in `/tmp`.
 fn temporary_root() -> TestResult<TempDir> {
     let target = workspace_target_directory()?;
     fs::create_dir_all(&target)?;
     Ok(tempfile::Builder::new()
         .prefix("benchmark-baseline-e2e-")
         .tempdir_in(target)?)
+}
+
+/// Build the fixture once for the whole test binary.
+///
+/// Criterion and the fixture take minutes to compile. Compiling them into each
+/// test's own target directory would multiply that cost by the number of
+/// tests, so all tests share one build and separate their Criterion output
+/// roots with `CRITERION_HOME`. That also exercises the non-default output
+/// root the helper must resolve. `OnceLock` makes the build happen once even
+/// when the test harness runs the tests on several threads.
+fn shared_target() -> TestResult<&'static Path> {
+    static TARGET: OnceLock<Result<PathBuf, String>> = OnceLock::new();
+    let built = TARGET.get_or_init(|| {
+        let target = workspace_target_directory().map_err(|error| error.to_string())?;
+        let target = target.join("benchmark-baseline-fixture");
+        fs::create_dir_all(&target).map_err(|error| error.to_string())?;
+        let output = Command::new(env!("CARGO"))
+            .args([
+                "bench",
+                "--offline",
+                "--locked",
+                "--no-run",
+                "--manifest-path",
+            ])
+            .arg(fixture_directory().join("Cargo.toml"))
+            .args(["--bench", "baseline"])
+            .env("CARGO_TARGET_DIR", &target)
+            .env_remove("CRITERION_HOME")
+            .output()
+            .map_err(|error| error.to_string())?;
+        if !output.status.success() {
+            return Err(child_failure(&["--no-run"], &output));
+        }
+        Ok(target)
+    });
+    match built {
+        Ok(target) => Ok(target.as_path()),
+        Err(message) => Err(message.clone().into()),
+    }
 }
 
 /// Report a failed child command with its captured output.
@@ -72,14 +112,14 @@ fn child_failure(arguments: &[&str], output: &Output) -> String {
 }
 
 /// Run the fixture bench with the supplied Criterion arguments.
-fn run_fixture(target_directory: &Path, slowdown: u64, arguments: &[&str]) -> TestResult<Output> {
+fn run_fixture(criterion_home: &Path, slowdown: u64, arguments: &[&str]) -> TestResult<Output> {
     let output = Command::new(env!("CARGO"))
         .args(["bench", "--offline", "--locked", "--manifest-path"])
         .arg(fixture_directory().join("Cargo.toml"))
         .args(["--bench", "baseline", "--"])
         .args(arguments)
-        .env("CARGO_TARGET_DIR", target_directory)
-        .env_remove("CRITERION_HOME")
+        .env("CARGO_TARGET_DIR", shared_target()?)
+        .env("CRITERION_HOME", criterion_home)
         .env("CHUTORO_FIXTURE_SLOWDOWN", slowdown.to_string())
         .output()?;
     if !output.status.success() {
@@ -89,10 +129,10 @@ fn run_fixture(target_directory: &Path, slowdown: u64, arguments: &[&str]) -> Te
     Ok(output)
 }
 
-/// Run the fixture bench, saving `baseline` into `target_directory`.
-fn save_baseline(target_directory: &Path, baseline: &str, slowdown: u64) -> TestResult<()> {
+/// Run the fixture bench, saving `baseline` into `criterion_home`.
+fn save_baseline(criterion_home: &Path, baseline: &str, slowdown: u64) -> TestResult<()> {
     run_fixture(
-        target_directory,
+        criterion_home,
         slowdown,
         &["--save-baseline", baseline, "--noplot", "--color", "never"],
     )?;
@@ -100,9 +140,9 @@ fn save_baseline(target_directory: &Path, baseline: &str, slowdown: u64) -> Test
 }
 
 /// Run the fixture bench with the comparison flags and filter.
-fn compare_baseline(target_directory: &Path, filter: &str, slowdown: u64) -> TestResult<()> {
+fn compare_baseline(criterion_home: &Path, filter: &str, slowdown: u64) -> TestResult<()> {
     run_fixture(
-        target_directory,
+        criterion_home,
         slowdown,
         &[
             "--load-baseline",
@@ -120,11 +160,20 @@ fn compare_baseline(target_directory: &Path, filter: &str, slowdown: u64) -> Tes
 
 /// Inventory one baseline tree without consulting the process environment.
 fn inventory_tree(
-    target_directory: &Path,
+    criterion_home: &Path,
     baseline: &str,
     revision: &str,
 ) -> Result<BaselineManifest, BaselineError> {
-    let root = target_directory.join("criterion");
+    // Resolve the root through the helper's own precedence with
+    // `CRITERION_HOME` set, so the non-default-root path is exercised rather
+    // than bypassed by passing a path straight through.
+    let mut env = MockEnv::new();
+    let home = criterion_home.to_path_buf();
+    env.expect_string()
+        .returning(move |key| (key == "CRITERION_HOME").then(|| home.display().to_string()));
+    env.expect_all().returning(std::collections::HashMap::new);
+    let root = output_root::resolve_workspace_output_root(criterion_home, &env)?;
+    assert_eq!(root, criterion_home);
     let environment = BTreeMap::new();
     inventory(
         &InventoryRequest {
@@ -197,14 +246,14 @@ fn measure_pair(
     root: &Path,
     current_slowdown: u64,
 ) -> TestResult<(BaselineManifest, BaselineManifest)> {
-    let reference_target = root.join("reference-target");
-    let current_target = root.join("current-target");
-    save_baseline(&reference_target, "ci-reference", 1)?;
-    save_baseline(&current_target, "ci-current", current_slowdown)?;
+    let reference_home = root.join("reference-criterion");
+    let current_home = root.join("current-criterion");
+    save_baseline(&reference_home, "ci-reference", 1)?;
+    save_baseline(&current_home, "ci-current", current_slowdown)?;
 
     Ok((
-        inventory_tree(&reference_target, "ci-reference", "reference-revision")?,
-        inventory_tree(&current_target, "ci-current", "current-revision")?,
+        inventory_tree(&reference_home, "ci-reference", "reference-revision")?,
+        inventory_tree(&current_home, "ci-current", "current-revision")?,
     ))
 }
 
@@ -230,12 +279,11 @@ fn unchanged_fixture_passes_a_real_comparison() {
     assert!(filter.starts_with("^("));
     assert!(filter.ends_with(")$"));
 
-    let current_target = root.path().join("current-target");
-    compare_baseline(&current_target, &filter, 1).expect("the comparison must run");
+    let current_home = root.path().join("current-criterion");
+    compare_baseline(&current_home, &filter, 1).expect("the comparison must run");
 
     for case in &current.cases {
-        let change = current_target
-            .join("criterion")
+        let change = current_home
             .join(&case.relative_directory)
             .join("change/estimates.json");
         assert!(
@@ -270,8 +318,8 @@ fn controlled_slowdown_is_detected_as_a_regression() {
         write_manifests(&evidence, &reference, &current).expect("manifests must be written");
     let filter = stage_reference(&evidence, &reference_path, &current_path)
         .expect("a filter must be emitted");
-    let current_target = root.path().join("current-target");
-    compare_baseline(&current_target, &filter, 3).expect("the comparison must run");
+    let current_home = root.path().join("current-criterion");
+    compare_baseline(&current_home, &filter, 3).expect("the comparison must run");
 
     let verdict = classify(&evidence, 0.25).expect("classification must succeed");
     assert_eq!(verdict.outcome, Outcome::Regression);
@@ -301,10 +349,10 @@ fn current_only_identifier_is_unverified_and_the_strict_filter_does_not_panic() 
     let filter = stage_reference(&evidence, &reference_path, &current_path)
         .expect("a filter must be emitted");
     assert!(!filter.contains(&removed.full_id), "{filter}");
-    let current_target = root.path().join("current-target");
+    let current_home = root.path().join("current-criterion");
     // `--baseline ci-reference` is strict: if the filter selected the
     // current-only identifier, Criterion would panic on its missing baseline.
-    compare_baseline(&current_target, &filter, 1).expect("the comparison must run");
+    compare_baseline(&current_home, &filter, 1).expect("the comparison must run");
 
     let verdict = classify(&evidence, 0.05).expect("classification must succeed");
     assert_eq!(verdict.outcome, Outcome::Pass);
@@ -323,13 +371,13 @@ fn staging_rejects_a_reference_tree_with_a_deleted_baseline() {
     let root = temporary_root().expect("temporary root must be created");
     let evidence = root.path().join("evidence");
     fs::create_dir_all(&evidence).expect("evidence directory must be created");
-    let reference_target = root.path().join("reference-target");
-    let current_target = root.path().join("current-target");
-    save_baseline(&reference_target, "ci-reference", 1).expect("reference must be saved");
-    save_baseline(&current_target, "ci-current", 1).expect("current must be saved");
-    let reference = inventory_tree(&reference_target, "ci-reference", "reference-revision")
+    let reference_home = root.path().join("reference-criterion");
+    let current_home = root.path().join("current-criterion");
+    save_baseline(&reference_home, "ci-reference", 1).expect("reference must be saved");
+    save_baseline(&current_home, "ci-current", 1).expect("current must be saved");
+    let reference = inventory_tree(&reference_home, "ci-reference", "reference-revision")
         .expect("reference must be inventoried");
-    let current = inventory_tree(&current_target, "ci-current", "current-revision")
+    let current = inventory_tree(&current_home, "ci-current", "current-revision")
         .expect("current must be inventoried");
     let victim = reference
         .cases
@@ -366,13 +414,13 @@ fn staging_rejects_a_reference_tree_with_a_deleted_baseline() {
 #[test]
 fn stage_transfer_is_exercised_directly_for_nested_identifiers() {
     let root = temporary_root().expect("temporary root must be created");
-    let reference_target = root.path().join("reference-target");
-    let current_target = root.path().join("current-target");
-    save_baseline(&reference_target, "ci-reference", 1).expect("reference must be saved");
-    save_baseline(&current_target, "ci-current", 1).expect("current must be saved");
-    let reference = inventory_tree(&reference_target, "ci-reference", "reference-revision")
+    let reference_home = root.path().join("reference-criterion");
+    let current_home = root.path().join("current-criterion");
+    save_baseline(&reference_home, "ci-reference", 1).expect("reference must be saved");
+    save_baseline(&current_home, "ci-current", 1).expect("current must be saved");
+    let reference = inventory_tree(&reference_home, "ci-reference", "reference-revision")
         .expect("reference must be inventoried");
-    let current = inventory_tree(&current_target, "ci-current", "current-revision")
+    let current = inventory_tree(&current_home, "ci-current", "current-revision")
         .expect("current must be inventoried");
     let compatibility =
         compatibility::check(&reference, &current).expect("the two trees must be compatible");

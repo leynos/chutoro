@@ -84,7 +84,7 @@ fn resolve_relative(path: &Path, working_directory: &Path) -> PathBuf {
 ///
 /// # Errors
 ///
-/// Returns an error when `cargo metadata` fails or a tool version cannot be  read.
+/// Returns an error when `cargo metadata` fails or a tool version cannot be read.
 ///
 /// # Examples
 ///
@@ -175,7 +175,7 @@ struct MetadataPackage {
 ///
 /// # Errors
 ///
-/// Returns an error when `cargo metadata` fails or a tool version cannot be  read.
+/// Returns an error when `cargo metadata` fails or a tool version cannot be read.
 ///
 /// # Examples
 ///
@@ -196,7 +196,7 @@ pub fn parse_metadata(bytes: &[u8], workspace: &Path) -> Result<CargoMetadata, B
 ///
 /// # Errors
 ///
-/// Returns an error when `cargo metadata` fails or a tool version cannot be  read.
+/// Returns an error when `cargo metadata` fails or a tool version cannot be read.
 ///
 /// # Examples
 ///
@@ -246,7 +246,7 @@ pub struct RecordedTools {
 ///
 /// # Errors
 ///
-/// Returns an error when `cargo metadata` fails or a tool version cannot be  read.
+/// Returns an error when `cargo metadata` fails or a tool version cannot be read.
 ///
 /// # Examples
 ///

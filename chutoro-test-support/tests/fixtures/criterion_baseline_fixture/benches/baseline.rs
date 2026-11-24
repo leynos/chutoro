@@ -7,6 +7,12 @@
 //! by `CHUTORO_FIXTURE_SLOWDOWN`, so a test can create a controlled slowdown
 //! without depending on machine speed.
 
+// The repository's `.cargo/config.toml` sets `-D missing_docs` for every crate
+// beneath it. `criterion_group!` expands to a generated public harness
+// function, which cannot carry a doc comment, so this isolated fixture — which
+// is a bench harness rather than a public API — relaxes that one lint.
+#![allow(missing_docs)]
+
 use std::time::Duration;
 
 use criterion::{BenchmarkId, Criterion, black_box, criterion_group, criterion_main};
