@@ -169,7 +169,7 @@ impl GateRunner {
         }
 
         let output = command.output()?;
-        reject_test_harness(&self.binary_path, &output)?;
+        reject_test_harness(&self.binary_path, &output.stdout, &output.stderr)?;
         Ok(output)
     }
 }
@@ -187,9 +187,13 @@ impl GateRunner {
 ///
 /// Returns [`std::io::ErrorKind::InvalidData`] when the output carries the
 /// harness marker and no gate key.
-fn reject_test_harness(binary_path: &Path, output: &Output) -> std::io::Result<()> {
-    let stdout = String::from_utf8_lossy(&output.stdout);
-    let stderr = String::from_utf8_lossy(&output.stderr);
+fn reject_test_harness(
+    binary_path: &Path,
+    stdout_bytes: &[u8],
+    stderr_bytes: &[u8],
+) -> std::io::Result<()> {
+    let stdout = String::from_utf8_lossy(stdout_bytes);
+    let stderr = String::from_utf8_lossy(stderr_bytes);
     let printed_key_value = stdout.lines().any(|line| {
         line.split_once('=')
             .is_some_and(|(key, _)| !key.trim().is_empty())
@@ -210,6 +214,34 @@ fn reject_test_harness(binary_path: &Path, output: &Output) -> std::io::Result<(
             stderr
         ),
     ))
+}
+
+#[rstest]
+#[case::stdout_harness(b"running 0 tests\n", b"", false)]
+#[case::stderr_harness(b"", b"running 0 tests\n", false)]
+#[case::gate_key_wins(b"should_run=true\n", b"running 0 tests\n", true)]
+#[case::gate_key_without_harness(b"should_run=true\n", b"", true)]
+fn kani_gate_rejects_a_substituted_harness(
+    #[case] stdout: &[u8],
+    #[case] stderr: &[u8],
+    #[case] is_gate_output: bool,
+) {
+    let result = reject_test_harness(Path::new("kani_nightly_gate"), stdout, stderr);
+    if is_gate_output {
+        result.expect("gate output must be accepted");
+        return;
+    }
+
+    let error = result.expect_err("harness output must be rejected");
+    let message = error.to_string();
+    assert!(
+        message.contains("a test harness ran instead of the gate binary"),
+        "unexpected diagnostic: {message}"
+    );
+    assert!(
+        message.contains("kani_nightly_gate"),
+        "the diagnostic must name the binary: {message}"
+    );
 }
 
 fn parse_should_run(stdout: &str) -> Option<bool> {
