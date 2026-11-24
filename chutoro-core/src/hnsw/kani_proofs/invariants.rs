@@ -145,18 +145,40 @@ fn verify_no_self_loops_2_nodes_upper_layer() {
     check_no_self_loops_at_level(1);
 }
 
-/// Captures a node's selected-level list as its length and first entry.
+/// Snapshot of one node's selected-level neighbour list.
+///
+/// Absence is distinct from emptiness, so a node or level that disappears
+/// cannot compare equal to a present but empty list. Comparing the length also
+/// rejects a duplicate entry; a first-entry-only snapshot would miss one.
+#[derive(Clone, Copy, PartialEq, Eq)]
+enum LevelSnapshot {
+    /// The node is absent, or does not expose the selected level.
+    Absent,
+    /// The level exists with the recorded number of entries and first entry.
+    Present {
+        /// Number of entries in the selected-level list.
+        len: usize,
+        /// First entry of the list, or `None` when it is empty.
+        first: Option<usize>,
+    },
+}
+
+/// Captures a node's selected-level list without allocating.
 ///
 /// The bounded two-node fixture gives each list at most one entry before the
-/// call, so `(length, first entry)` describes the whole pre-call list.
-/// Comparing the length afterwards also rejects a duplicate entry, which a
-/// first-entry-only snapshot would miss. A tuple of scalars keeps the symbolic
-/// state free of array constants, whose allocation identity is expensive for
-/// the solver.
-fn selected_level_snapshot(graph: &Graph, node_id: usize, level: usize) -> (usize, Option<usize>) {
-    graph.node(node_id).map_or((0, None), |node| {
+/// call, so the length and first entry describe the whole pre-call list. A
+/// fixed-size value keeps the symbolic state free of heap vectors and array
+/// constants, whose allocation identity is expensive for the solver.
+fn selected_level_snapshot(graph: &Graph, node_id: usize, level: usize) -> LevelSnapshot {
+    graph.node(node_id).map_or(LevelSnapshot::Absent, |node| {
+        if level >= node.level_count() {
+            return LevelSnapshot::Absent;
+        }
         let neighbours = node.neighbours(level);
-        (neighbours.len(), neighbours.first().copied())
+        LevelSnapshot::Present {
+            len: neighbours.len(),
+            first: neighbours.first().copied(),
+        }
     })
 }
 
@@ -179,6 +201,7 @@ fn check_no_self_loops_at_level(level: usize) {
 
 /// Proves that a self-target is rejected without mutating either node.
 fn check_self_target_rejected(graph: &mut Graph, ctx: KaniUpdateContext, level: usize) {
+    kani::cover!(true, "self-target branch is reachable");
     let origin_before = selected_level_snapshot(graph, 0, level);
     let target_before = selected_level_snapshot(graph, 1, level);
 
@@ -198,11 +221,16 @@ fn check_self_target_rejected(graph: &mut Graph, ctx: KaniUpdateContext, level: 
 
 /// Proves that a valid target gains its reverse edge without a self-loop.
 fn check_valid_target_reconciled(graph: &mut Graph, ctx: KaniUpdateContext, level: usize) {
+    kani::cover!(true, "valid-target branch is reachable");
     let added = ensure_reverse_edge_for_kani(graph, ctx, 1);
 
     kani::assert(added, "reverse edge must be ensured");
     kani::assert(
-        selected_level_snapshot(graph, 1, level) == (1, Some(0)),
+        selected_level_snapshot(graph, 1, level)
+            == LevelSnapshot::Present {
+                len: 1,
+                first: Some(0),
+            },
         "valid reconciliation must link the target back to the origin exactly once",
     );
     kani::assert(has_no_self_loops(graph), "no self-loops invariant violated");
