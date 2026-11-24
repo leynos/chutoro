@@ -1521,6 +1521,13 @@ installs the pinned Nextest from `scripts/install-nextest.sh` before the
 contract step. The `build-test` job runs the same target, so a contract that
 passes here passes there.
 
+The target runs pytest with `-rs` as well as `--doctest-modules`. Skips are a
+normal outcome here because a contract whose prerequisite is absent declines
+rather than fails, so the reason report is what distinguishes a provisioned
+host from an unprovisioned one, and what lets a CI log show which contracts
+actually ran. A run that reports only a skip count has not said which contract
+it skipped.
+
 The target runs pytest with `--doctest-modules`, so every example in a
 docstring under `tests/workflow_contracts/` is executed as a test. That is not
 decoration. The support modules write their examples as doctests and nothing
