@@ -153,10 +153,11 @@ impl RecipeError {
     /// Borrow the failures retained by a driver-created cleanup error.
     ///
     /// # Returns
-    /// [`Some`] with the retained payload for an error built through
-    /// [`RecipeError::cleanup_with_phase_error`]; [`None`] for every other
-    /// variant and for cleanup errors built through [`RecipeError::cleanup`],
-    /// which retains only the cleanup failure.
+    /// [`Some`] when the `Cleanup` source is a [`CleanupFailure`], which is
+    /// what [`RecipeError::cleanup_with_phase_error`] stores. Returns [`None`]
+    /// for every other variant and for a `Cleanup` whose source is any other
+    /// error, including one built through [`RecipeError::cleanup`] with an
+    /// ordinary cleanup error.
     ///
     /// # Examples
     ///
@@ -177,5 +178,37 @@ impl RecipeError {
             Self::Cleanup { source, .. } => source.downcast_ref::<CleanupFailure>(),
             _ => None,
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    //! Unit tests for the downcast that finds a retained cleanup payload.
+
+    use super::CleanupFailure;
+    use crate::{Phase, PortName, RecipeError};
+
+    /// `cleanup_failure()` reports the payload type rather than which
+    /// constructor stored it, so the two-argument constructor can also carry a
+    /// compound payload and still expose it.
+    #[test]
+    fn cleanup_failure_is_found_whatever_constructor_stored_it() {
+        let payload = CleanupFailure::new(
+            RecipeError::prepare("archive corrupt"),
+            RecipeError::port(PortName::Storage, "cache locked"),
+        );
+        let rebuilt = RecipeError::cleanup(Phase::Prepare, payload);
+
+        let found = rebuilt
+            .cleanup_failure()
+            .expect("a stored CleanupFailure payload should stay reachable");
+        assert_eq!(
+            found.cleanup_error().to_string(),
+            "port Storage failed: cache locked"
+        );
+        assert_eq!(
+            found.phase_error().to_string(),
+            "prepare failed: archive corrupt"
+        );
     }
 }

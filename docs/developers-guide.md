@@ -3555,9 +3555,11 @@ cleanup error, and that payload's source is the original phase error.
 `Error::source()` therefore walks from the cleanup failure through the payload
 to the phase error and on to whatever the phase error wraps. Inspect the pair
 with `RecipeError::cleanup_failure()`, `CleanupFailure::phase_error()`, and
-`CleanupFailure::cleanup_error()`. `RecipeError::cleanup(phase, source)`
-retains only the cleanup failure, so `cleanup_failure()` returns `None` for an
-error built that way.
+`CleanupFailure::cleanup_error()`. `cleanup_failure()` reports on the payload
+type rather than on the constructor: it returns `Some` whenever the `Cleanup`
+source is a `CleanupFailure`, and `None` when it is any other error. Passing an
+extracted `CleanupFailure` to `RecipeError::cleanup(phase, source)` therefore
+still yields `Some`; an ordinary cleanup error yields `None`.
 
 The design rationale is recorded in
 [`ADR-004`](adrs/adr-0004-bench-dataset-recipe-trait.md). The broader dataset
