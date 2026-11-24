@@ -123,6 +123,11 @@ open each document.
   - [2-2-7 Kani harnesses for tail padding and
     dispatch selection](
     execplans/2-2-7-kani-harnesses-for-tail-padding-and-dispatch-selection.md)
+  - [2-2-8 Evaluate a bounded Fearless SIMD port of the dense
+    query-to-points kernel](
+    execplans/2-2-8-bounded-fearless-port-of-dense-query-to-points-kernel.md):
+    preregistered parity, maintenance, and complete-batch performance gates for
+    replacing the per-architecture packed query kernels.
   - [2-3-1 HNSW neighbour evaluation using packed
     indices](execplans/2-3-1-hnsw-neighbour-evaluation-using-packed-indices.md)
   - [Phase 1 bounded Kani harness](execplans/phase-1-bounded-kani-harness.md)
