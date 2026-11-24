@@ -61,7 +61,8 @@ pub struct Classification {
 ///
 /// # Errors
 ///
-/// Returns [`IntervalError`] when the bounds are inverted.
+/// Returns [`IntervalError`] when a bound is not finite, when the bounds are
+/// inverted, or when the threshold is not a finite positive fraction.
 ///
 /// # Examples
 ///
@@ -84,8 +85,18 @@ pub fn classify_interval(
     upper_bound: f64,
     threshold: f64,
 ) -> Result<Classification, IntervalError> {
+    if !(lower_bound.is_finite() && upper_bound.is_finite() && threshold.is_finite()) {
+        return Err(IntervalError::NonFinite {
+            lower_bound,
+            upper_bound,
+            threshold,
+        });
+    }
+    if threshold <= 0.0 {
+        return Err(IntervalError::Threshold { threshold });
+    }
     if lower_bound > upper_bound {
-        return Err(IntervalError {
+        return Err(IntervalError::Inverted {
             lower_bound,
             upper_bound,
         });
@@ -106,13 +117,30 @@ pub fn classify_interval(
     })
 }
 
-/// An interval whose bounds are inverted.
+/// An interval that cannot be classified.
 #[derive(Clone, Copy, Debug, PartialEq)]
-pub struct IntervalError {
-    /// Lower bound as supplied.
-    pub lower_bound: f64,
-    /// Upper bound as supplied.
-    pub upper_bound: f64,
+pub enum IntervalError {
+    /// The bounds are inverted.
+    Inverted {
+        /// Lower bound as supplied.
+        lower_bound: f64,
+        /// Upper bound as supplied.
+        upper_bound: f64,
+    },
+    /// A bound or the threshold is not finite.
+    NonFinite {
+        /// Lower bound as supplied.
+        lower_bound: f64,
+        /// Upper bound as supplied.
+        upper_bound: f64,
+        /// Threshold as supplied.
+        threshold: f64,
+    },
+    /// The threshold is not a positive fraction.
+    Threshold {
+        /// Threshold as supplied.
+        threshold: f64,
+    },
 }
 
 /// The relative change and interval recorded for one identifier.
@@ -157,11 +185,26 @@ impl CaseChange {
         let interval = self.estimates.mean.confidence_interval;
         require_confidence_level(id, interval.confidence_level)?;
         classify_interval(interval.lower_bound, interval.upper_bound, threshold).map_err(|error| {
-            BaselineError::InvertedInterval {
-                id: id.to_owned(),
-                lower: error.lower_bound,
-                upper: error.upper_bound,
-                remedy: "delete the malformed change estimates and rerun the comparison",
+            match error {
+                IntervalError::Inverted {
+                    lower_bound,
+                    upper_bound,
+                } => BaselineError::InvertedInterval {
+                    id: id.to_owned(),
+                    lower: lower_bound,
+                    upper: upper_bound,
+                    remedy: "delete the malformed change estimates and rerun the comparison",
+                },
+                IntervalError::NonFinite { .. } => BaselineError::NonFiniteInterval {
+                    id: id.to_owned(),
+                    remedy: "delete the malformed change estimates and rerun the comparison",
+                },
+                IntervalError::Threshold { threshold: invalid } => {
+                    BaselineError::InvalidThreshold {
+                        threshold: invalid,
+                        remedy: "pass a finite positive --threshold fraction",
+                    }
+                }
             }
         })
     }

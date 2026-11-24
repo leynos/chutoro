@@ -2,6 +2,7 @@
 
 use std::fs;
 
+use rstest::rstest;
 use tempfile::TempDir;
 
 use super::{
@@ -25,54 +26,64 @@ fn change(lower_bound: f64, upper_bound: f64) -> CaseChange {
     }
 }
 
-#[test]
-fn lower_bound_at_the_threshold_is_within_noise() {
-    let classification = classify_interval(0.05, 0.30, 0.05).expect("ordered interval");
+/// One finite interval and the class it must produce.
+#[derive(Clone, Copy, Debug)]
+struct IntervalCase {
+    /// Lower bound of the mean change interval.
+    lower: f64,
+    /// Upper bound of the mean change interval.
+    upper: f64,
+    /// Class the policy must assign.
+    class: CaseClass,
+}
 
-    assert_eq!(classification.class, CaseClass::WithinNoise);
+#[rstest]
+#[case::lower_at_threshold(IntervalCase { lower: 0.05, upper: 0.30, class: CaseClass::WithinNoise })]
+#[case::lower_above_threshold(IntervalCase { lower: 0.050_000_1, upper: 0.30, class: CaseClass::Regressed })]
+#[case::upper_at_negative_threshold(IntervalCase { lower: -0.40, upper: -0.05, class: CaseClass::WithinNoise })]
+#[case::upper_below_negative_threshold(IntervalCase { lower: -0.40, upper: -0.050_000_1, class: CaseClass::Improved })]
+#[case::crossing_zero(IntervalCase { lower: -0.20, upper: 0.20, class: CaseClass::WithinNoise })]
+#[case::equal_bounds(IntervalCase { lower: 0.20, upper: 0.20, class: CaseClass::Regressed })]
+fn finite_intervals_are_classified_at_their_boundaries(#[case] case: IntervalCase) {
+    let classification =
+        classify_interval(case.lower, case.upper, 0.05).expect("ordered finite interval");
+
+    assert_eq!(classification.class, case.class);
 }
 
 #[test]
-fn lower_bound_strictly_above_the_threshold_is_regressed() {
-    let classification = classify_interval(0.050_000_1, 0.30, 0.05).expect("ordered interval");
+fn a_non_finite_bound_is_rejected() {
+    let error = classify_interval(f64::NAN, 0.30, 0.05).expect_err("NaN must not classify");
 
-    assert_eq!(classification.class, CaseClass::Regressed);
+    assert!(matches!(error, super::IntervalError::NonFinite { .. }));
 }
 
 #[test]
-fn upper_bound_at_the_negative_threshold_is_within_noise() {
-    let classification = classify_interval(-0.40, -0.05, 0.05).expect("ordered interval");
+fn a_non_finite_threshold_is_rejected() {
+    let error =
+        classify_interval(0.10, 0.30, f64::INFINITY).expect_err("infinite threshold must fail");
 
-    assert_eq!(classification.class, CaseClass::WithinNoise);
+    assert!(matches!(error, super::IntervalError::NonFinite { .. }));
 }
 
 #[test]
-fn upper_bound_strictly_below_the_negative_threshold_is_improved() {
-    let classification = classify_interval(-0.40, -0.050_000_1, 0.05).expect("ordered interval");
+fn a_non_positive_threshold_is_rejected() {
+    let error = classify_interval(0.10, 0.30, 0.0).expect_err("a zero threshold must fail");
 
-    assert_eq!(classification.class, CaseClass::Improved);
-}
-
-#[test]
-fn interval_crossing_zero_is_within_noise() {
-    let classification = classify_interval(-0.20, 0.20, 0.05).expect("ordered interval");
-
-    assert_eq!(classification.class, CaseClass::WithinNoise);
-}
-
-#[test]
-fn interval_with_equal_bounds_is_accepted() {
-    let classification = classify_interval(0.20, 0.20, 0.05).expect("ordered interval");
-
-    assert_eq!(classification.class, CaseClass::Regressed);
+    assert!(matches!(error, super::IntervalError::Threshold { .. }));
 }
 
 #[test]
 fn inverted_interval_is_rejected() {
     let error = classify_interval(0.30, 0.10, 0.05).expect_err("inverted interval must fail");
 
-    assert_eq!(error.lower_bound, 0.30);
-    assert_eq!(error.upper_bound, 0.10);
+    assert_eq!(
+        error,
+        super::IntervalError::Inverted {
+            lower_bound: 0.30,
+            upper_bound: 0.10,
+        }
+    );
 }
 
 #[test]

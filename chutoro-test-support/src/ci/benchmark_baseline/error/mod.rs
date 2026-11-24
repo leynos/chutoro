@@ -236,6 +236,22 @@ pub enum BaselineError {
         /// Remedy for the maintainer.
         remedy: &'static str,
     },
+    /// The mean change interval was not finite.
+    #[error("interval for benchmark id {id} is not finite; {remedy}")]
+    NonFiniteInterval {
+        /// Benchmark identifier.
+        id: String,
+        /// Remedy for the maintainer.
+        remedy: &'static str,
+    },
+    /// The regression threshold is not a positive fraction.
+    #[error("regression threshold {threshold} is not a finite positive fraction; {remedy}")]
+    InvalidThreshold {
+        /// Threshold as supplied.
+        threshold: f64,
+        /// Remedy for the maintainer.
+        remedy: &'static str,
+    },
     /// The mean change interval was inverted.
     #[error("interval for benchmark id {id} is inverted ({lower} > {upper}); {remedy}")]
     InvertedInterval {

@@ -1,8 +1,4 @@
 //! Harness shared by the benchmark baseline CLI tests.
-#![allow(
-    dead_code,
-    reason = "a test-harness module is compiled whole, and not every test uses every helper"
-)]
 
 use std::collections::BTreeMap;
 use std::fs;
@@ -174,6 +170,9 @@ pub fn run(
 ) -> std::io::Result<Output> {
     Command::new(binary)
         .args(arguments)
+        // An inherited summary sink would receive a synthetic verdict's
+        // Markdown; a test that wants one sets it explicitly.
+        .env_remove("GITHUB_STEP_SUMMARY")
         .envs(environment.iter().copied())
         .output()
 }

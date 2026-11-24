@@ -75,6 +75,17 @@ pub struct CaseVerdict {
 impl CaseVerdict {
     /// Build a verdict entry for a classified interval.
     ///
+    ///
+    /// # Parameters
+    ///
+    /// - `id`: Criterion's full benchmark identifier.
+    /// - `class`: verdict class for the identifier.
+    /// - `lower_bound`: fractional lower bound of the mean change.
+    /// - `upper_bound`: fractional upper bound of the mean change.
+    ///
+    /// # Returns
+    ///
+    /// A compared case carrying both fractional bounds.
     /// # Examples
     ///
     /// ```
@@ -97,6 +108,16 @@ impl CaseVerdict {
 
     /// Build a verdict entry for an identifier that was not compared.
     ///
+    ///
+    /// # Parameters
+    ///
+    /// - `id`: Criterion's full benchmark identifier.
+    /// - `class`: verdict class for the identifier.
+    /// - `reason`: why it was not compared.
+    ///
+    /// # Returns
+    ///
+    /// An uncompared case carrying its reason and no bounds.
     /// # Examples
     ///
     /// ```
@@ -164,6 +185,15 @@ pub struct BaselineVerdict {
 impl BaselineVerdict {
     /// Start a verdict for a lane that has only just begun.
     ///
+    ///
+    /// # Parameters
+    ///
+    /// - `bench`: benchmark target.
+    /// - `threshold`: fractional regression threshold.
+    ///
+    /// # Returns
+    ///
+    /// A verdict stage `started` that no gate treats as a pass.
     /// # Examples
     ///
     /// ```
@@ -192,6 +222,14 @@ impl BaselineVerdict {
 
     /// Build a verdict for an outcome that needed no comparison.
     ///
+    ///
+    /// # Parameters
+    ///
+    /// - `request`: the outcome, stage, reason, and threshold to record.
+    ///
+    /// # Returns
+    ///
+    /// A verdict for an outcome that needed no comparison.
     /// # Examples
     ///
     /// ```
@@ -238,6 +276,15 @@ impl BaselineVerdict {
 
     /// Record a failure and the stage that produced it.
     ///
+    ///
+    /// # Parameters
+    ///
+    /// - `stage`: stage that failed.
+    /// - `error`: the failure to record.
+    ///
+    /// # Returns
+    ///
+    /// Nothing; the verdict is updated in place.
     /// # Examples
     ///
     /// ```
@@ -261,6 +308,10 @@ impl BaselineVerdict {
 
     /// Return the identifiers classified as regressions.
     ///
+    ///
+    /// # Returns
+    ///
+    /// The identifiers classified as regressions.
     /// # Examples
     ///
     /// ```
@@ -288,6 +339,10 @@ impl BaselineVerdict {
 
     /// Return the identifiers this lane could not compare.
     ///
+    ///
+    /// # Returns
+    ///
+    /// The identifiers the lane could not compare.
     /// # Examples
     ///
     /// ```

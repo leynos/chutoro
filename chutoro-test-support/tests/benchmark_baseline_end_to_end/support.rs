@@ -1,8 +1,4 @@
 //! Fixture driver shared by the benchmark baseline end-to-end tests.
-#![allow(
-    dead_code,
-    reason = "a test-harness module is compiled whole, and not every test uses every helper"
-)]
 
 use std::collections::BTreeMap;
 use std::error::Error;
@@ -22,6 +18,16 @@ use chutoro_test_support::ci::benchmark_baseline::runner::{
 use chutoro_test_support::ci::benchmark_baseline::{BaselineError, BaselineVerdict, Outcome};
 use mockable::{DefaultEnv, MockEnv};
 use tempfile::TempDir;
+
+/// Lint flags for the fixture's own builds.
+///
+/// The repository's `.cargo/config.toml` applies `-D missing_docs` to every
+/// crate beneath it, and `criterion_group!` generates a harness function that
+/// cannot carry a doc comment. The fixture is a separate workspace and a bench
+/// harness rather than a published API, so its builds replace those flags with
+/// an ordinary denial of warnings. Setting `RUSTFLAGS` also replaces the
+/// repository's linker flag, which only affects this throwaway build.
+const FIXTURE_RUSTFLAGS: &str = "-D warnings";
 
 /// Convenient result type for these helpers.
 pub type TestResult<T> = Result<T, Box<dyn Error>>;
@@ -76,6 +82,7 @@ pub fn shared_target() -> TestResult<&'static Path> {
             .arg(fixture_directory().join("Cargo.toml"))
             .args(["--bench", "baseline"])
             .env("CARGO_TARGET_DIR", &target)
+            .env("RUSTFLAGS", FIXTURE_RUSTFLAGS)
             .env_remove("CRITERION_HOME")
             .output()
             .map_err(|error| error.to_string())?;
@@ -107,6 +114,7 @@ pub fn run_fixture(criterion_home: &Path, slowdown: u64, arguments: &[&str]) -> 
         .args(["--bench", "baseline", "--"])
         .args(arguments)
         .env("CARGO_TARGET_DIR", shared_target()?)
+        .env("RUSTFLAGS", FIXTURE_RUSTFLAGS)
         .env("CRITERION_HOME", criterion_home)
         .env("CHUTORO_FIXTURE_SLOWDOWN", slowdown.to_string())
         .output()?;

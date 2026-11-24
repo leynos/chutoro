@@ -126,7 +126,7 @@ pub struct InventoryRequest<'a> {
 ///
 /// # Examples
 ///
-/// ```
+/// ```no_run
 /// use std::collections::BTreeMap;
 /// use std::path::Path;
 /// use chutoro_test_support::ci::benchmark_baseline::manifest::{

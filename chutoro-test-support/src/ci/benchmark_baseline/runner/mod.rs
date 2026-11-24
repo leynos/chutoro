@@ -122,6 +122,8 @@ pub fn run_stage(args: &StageArgs) -> Result<PreflightReport, BaselineError> {
         read_stage_manifest(&args.current_manifest, "current", &mut report, &report_path)?;
     report.reference = Some(ManifestSummary::from_manifest(&reference));
     report.current = Some(ManifestSummary::from_manifest(&current));
+    check_requested_bench(&reference, &current, &args.bench)
+        .map_err(|error| record_stage_failure(&mut report, &report_path, "compatibility", error))?;
 
     let compatibility = match check(&reference, &current) {
         Ok(compatibility) => compatibility,
@@ -173,6 +175,26 @@ pub fn run_stage(args: &StageArgs) -> Result<PreflightReport, BaselineError> {
     report.write(&report_path)?;
 
     Ok(report)
+}
+
+/// Reject manifests recorded for a different benchmark target.
+fn check_requested_bench(
+    reference: &BaselineManifest,
+    current: &BaselineManifest,
+    requested: &str,
+) -> Result<(), BaselineError> {
+    for manifest in [reference, current] {
+        if manifest.bench != requested {
+            return Err(BaselineError::Incompatible {
+                field: "requested benchmark target",
+                reference: manifest.bench.clone(),
+                current: requested.to_owned(),
+                remedy: "pass the --bench the manifests were recorded for",
+            });
+        }
+    }
+
+    Ok(())
 }
 
 /// Read one side's manifest, recording a failure in the preflight report.

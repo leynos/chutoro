@@ -151,13 +151,54 @@ def test_a_pass_requires_classification() -> None:
             assert "outcome=pass" not in step.get("run", ""), name
 
 
+def _classify_case_arms(script: str) -> dict[str, str]:
+    """Split a shell ``case`` block into its labelled arms.
+
+    The labels the workflow uses are exit statuses, so the mapping from a
+    helper result to a job status is readable without running the script.
+    """
+    arms: dict[str, str] = {}
+    pattern = re.compile(r"^\s*(\d+|\*)\)\n((?:.*\n)*?)\s*;;", re.M)
+    for match in pattern.finditer(script):
+        arms[match.group(1)] = match.group(2)
+    return arms
+
+
 def test_a_regression_fails_with_a_performance_message() -> None:
     """A regression is the only red the policy attributes to performance."""
-    text = _script_text()
+    classify = [
+        step.get("run", "")
+        for step in _steps()
+        if "Classify benchmark comparison" in step.get("name", "")
+    ]
+    assert len(classify) == 1
+    arms = _classify_case_arms(classify[0])
 
-    assert "::error::performance regression" in text, (
-        "a regression must fail with a message naming a performance regression"
-    )
+    assert "::error::performance regression" in arms.get("1", ""), arms
+    assert "exit 1" in arms.get("1", ""), "a regression must fail the step"
+
+
+def test_the_job_status_policy_maps_every_helper_outcome() -> None:
+    """Each documented outcome maps to the job status the policy states."""
+    classify = [
+        step.get("run", "")
+        for step in _steps()
+        if "Classify benchmark comparison" in step.get("name", "")
+    ]
+    assert len(classify) == 1
+    script = classify[0]
+    arms = _classify_case_arms(script)
+    for label in ("0", "1", "3", "4", "*"):
+        assert label in arms, f"the classifier has no arm for exit {label}"
+
+    assert "outcome=pass" in arms["0"], arms["0"]
+    assert "exit" not in arms["0"], "a pass must not exit non-zero"
+    assert "exit 1" in arms["1"], "a regression must fail the step"
+    assert "::warning::" in arms["3"], "incompatible must warn"
+    assert "exit" not in arms["3"] or "exit 0" in arms["3"], arms["3"]
+    assert "::warning::" in arms["4"], "no_reference must warn"
+    assert "exit" not in arms["4"] or "exit 0" in arms["4"], arms["4"]
+    assert "exit 2" in arms["*"], "a lane defect must fail the step"
 
 
 def test_a_lane_defect_says_it_is_not_a_regression() -> None:

@@ -103,12 +103,49 @@ fn visit(entry: &fs::DirEntry, discovery: &mut Discovery<'_>) -> Result<(), Base
         remedy: "check that the Criterion output root is readable",
     })?;
     if file_type.is_dir() {
+        reject_partial_baseline(&path, discovery)?;
         walk(&path, discovery)?;
     } else if file_type.is_file() {
         consider_file(&path, discovery)?;
     }
 
     Ok(())
+}
+
+/// Reject a baseline directory that holds measurements but no metadata.
+///
+/// Discovery keys cases off `benchmark.json`. A directory that holds only
+/// `sample.json` or `estimates.json` would otherwise be skipped, and
+/// compatibility would report the reference identifier as merely `removed`,
+/// letting the lane pass without ever assessing the current measurement.
+fn reject_partial_baseline(
+    directory: &Path,
+    discovery: &Discovery<'_>,
+) -> Result<(), BaselineError> {
+    if directory
+        .file_name()
+        .is_none_or(|name| name != discovery.baseline)
+    {
+        return Ok(());
+    }
+    if directory.join("benchmark.json").is_file() {
+        return Ok(());
+    }
+    let has_measurement =
+        directory.join("sample.json").is_file() || directory.join("estimates.json").is_file();
+    if !has_measurement {
+        return Ok(());
+    }
+    let identifier = directory.parent().and_then(Path::file_name).map_or_else(
+        || "<unknown>".to_owned(),
+        |name| name.to_string_lossy().into_owned(),
+    );
+
+    Err(BaselineError::MissingRequiredFile {
+        id: identifier,
+        path: directory.join("benchmark.json"),
+        remedy: "delete the partial baseline and rerun the save step",
+    })
 }
 
 /// Return the identifier directory when `path` is a baseline `benchmark.json`.

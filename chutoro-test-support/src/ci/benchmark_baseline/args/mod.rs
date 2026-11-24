@@ -84,6 +84,17 @@ pub struct ClassifyArgs {
 impl ClassifyArgs {
     /// Build arguments for a normal classification.
     ///
+    ///
+    /// # Parameters
+    ///
+    /// - `preflight`: evidence report written by `stage`.
+    /// - `bench`: benchmark target the verdict names.
+    /// - `verdict`: path the verdict is written to.
+    /// - `threshold`: fraction above which a lower bound is a regression.
+    ///
+    /// # Returns
+    ///
+    /// Arguments with no reference reason and no failed stage.
     /// # Examples
     ///
     /// ```
@@ -128,6 +139,10 @@ pub enum NoReferenceReason {
 impl NoReferenceReason {
     /// Return the stable lowercase name recorded in the verdict.
     ///
+    ///
+    /// # Returns
+    ///
+    /// The stable lowercase reason name.
     /// # Examples
     ///
     /// ```
@@ -145,6 +160,14 @@ impl NoReferenceReason {
 
     /// Parse the recorded reason.
     ///
+    ///
+    /// # Parameters
+    ///
+    /// - `value`: the recorded reason string.
+    ///
+    /// # Returns
+    ///
+    /// The matching reason, or `None` for an unknown value.
     /// # Examples
     ///
     /// ```

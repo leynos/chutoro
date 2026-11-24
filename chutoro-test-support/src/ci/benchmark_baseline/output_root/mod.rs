@@ -108,7 +108,14 @@ pub fn resolve_workspace_output_root(
     env: &dyn Env,
 ) -> Result<PathBuf, BaselineError> {
     let criterion_home = path_override(env, CRITERION_HOME_ENV)?;
-    let cargo_target_dir = path_override(env, CARGO_TARGET_DIR_ENV)?;
+    // Criterion does not consult a lower-priority override once a higher one
+    // is set, so neither does the helper. Reading it unconditionally would
+    // reject a non-Unicode `CARGO_TARGET_DIR` that Criterion never looks at.
+    let cargo_target_dir = if criterion_home.is_none() {
+        path_override(env, CARGO_TARGET_DIR_ENV)?
+    } else {
+        None
+    };
     let metadata_target_dir = if criterion_home.is_none() && cargo_target_dir.is_none() {
         Some(metadata_target_directory(workspace, env)?)
     } else {

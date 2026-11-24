@@ -2,7 +2,7 @@
 
 use std::path::Path;
 
-use mockable::Env;
+use mockable::{DefaultEnv, Env};
 
 use super::super::args::{ClassifyArgs, NoReferenceReason};
 use super::super::classification::{Classification, read_case_change};
@@ -50,7 +50,7 @@ pub fn run_classify(args: &ClassifyArgs) -> Result<BaselineVerdict, BaselineErro
     };
     verdict.bench.clone_from(&args.bench);
     verdict.write(&args.verdict)?;
-    write_step_summary(&verdict)?;
+    write_step_summary(&verdict, &DefaultEnv)?;
 
     Ok(verdict)
 }
@@ -89,10 +89,9 @@ fn record_lane_defect(verdict: &mut BaselineVerdict, stage: &str, reason: Option
 }
 
 /// Append the verdict's Markdown table to `GITHUB_STEP_SUMMARY` when set.
-fn write_step_summary(verdict: &BaselineVerdict) -> Result<(), BaselineError> {
+fn write_step_summary(verdict: &BaselineVerdict, env: &dyn Env) -> Result<(), BaselineError> {
     use std::io::Write as _;
 
-    let env = mockable::DefaultEnv;
     let Some(path) = env.string("GITHUB_STEP_SUMMARY") else {
         return Ok(());
     };

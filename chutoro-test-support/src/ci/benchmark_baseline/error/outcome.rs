@@ -48,7 +48,9 @@ impl BaselineError {
             | Self::StageCopy { .. }
             | Self::MissingChange { .. }
             | Self::MalformedChange { .. }
-            | Self::InvertedInterval { .. } => Some(Outcome::Incomplete),
+            | Self::InvertedInterval { .. }
+            | Self::NonFiniteInterval { .. }
+            | Self::InvalidThreshold { .. } => Some(Outcome::Incomplete),
         }
     }
 
@@ -132,7 +134,9 @@ impl BaselineError {
             Self::ConfidenceLevel { id, expected, .. } => {
                 (Some(id.clone()), None, Some(expected.to_string()))
             }
-            Self::InvertedInterval { id, .. } => (Some(id.clone()), None, None),
+            Self::InvertedInterval { id, .. } | Self::NonFiniteInterval { id, .. } => {
+                (Some(id.clone()), None, None)
+            }
             Self::EmptyComparable { bench, .. } => (
                 Some(bench.clone()),
                 None,
@@ -144,7 +148,8 @@ impl BaselineError {
             Self::OutputRoot { .. }
             | Self::ToolVersion { .. }
             | Self::NoReference { .. }
-            | Self::Usage { .. } => (None, None, None),
+            | Self::Usage { .. }
+            | Self::InvalidThreshold { .. } => (None, None, None),
         }
     }
 
@@ -172,6 +177,8 @@ impl BaselineError {
             | Self::MalformedChange { remedy, .. }
             | Self::ConfidenceLevel { remedy, .. }
             | Self::InvertedInterval { remedy, .. }
+            | Self::NonFiniteInterval { remedy, .. }
+            | Self::InvalidThreshold { remedy, .. }
             | Self::NoReference { remedy, .. }
             | Self::Usage { remedy, .. } => remedy,
         }
