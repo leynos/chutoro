@@ -1037,24 +1037,23 @@ Lemmas required to connect the invariants to the required behaviour:
   scalar oracle, so it would catch a change that the >1e-5 tolerance hides; the
   disassembly is quoted, not summarized.
 - Obligation `INV-no-allocation`.
-  Method: a mechanical statement audit of the kernel module, plus a structural
-  argument from its call graph. Rationale: a counting `#[global_allocator]`
-  would be a process-global testing override in the dense crate's own test
-  binary, which REQ-T4 forbids and which would perturb every other test in that
-  binary. The kernel's whole call set is
-  `S::f32s::{splat, from_slice, store_slice}`, slice `get`/`get_mut`/`iter`/
-  `iter_mut`/`chunks`/`skip`/`take`/`zip`, integer arithmetic, and the scalar
-  per-index helper; none of those allocate, so a review that pins the call set
-  is decisive without an allocator hook. Domain: every statement in
-  `simd/kernels/fearless.rs` and the scalar per-index helper. Artefact: a
-  recorded
-  `grep -nE 'Vec|Box|String|format!|to_vec|collect|vec!|with_capacity|reserve'`
-  over the two files returning no match, plus the `Artefacts and notes`
-  transcript. Evidence: the grep is empty; and a deliberately added
-  `let _ = Vec::<f32>::new();` makes it non-empty, which is the negative
-  control, then is reverted. Non-vacuity: the same grep over `simd/mod.rs`
-  returns matches, proving the pattern set detects allocation where allocation
-  exists.
+  Method: a counting global allocator in a dedicated integration-test binary.
+  Rationale: `make test` runs `cargo nextest run` (`Makefile:184`), which
+  executes one process per test, so a `#[global_allocator]` in
+  `chutoro-providers/dense/tests/no_allocation.rs` cannot perturb any other
+  test and is not the process-global override REQ-T4 forbids (that clause targets
+  `set_var`-style global mutation). A counting allocator is decisive where a
+  source audit is not: it sees allocation inside `fearless_simd::vectorize`,
+  which a grep cannot, and it runs on every pull request instead of once.
+  Domain: every gated count and dimension for the fearless path, plus the
+  legacy path as a comparison.
+  Artefact: `chutoro-providers/dense/tests/no_allocation.rs`, with a
+  thread-local armed flag so only the measured call is counted.
+  Evidence: the fearless call records zero allocations; the test also performs
+  one allocating control call and asserts a non-zero count, proving the counter
+  is armed. Both transcripts recorded.
+  Non-vacuity: the control call is the negative control. Without it, a counter
+  that never fires would look like proof.
 - Obligation `INV-pairwise-unchanged`.
   Method: pre/post line-level comparison of the pairwise paths. Rationale: it
   is a no-change claim, so the cheapest decisive evidence is that the relevant
@@ -1643,17 +1642,17 @@ Requirements and gaps: `REQ-F1`, `REQ-F4`, `REQ-F5`, `REQ-T2`, `REQ-T4`,
    harness to `make kani`'s list only if it stays within the verification-cost
    tolerance; otherwise it runs under `make kani-full` and the choice is
    recorded.
-8. No-allocation audit, per the verification plan: the statement grep, its
-   negative control, and the recorded transcript.
+8. Allocation test, per the verification plan: the dedicated nextest binary,
+   its allocating negative control, and both transcripts.
 9. `INV-pairwise-unchanged` evidence: scoped `git diff` plus the pairwise suite.
 10. Set `EXECUTION_EVIDENCE` to include AVX2, run the complete-batch matrix, and
     apply Table 5's batch limits.
 
 Acceptance: parity and policy tests pass; every supported feature combination
 compiles and selects the documented backend; the Kani harness passes and is
-rejected under its mutation; the no-allocation check passes or its documented
-downgrade is recorded; the complete-batch gate passes or the experiment stops
-with a recorded null result.
+rejected under its mutation; the allocation test passes and its allocating
+control proves the counter is armed; the complete-batch gate passes or the
+experiment stops with a recorded null result.
 
 Recovery: the wiring commit is self-contained. Reverting it restores the single
 function pointer cache and leaves EP-M2's kernel unused, which is the cue to
@@ -1873,8 +1872,8 @@ Quality criteria, in observable terms:
   updated and passes after.
 - Verification. The partition harness passes `make kani` and fails when the loop
   bound is mutated; the policy enumeration covers every backend and token
-  combination; the no-allocation check passes or its recorded downgrade is in
-  `Decision log`.
+  combination; the allocation test passes in a dedicated nextest process and
+  its allocating control records a non-zero count.
 - Lint and format. `make check-fmt` and `make lint` pass, including Clippy with
   `-D warnings`, rustdoc, and the Whitaker suite.
 - Performance. Every gated cell of Table 5 is within its limit and satisfies the
