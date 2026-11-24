@@ -82,15 +82,18 @@ whether the representation is the one the client started reading. Neither is a
 digest of content, and neither is an integrity pin (see
 [RFC 9110 §13.1.5](https://www.rfc-editor.org/rfc/rfc9110.html#section-13.1.5)).
 
-Pins live with the recipe, not with the manifest. Roadmap item 10.1.2 places
-the SHA-256 digest and expected byte length in the recipe's source
-specifications (`SourceSpec`), in memory, so a download can be verified before
-any manifest exists. Roadmap item 10.1.3 later serializes those same pins into
-the canonical `manifest.json`; the manifest records the pin rather than being
-its authority. This is a requirement, not implemented behaviour:
-`Checksum::Sha256` is behind `#[cfg(any())]` and is compiled out,
-`Checksum::parse` always returns `RecipeError::ChecksumUnsupported`, and no pin
-verification exists in this checkout.
+Pins live with the recipe, not with the manifest. `SourceSpec` now carries an
+optional parsed `Checksum`, so a recipe can record the digest its source should
+match before any manifest exists. Roadmap item 10.1.3 later serializes those
+same pins into the canonical `manifest.json`; the manifest records the pin
+rather than being its authority.
+
+Checksum parsing exists; pin verification does not. `Checksum` pairs a
+`DigestAlgorithm::Sha256` tag with a 32-byte digest, and `Checksum::parse`
+accepts canonical `sha256:<hex>` text and returns a `Checksum`, or a typed
+`RecipeError::Integrity` failure for a malformed value. Parsing validates only
+the textual form; it does not hash or verify downloaded bytes, and fetch-time
+verification remains part of roadmap item 10.1.2.
 
 ETags are validators, not integrity pins. The ANN-Benchmarks hosts return S3
 multipart ETags such as `"2bf1ef4c0c3e17031bd64980774eea09-63"` and
