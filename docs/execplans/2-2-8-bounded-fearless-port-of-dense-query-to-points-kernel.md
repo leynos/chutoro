@@ -273,9 +273,26 @@ Measured survey of the surface this work touches:
 - **Risk: cfg drift in partial feature sets.** The new module's gate, the
   dependency activation, and `DensePointView::padded_point_count`'s existing
   `cfg` list (`point_view.rs:123-139`) must agree, or a partial feature build
-  fails to compile. Severity: medium. Likelihood: medium. Mitigation: EP-M3
-  enumerates and builds every supported feature combination, and the
-  compile-contract tests are extended where a machine-checkable rule exists.
+  fails to compile.
+  Severity: medium. Likelihood: medium. Mitigation: EP-M3 enumerates and builds
+  every supported feature combination, and the compile-contract tests are
+  extended where a machine-checkable rule exists.
+- **Risk: `cargo::unused_dependencies` fires in a partial feature set.** A build
+  such as `--no-default-features --features simd_neon` on x86-64 enables
+  `fearless_simd` through `dep:` while the kernel module is `cfg`-excluded, so
+  the dependency is compiled and never named. Cargo warns, and the gate's
+  `RUSTFLAGS=-D warnings` turns that into an error.
+  Evidence: the feasibility probe reproduced exactly this warning for an unused
+  `fearless_simd_macros` declaration.
+  Severity: medium. Likelihood: high. Mitigation: EP-M3 builds the partial
+  feature matrix and records the outcome. Preferred fix: compile the kernel
+  module whenever *any* of the three native features is enabled, regardless of
+  architecture, and `cfg` only the token variants per architecture, so the crate
+  always names `fearless_simd` when a feature has pulled it in. A platform with
+  no matching token then selects `Legacy` through the ordinary policy rather
+  than through a missing module. If that still leaves a configuration with an
+  unused dependency, document a narrowly scoped allow with its reason; a global
+  silence is not acceptable.
 - **Risk: lint friction.** The workspace denies `float_arithmetic`,
   `indexing_slicing`, `unwrap_used`, `expect_used`, `integer_division`, and
   `missing_docs_in_private_items`. Severity: low. Likelihood: high. Mitigation:
@@ -435,9 +452,12 @@ it.
   inlining route (`#[inline(always)]` plus `Simd::vectorize`). Rationale: the
   crate already dispatches itself, so the macro's multiversioning duplicates a
   decision the selector owns, and it pulls procedural-macro dependencies into a
-  crate that currently has none. If EP-M2's disassembly inspection shows scalar
-  code in the hot loop, the macro is added and the decision is revised with
-  that evidence. Date/Author: 2026-11-24, planning agent.
+  crate that currently has none. The feasibility probe made that cost concrete:
+  declaring the macro crate without using it produced
+  `cargo::unused_dependencies` for `fearless_simd_macros`, which under
+  `-D warnings` is a gate failure. If EP-M2's disassembly inspection shows
+  scalar code in the hot loop, the macro is added and the decision is revised
+  with that evidence. Date/Author: 2026-11-24, planning agent.
 - D4. Decision: obtain the token after the existing selector has chosen a
   backend, never instead of it, and never through `dispatch!`. Rationale: RFC
   0001 and ADR 0007 both require that public feature choices survive.
@@ -1642,19 +1662,27 @@ Consequence: the `Avx2` token (x86-64-v3) is obtainable here; `Avx512` and
 `Neon` are not executable here, so they cannot be substituted under REQ-T5.
 
 Feasibility probe, run 2026-11-24 in a throwaway crate outside the repository
-with `fearless_simd = "1.2"` only. It is planning evidence, not implementation:
+with `fearless_simd = "1.2"`. The scratch crate also declared
+`fearless_simd_macros = "0.1"` but never used it, which produced Cargo's
+`unused_dependencies` warning — useful evidence for Decision D3. The probe is
+planning evidence, not implementation:
 
 ```plaintext
 Level::new()  -> "level: avx2"
 tokens        -> avx2, sse4_2, sse2   (no avx512, no fallback)
 avx2 lanes    -> 8
 sse4_2 lanes  -> 4
-tests         -> 3 passed; 0 failed
+unit tests    -> 3 passed; 0 failed
 kernel_matches_scalar:  simd=0.0/3.2882366/2.0 vs scalar=0.0/3.2882366/2.0,
                         bits_equal=true for every index
 tails_and_lane_boundaries_match_scalar:
                         bit-identical over 48 count/dimension cases
                         (counts 0,1,2,7,8,9,15,16,17,31,32,33 x dims 1,3,8,16)
+overall       -> `cargo test` exited 1: the scratch crate's own doctest step
+                 failed. That failure is an artefact of the scratch crate's
+                 intra-doc links, not of the kernel; the three unit tests are
+                 the evidence, and the exit code is recorded here rather than
+                 hidden.
 ```
 
 What this establishes, and what it does not:
