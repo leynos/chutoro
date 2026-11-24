@@ -267,9 +267,9 @@ Measured survey of the surface this work touches:
   produce packed instructions.
 - **Risk: benchmark noise on a shared host.** The host runs other agents'
   builds; load average has been observed above 20. Severity: high. Likelihood:
-  high. Mitigation: the noise study in EP-M1 must show a 95% confidence
-  half-width of at most 1.0% at every gated size class before any candidate
-  timing is accepted; otherwise the result is inconclusive and recorded as such.
+  high. Mitigation: the noise study in EP-M1 must satisfy the rule in
+  `Noise establishment` at every gated size class before any candidate timing is
+  accepted; otherwise the cell is inconclusive and recorded as such.
 - **Risk: cfg drift in partial feature sets.** The new module's gate, the
   dependency activation, and `DensePointView::padded_point_count`'s existing
   `cfg` list (`point_view.rs:123-139`) must agree, or a partial feature build
@@ -1207,8 +1207,8 @@ Rules:
    number hides it.
 3. No pipeline benefit may be claimed from any of these measurements, and no
    end-to-end speed-up is required for adoption.
-4. An interval that straddles a limit, or whose half-width exceeds 1.0%, is
-   inconclusive rather than a pass.
+4. An interval that straddles a limit, or whose half-width exceeds the noise
+   rule in `Noise establishment`, is inconclusive rather than a pass.
 
 ## Maintenance accounting
 
@@ -1295,10 +1295,10 @@ Noise:  taskset -c 4-7 cargo bench -p chutoro-benches --bench dense_distance -- 
 ```
 
 Acceptance: the pre-registration commit exists before any candidate code; the
-noise half-width is at most 1.0% at every gated cell, or the experiment is
-declared inconclusive; the benchmark target is discovered, listed by `--list`,
-and asserted by the smoke test; `make check-fmt`, `make lint`, and `make test`
-pass.
+noise rule in `Noise establishment` is satisfied at every gated cell, or the
+cells that miss it are declared inconclusive; the benchmark target is
+discovered, listed by `--list`, and asserted by the smoke test; `make
+check-fmt`, `make lint`, and `make test` pass.
 
 Recovery: the benchmark target and its smoke-test expectations can be reverted
 independently of anything else.
@@ -1614,10 +1614,10 @@ Quality criteria, in observable terms:
   `Decision log`.
 - Lint and format. `make check-fmt` and `make lint` pass, including Clippy with
   `-D warnings`, rustdoc, and the Whitaker suite.
-- Performance. Every gated cell of Table 5 is within its limit with a 95%
-  interval half-width of at most 1.0%, or the experiment is recorded
-  inconclusive. `hyperfine` corroborates the direction of every Criterion
-  result that decides a gate.
+- Performance. Every gated cell of Table 5 is within its limit and satisfies the
+  `Noise establishment` rule, or the cell is recorded inconclusive.
+  `hyperfine` corroborates the direction of every Criterion result that decides
+  a gate.
 - Compatibility. MSRV 1.89 builds the changed graph; the scalar-only and
   nightly-portable-SIMD configurations behave as documented; the pairwise
   kernels and the pairwise parity suite are untouched and green.
