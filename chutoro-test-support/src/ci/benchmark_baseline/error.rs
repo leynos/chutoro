@@ -184,7 +184,7 @@ pub enum BaselineError {
         remedy: &'static str,
     },
     /// A stale directory could not be removed.
-    #[error("cannot remove {path}: {source}; {remedy}")]
+    #[error("cannot remove {}: {source}; {remedy}", path.display())]
     Remove {
         /// Path that could not be removed.
         path: PathBuf,
@@ -231,14 +231,17 @@ pub enum BaselineError {
         remedy: &'static str,
     },
     /// Staging one benchmark identifier failed.
-    #[error("cannot stage benchmark id {id} from {source} to {destination}: {message}; {remedy}")]
+    #[error(
+        "cannot stage benchmark id {id} from {source_directory} to {destination_directory}: \
+         {message}; {remedy}"
+    )]
     StageCopy {
         /// Benchmark identifier being staged.
         id: String,
         /// Source baseline directory.
-        source: PathBuf,
+        source_directory: PathBuf,
         /// Destination baseline directory.
-        destination: PathBuf,
+        destination_directory: PathBuf,
         /// Underlying failure description.
         message: String,
         /// Remedy for the maintainer.
@@ -414,22 +417,21 @@ impl BaselineError {
             | Self::StaleBaseline { path, .. }
             | Self::MissingChange { path, .. } => (None, Some(path.clone()), None),
             Self::MetadataCommand { workspace, .. }
-            | Self::MetadataMissingTarget { workspace, .. } => {
-                (None, Some(workspace.clone()), None)
-            }
+            | Self::MetadataMissingTarget { workspace, .. }
+            | Self::MetadataJson { workspace, .. } => (None, Some(workspace.clone()), None),
             Self::DuplicateId { id, first, .. } => (Some(id.clone()), Some(first.clone()), None),
             Self::MissingRequiredFile { id, path, .. } => {
                 (Some(id.clone()), Some(path.clone()), None)
             }
             Self::StageCopy {
                 id,
-                source,
-                destination,
+                source_directory,
+                destination_directory,
                 ..
             } => (
                 Some(id.clone()),
-                Some(destination.clone()),
-                Some(source.display().to_string()),
+                Some(destination_directory.clone()),
+                Some(source_directory.display().to_string()),
             ),
             Self::MalformedChange { id, path, .. } => (Some(id.clone()), Some(path.clone()), None),
             Self::ConfidenceLevel { id, expected, .. } => {
@@ -441,9 +443,13 @@ impl BaselineError {
                 None,
                 Some("at least one shared benchmark id".to_owned()),
             ),
-            Self::OutputRoot { .. } | Self::NoReference { .. } | Self::Usage { .. } => {
-                (None, None, None)
-            }
+            Self::Incompatible {
+                field, reference, ..
+            } => (None, None, Some(format!("{field}={reference}"))),
+            Self::OutputRoot { .. }
+            | Self::ToolVersion { .. }
+            | Self::NoReference { .. }
+            | Self::Usage { .. } => (None, None, None),
         }
     }
 

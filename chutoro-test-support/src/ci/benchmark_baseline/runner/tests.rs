@@ -123,6 +123,8 @@ fn classify(evidence: &TempDir) -> BaselineVerdict {
         verdict: evidence.path().join("verdict.json"),
         threshold: 0.05,
         no_reference: None,
+        failed_stage: None,
+        failure_reason: None,
     })
     .expect("classification must succeed")
 }
@@ -296,6 +298,8 @@ fn no_reference_produces_a_warning_outcome_without_a_pass() {
         verdict: evidence.path().join("verdict.json"),
         threshold: 0.05,
         no_reference: Some(crate::ci::benchmark_baseline::args::NoReferenceReason::Shallow),
+        failed_stage: None,
+        failure_reason: None,
     })
     .expect("a missing reference is an outcome, not a failure");
 

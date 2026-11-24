@@ -71,11 +71,6 @@ fn run(arguments: &[String]) -> Result<u8, BaselineError> {
                 report.new_unverified.len(),
                 report.removed.len(),
             );
-            if let Some(path) = &args.filter_output {
-                if let Ok(filter) = std::fs::read_to_string(path) {
-                    let _filter = writeln!(std::io::stdout(), "bench_filter={}", filter.trim());
-                }
-            }
             Ok(to_exit_code(EXIT_PASS))
         }
         Command::Classify(args) => {
@@ -133,20 +128,25 @@ fn emit_github_output(verdict: &BaselineVerdict) -> Result<(), BaselineError> {
         .append(true)
         .open(&path)
         .map_err(|source| BaselineError::Write {
-            path: path.into(),
+            path: path.clone().into(),
             source,
             remedy: "ensure GITHUB_OUTPUT names a writable file",
         })?;
 
-    writeln!(file, "outcome={}", verdict.outcome.as_str())?;
-    writeln!(file, "comparable={}", verdict.comparable_count)?;
-    writeln!(file, "regressed={}", verdict.regressed_ids().len())?;
-    writeln!(file, "stage={}", verdict.stage)?;
+    let write_failed = |source| BaselineError::Write {
+        path: path.clone().into(),
+        source,
+        remedy: "ensure GITHUB_OUTPUT names a writable file",
+    };
+    writeln!(file, "outcome={}", verdict.outcome.as_str()).map_err(write_failed)?;
+    writeln!(file, "comparable={}", verdict.comparable_count).map_err(write_failed)?;
+    writeln!(file, "regressed={}", verdict.regressed_ids().len()).map_err(write_failed)?;
+    writeln!(file, "stage={}", verdict.stage).map_err(write_failed)?;
     if verdict.outcome == Outcome::Pass {
         return Ok(());
     }
     let reason = verdict.reason.clone().unwrap_or_default();
-    writeln!(file, "reason={}", sanitize_output(&reason))?;
+    writeln!(file, "reason={}", sanitize_output(&reason)).map_err(write_failed)?;
 
     Ok(())
 }

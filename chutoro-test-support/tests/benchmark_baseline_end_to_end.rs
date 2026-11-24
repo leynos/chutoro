@@ -173,6 +173,8 @@ fn classify(
         verdict: evidence.join("verdict.json"),
         threshold,
         no_reference: None,
+        failed_stage: None,
+        failure_reason: None,
     })
     .expect("classification must succeed")
 }

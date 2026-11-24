@@ -16,7 +16,7 @@ use super::BaselineError;
 const USAGE_REMEDY: &str = "run `benchmark_baseline --help` for the accepted arguments";
 
 /// One parsed invocation of the helper.
-#[derive(Clone, Debug, Eq, PartialEq)]
+#[derive(Clone, Debug, PartialEq)]
 pub enum Command {
     /// Record a baseline tree's layout.
     Inventory(Box<InventoryArgs>),
@@ -63,7 +63,7 @@ pub struct StageArgs {
 }
 
 /// Arguments for `classify`.
-#[derive(Clone, Debug, Eq, PartialEq)]
+#[derive(Clone, Debug, PartialEq)]
 pub struct ClassifyArgs {
     /// Preflight report written by `stage`.
     pub preflight: PathBuf,
@@ -523,6 +523,8 @@ mod tests {
             verdict: "/evidence/verdict.json".into(),
             threshold: 0.25,
             no_reference: Some(NoReferenceReason::Shallow),
+            failed_stage: None,
+            failure_reason: None,
         };
         assert_eq!(*args, expected);
     }

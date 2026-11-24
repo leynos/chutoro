@@ -154,15 +154,15 @@ fn stage_one(
         .parent()
         .ok_or_else(|| BaselineError::StageCopy {
             id: id.to_owned(),
-            source: source.to_path_buf(),
-            destination: destination.to_path_buf(),
+            source_directory: source.to_path_buf(),
+            destination_directory: destination.to_path_buf(),
             message: "destination has no parent directory".to_owned(),
             remedy: "stage into a benchmark identifier directory beneath the output root",
         })?;
     fs::create_dir_all(parent).map_err(|source_error| BaselineError::StageCopy {
         id: id.to_owned(),
-        source: source.to_path_buf(),
-        destination: destination.to_path_buf(),
+        source_directory: source.to_path_buf(),
+        destination_directory: destination.to_path_buf(),
         message: source_error.to_string(),
         remedy: "ensure the current Criterion output root is writable",
     })?;
@@ -185,8 +185,8 @@ fn temporary_directory(parent: &Path, id: &str) -> Result<TempDir, BaselineError
         .tempdir_in(parent)
         .map_err(|error| BaselineError::StageCopy {
             id: id.to_owned(),
-            source: parent.to_path_buf(),
-            destination: parent.to_path_buf(),
+            source_directory: parent.to_path_buf(),
+            destination_directory: parent.to_path_buf(),
             message: error.to_string(),
             remedy: "ensure the current Criterion output root is writable",
         })
@@ -203,16 +203,16 @@ fn copy_files(
         let to = destination.join(file);
         fs::copy(&from, &to).map_err(|error| BaselineError::StageCopy {
             id: pair.id.to_owned(),
-            source: from.clone(),
-            destination: to.clone(),
+            source_directory: from.clone(),
+            destination_directory: to.clone(),
             message: error.to_string(),
             remedy: "check that the reference baseline files are readable",
         })?;
         if fault == StageFault::AfterFirstCopy && index == 0 {
             return Err(BaselineError::StageCopy {
                 id: pair.id.to_owned(),
-                source: pair.source.to_path_buf(),
-                destination: pair.destination.to_path_buf(),
+                source_directory: pair.source.to_path_buf(),
+                destination_directory: pair.destination.to_path_buf(),
                 message: "injected copy failure".to_owned(),
                 remedy: "this fault exists only to prove destination preservation",
             });
@@ -258,8 +258,8 @@ fn replace_destination(
         restore_backup(backup, pair.destination);
         return Err(BaselineError::StageCopy {
             id: pair.id.to_owned(),
-            source: pair.source.to_path_buf(),
-            destination: pair.destination.to_path_buf(),
+            source_directory: pair.source.to_path_buf(),
+            destination_directory: pair.destination.to_path_buf(),
             message: error.to_string(),
             remedy: "ensure the current Criterion output root is writable",
         });
@@ -275,16 +275,16 @@ fn move_to_backup(parent: &Path, pair: &StagePair<'_>) -> Result<TempDir, Baseli
         .tempdir_in(parent)
         .map_err(|error| BaselineError::StageCopy {
             id: pair.id.to_owned(),
-            source: pair.source.to_path_buf(),
-            destination: pair.destination.to_path_buf(),
+            source_directory: pair.source.to_path_buf(),
+            destination_directory: pair.destination.to_path_buf(),
             message: error.to_string(),
             remedy: "ensure the current Criterion output root is writable",
         })?;
     fs::rename(pair.destination, backup.path().join("previous")).map_err(|error| {
         BaselineError::StageCopy {
             id: pair.id.to_owned(),
-            source: pair.source.to_path_buf(),
-            destination: pair.destination.to_path_buf(),
+            source_directory: pair.source.to_path_buf(),
+            destination_directory: pair.destination.to_path_buf(),
             message: error.to_string(),
             remedy: "remove the stale destination baseline and rerun staging",
         }

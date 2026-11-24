@@ -7,6 +7,7 @@ edition = "2024"
 mockable = { workspace = true }
 serde = { version = "1.0.229", features = ["derive"] }
 serde_json = "1.0.154"
+tempfile = "3.27.0"
 thiserror = "2.0.17"
 tracing = { version = "0.1.41", features = ["attributes"] }
 tracing-subscriber = { version = "0.3.20", features = ["fmt", "registry"] }
@@ -14,7 +15,6 @@ tracing-subscriber = { version = "0.3.20", features = ["fmt", "registry"] }
 [dev-dependencies]
 mockable = { workspace = true, features = ["mock"] }
 rstest = "0.28"
-tempfile = "3.27.0"
 
 [lints]
 workspace = true

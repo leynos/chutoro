@@ -11,6 +11,7 @@ use std::fs;
 use std::path::{Path, PathBuf};
 use std::process::{Command, Output};
 
+use chutoro_test_support::ci::benchmark_baseline::manifest::read_manifest;
 use chutoro_test_support::ci::benchmark_baseline::preflight::{
     ComparableCase, ManifestSummary, PreflightReport,
 };
@@ -186,7 +187,7 @@ fn read(path: &Path) -> String {
     fs::read_to_string(path).expect("environment file must be readable")
 }
 
-#[test]
+#[rstest]
 fn usage_error_exits_sixty_four(binary: PathBuf) {
     let output = run(&binary, &[], &[]);
 
@@ -198,7 +199,7 @@ fn usage_error_exits_sixty_four(binary: PathBuf) {
     );
 }
 
-#[test]
+#[rstest]
 fn help_exits_zero(binary: PathBuf) {
     let output = run(&binary, &["--help"], &[]);
 
@@ -208,7 +209,7 @@ fn help_exits_zero(binary: PathBuf) {
     assert!(stdout.contains("no_reference"), "{stdout}");
 }
 
-#[test]
+#[rstest]
 fn missing_reference_sample_exits_incomplete_and_names_the_path(
     binary: PathBuf,
     sandbox: Result<Sandbox, std::io::Error>,
@@ -261,7 +262,7 @@ fn missing_reference_sample_exits_incomplete_and_names_the_path(
     assert!(message.contains("ci-reference"), "{message}");
 }
 
-#[test]
+#[rstest]
 fn version_mismatch_exits_incompatible_and_names_both_versions(
     binary: PathBuf,
     sandbox: Result<Sandbox, std::io::Error>,
@@ -305,7 +306,7 @@ fn version_mismatch_exits_incompatible_and_names_both_versions(
     assert!(message.contains("0.5.1"), "{message}");
 }
 
-#[test]
+#[rstest]
 fn inventory_honours_a_non_default_criterion_home(
     binary: PathBuf,
     sandbox: Result<Sandbox, std::io::Error>,
@@ -339,7 +340,7 @@ fn inventory_honours_a_non_default_criterion_home(
     );
 
     assert_eq!(exit_code(&output), 0, "{}", stderr(&output));
-    let manifest = BaselineManifest::read(&manifest_path).expect("manifest must be readable");
+    let manifest = read_manifest(&manifest_path).expect("manifest must be readable");
     assert_eq!(manifest.output_root, custom_root);
     assert_eq!(manifest.cases.len(), 1);
     assert_eq!(manifest.bench_arguments, vec!["--noplot".to_owned()]);
@@ -413,7 +414,7 @@ fn classify_reports_the_expected_outcome(
     assert_eq!(verdict.threshold, 0.05);
 }
 
-#[test]
+#[rstest]
 fn no_reference_exits_four_without_recording_a_pass(
     binary: PathBuf,
     sandbox: Result<Sandbox, std::io::Error>,
@@ -447,7 +448,7 @@ fn no_reference_exits_four_without_recording_a_pass(
     assert!(outputs.contains("outcome=no_reference"), "{outputs}");
 }
 
-#[test]
+#[rstest]
 fn classify_rejects_an_unreadable_preflight_report(
     binary: PathBuf,
     sandbox: Result<Sandbox, std::io::Error>,

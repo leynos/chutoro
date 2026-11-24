@@ -2811,7 +2811,7 @@ The identifier directory may itself contain separators, for example
 two identifiers sanitize to the same directory name. Reading
 `<output-root>/ci-reference` therefore never finds anything, which is why the
 scheduled lane failed before comparing on every run from its introduction until
-#261.
+issue 261.
 
 The output root itself is resolved in this order, matching Criterion 0.5.1:
 
@@ -2830,15 +2830,17 @@ rather than assuming `target/criterion`.
 `chutoro-test-support` provides `benchmark_baseline`, with one subcommand per
 stage. The scheduled lane runs them in this order for each benchmark target:
 
-| Stage | What it does | Evidence it writes |
-| --- | --- | --- |
+| Stage       | What it does                                                                                                                                    | Evidence it writes                                 |
+| ----------- | ----------------------------------------------------------------------------------------------------------------------------------------------- | -------------------------------------------------- |
 | `inventory` | Walks the resolved output root, reads each per-identifier `benchmark.json`, and records tool versions, arguments, and `CHUTORO_BENCH_*` values. | `reference-manifest.json`, `current-manifest.json` |
-| `stage` | Checks compatibility, copies comparable reference baselines into the current identifier directories, and emits an anchored filter. | `preflight.json`, `filter.txt` |
-| `classify` | Reads each comparable identifier's `change/estimates.json` and applies the regression policy. | `verdict.json`, the step summary |
+| `stage`     | Checks compatibility, copies comparable reference baselines into the current identifier directories, and emits an anchored filter.              | `preflight.json`, `filter.txt`                     |
+| `classify`  | Reads each comparable identifier's `change/estimates.json` and applies the regression policy.                                                   | `verdict.json`, the step summary                   |
 
-The comparison itself runs `cargo bench … -- --load-baseline ci-current
---baseline ci-reference --noplot --color never "<filter>"`, so the current
-measurement is sampled once and the comparison does not measure again.
+The comparison itself runs
+`cargo bench … -- --load-baseline ci-current
+--baseline ci-reference --noplot --color never "<filter>"`,
+so the current measurement is sampled once and the comparison does not measure
+again.
 
 Staging is transactional: each identifier is copied into a temporary sibling
 directory, validated, and renamed into place, so an interrupted copy cannot
@@ -2852,18 +2854,18 @@ strict and panics on any selected identifier without reference data. Do not add
 The helper maps outcomes to exit codes in one place
 (`benchmark_baseline::exit_code`):
 
-| Outcome | Exit code | Meaning |
-| --- | --- | --- |
-| `pass` | 0 | Every comparable identifier stayed within noise. |
-| `regression` | 1 | At least one comparable identifier regressed. |
-| `incomplete` | 2 | The lane could not produce comparable evidence. |
-| `incompatible` | 3 | The two sides used different tools, targets, or settings. |
-| `no_reference` | 4 | No previous revision existed to compare against. |
-| usage | 64 | Invalid helper arguments. |
+| Outcome        | Exit code | Meaning                                                   |
+| -------------- | --------- | --------------------------------------------------------- |
+| `pass`         | 0         | Every comparable identifier stayed within noise.          |
+| `regression`   | 1         | At least one comparable identifier regressed.             |
+| `incomplete`   | 2         | The lane could not produce comparable evidence.           |
+| `incompatible` | 3         | The two sides used different tools, targets, or settings. |
+| `no_reference` | 4         | No previous revision existed to compare against.          |
+| usage          | 64        | Invalid helper arguments.                                 |
 
 The threshold is a project decision, not a Criterion default. The default is
-`0.05`, supplied by `CHUTORO_BASELINE_THRESHOLD` in the workflow and recorded in
-every verdict, so changing it never silently reinterprets old evidence.
+`0.05`, supplied by `CHUTORO_BASELINE_THRESHOLD` in the workflow and recorded
+in every verdict, so changing it never silently reinterprets old evidence.
 
 The workflow's job-status policy:
 
@@ -2883,9 +2885,9 @@ not a pass. Only `classify` reporting `pass` is.
 Each matrix job uploads `benchmark-baseline-<bench>` with both manifests, the
 preflight report, `verdict.json`, and every stage log, including
 `reference-save.log`, `current-save.log`, `preflight.log`, `compare.log`, and
-`classify.log`. Staging and compatibility failures also write
-`preflight.json`, so a run that never reached the comparison still says which
-stage failed and why. The full Criterion trees are not uploaded.
+`classify.log`. Staging and compatibility failures also write `preflight.json`,
+so a run that never reached the comparison still says which stage failed and
+why. The full Criterion trees are not uploaded.
 
 #### Running the comparison locally
 
@@ -2923,8 +2925,8 @@ cargo bench -p chutoro-benches --bench hnsw_ef_sweep -- --list \
 #### Scope of the helper
 
 The helper lives in this repository. It moves to a shared-actions repository
-only after a second consumer demonstrates the same need; the generic
-heavy-lane evidence question is tracked in
+only after a second consumer demonstrates the same need; the generic heavy-lane
+evidence question is tracked in
 [shared-actions#592](https://github.com/leynos/shared-actions/issues/592).
 
 ### Whole-pipeline and stage-profile benchmarks

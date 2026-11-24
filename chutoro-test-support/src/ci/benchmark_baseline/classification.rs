@@ -214,7 +214,7 @@ pub fn read_case_change(
     id: &str,
 ) -> Result<CaseChange, BaselineError> {
     let path = change_estimates_path(output_root, directory_name);
-    let bytes = std::fs::read(&path).map_err(|source| BaselineError::MissingChange {
+    let bytes = std::fs::read(&path).map_err(|_source| BaselineError::MissingChange {
         id: id.to_owned(),
         path: path.clone(),
         remedy: "compare with `--load-baseline` and `--baseline` so Criterion writes change estimates",

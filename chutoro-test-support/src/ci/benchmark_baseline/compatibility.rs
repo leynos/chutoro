@@ -81,7 +81,7 @@ pub fn check(
     check_baseline_names(reference, current)?;
 
     let mut reference_cases = case_map(reference)?;
-    let mut current_cases = case_map(current)?;
+    let current_cases = case_map(current)?;
     let mut comparable = Vec::new();
     let mut new_unverified = Vec::new();
     let mut removed = Vec::new();
@@ -257,7 +257,7 @@ fn differing_environment(
 fn case_map<'a>(
     manifest: &'a BaselineManifest,
 ) -> Result<HashMap<String, &'a BaselineCase>, BaselineError> {
-    let mut cases = HashMap::new();
+    let mut cases: HashMap<String, &BaselineCase> = HashMap::new();
     for case in &manifest.cases {
         match cases.entry(case.full_id.clone()) {
             Entry::Occupied(existing) => {

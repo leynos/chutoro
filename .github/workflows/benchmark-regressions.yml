@@ -202,6 +202,7 @@ jobs:
       - name: Warn when no reference commit exists
         if: ${{ steps.reference.outputs.has_reference != 'true' }}
         run: |
+          set +e
           set -o pipefail
           evidence="${RUNNER_TEMP}/bench-evidence/${{ matrix.bench }}"
           echo "no-reference" > "${evidence}/current-stage"
@@ -216,6 +217,8 @@ jobs:
             --no-reference "${{ steps.reference.outputs.reason }}" \
             2>&1 | tee "${evidence}/classify.log"
           status=${PIPESTATUS[0]}
+          set -e
+          touch "${evidence}/classified"
           if [ "${status}" -eq 4 ]; then
             echo "::warning::benchmark baseline outcome=no_reference reason=${{ steps.reference.outputs.reason }}; no comparison was possible"
             exit 0
@@ -357,12 +360,19 @@ jobs:
         run: |
           evidence="${RUNNER_TEMP}/bench-evidence/${{ matrix.bench }}"
           if [ -f "${evidence}/classified" ]; then
+            # Classification already ran and its own message stands.
             exit 1
           fi
           stage="$(cat "${evidence}/current-stage" 2>/dev/null || echo unknown)"
           case "${stage}" in
+            resolve-reference) log="resolve-reference.log" ;;
+            reference-save) log="reference-save.log" ;;
+            reference-inventory) log="reference-inventory.log" ;;
+            current-save) log="current-save.log" ;;
+            current-inventory) log="current-inventory.log" ;;
             stage) log="preflight.log" ;;
-            *) log="${stage}.log" ;;
+            compare) log="compare.log" ;;
+            *) log="the uploaded evidence" ;;
           esac
           cargo run -p chutoro-test-support --bin benchmark_baseline -- classify \
             --bench "${{ matrix.bench }}" \

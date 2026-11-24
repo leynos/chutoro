@@ -283,6 +283,8 @@ fn record_lane_defect(verdict: &mut BaselineVerdict, stage: &str, reason: Option
 
 /// Append the verdict's Markdown table to `GITHUB_STEP_SUMMARY` when set.
 fn write_step_summary(verdict: &BaselineVerdict) -> Result<(), BaselineError> {
+    use std::io::Write as _;
+
     let env = DefaultEnv;
     let Some(path) = env.string("GITHUB_STEP_SUMMARY") else {
         return Ok(());
@@ -292,11 +294,10 @@ fn write_step_summary(verdict: &BaselineVerdict) -> Result<(), BaselineError> {
         .append(true)
         .open(&path)
         .map_err(|source| BaselineError::Write {
-            path: path.into(),
+            path: path.clone().into(),
             source,
             remedy: "ensure GITHUB_STEP_SUMMARY names a writable file",
         })?;
-    use std::io::Write as _;
     file.write_all(verdict.to_markdown().as_bytes())
         .map_err(|source| BaselineError::Write {
             path: path.into(),
@@ -354,6 +355,7 @@ fn classify_preflight(args: &ClassifyArgs) -> Result<BaselineVerdict, BaselineEr
             .or_else(|| Some("staging did not produce comparable evidence".to_owned()));
         verdict.failed_stage = Some(report.stage.clone());
         record_unverified(&mut verdict, &report);
+        verdict.cases.sort_by(|left, right| left.id.cmp(&right.id));
         return Ok(verdict);
     }
 

@@ -2895,21 +2895,20 @@ disable optional benchmark side reports:
 may contain separators and may carry a collision suffix. A single
 `<output-root>/ci-reference` directory therefore never holds a baseline, and
 the lane that assumed one failed before comparing on every scheduled run from
-its introduction until #261. The output root is resolved from
-`CRITERION_HOME`, then `CARGO_TARGET_DIR`, then `cargo metadata`, then
-`./target/criterion`, matching the pinned release rather than a later upstream
-source.
+its introduction until #261. The output root is resolved from `CRITERION_HOME`,
+then `CARGO_TARGET_DIR`, then `cargo metadata`, then `./target/criterion`,
+matching the pinned release rather than a later upstream source.
 
 **Comparison model.** The lane measures each revision once: the reference into
 `ci-reference` in a temporary worktree, the current into `ci-current` in the
 working tree. A local helper, `benchmark_baseline` in `chutoro-test-support`,
 inventories both trees from each per-identifier `benchmark.json`, copies the
 comparable reference baselines into the current identifier directories, and
-emits an anchored filter naming only those identifiers. The comparison then
-runs `--load-baseline ci-current --baseline ci-reference`, so it does not
-measure again. Identifiers present on only one side are reported as
-`new_unverified` or `removed` but do not fail the lane on their own; a shrinking
-benchmark set must be visible without being mistaken for a regression.
+emits an anchored filter naming only those identifiers. The comparison then runs
+`--load-baseline ci-current --baseline ci-reference`, so it does not measure
+again. Identifiers present on only one side are reported as `new_unverified` or
+`removed` but do not fail the lane on their own; a shrinking benchmark set must
+be visible without being mistaken for a regression.
 
 **Policy.** Criterion reports significance from a t-test against a noise
 threshold. That is a statistical judgement, not a project policy, so the gate

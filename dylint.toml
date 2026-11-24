@@ -56,6 +56,12 @@ excluded_paths = [
     # its tests clean up the same staged cache directory.
     "chutoro_benches::source::mnist",
     "chutoro_benches::source::mnist::tests",
+    # The benchmark baseline helper resolves Criterion's ambient output root
+    # from the runner environment, copies reference baselines into the current
+    # tree, and renames them into place. Its inputs are workflow-provided
+    # runner paths by design, and a capability handle cannot span the two
+    # independent Criterion roots it must transfer between.
+    "chutoro_test_support::ci::benchmark_baseline",
 ]
 excluded_crates = [
     # Integration test crates for the CI gate binaries: they stage gate
@@ -63,8 +69,13 @@ excluded_crates = [
     # against them.
     "kani_nightly_gate_cli",
     "benchmark_regression_gate_cli",
+    "benchmark_baseline_cli",
+    "benchmark_baseline_end_to_end",
     # CI gate binaries (chutoro-test-support/src/bin): read gate input
     # files from workflow-provided ambient runner paths by design.
     "kani_nightly_gate",
     "benchmark_regression_gate",
+    # The baseline helper reads and stages ambient Criterion trees supplied by
+    # the workflow; see the module exclusion above.
+    "benchmark_baseline",
 ]
