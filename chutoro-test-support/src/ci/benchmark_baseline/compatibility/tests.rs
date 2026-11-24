@@ -200,7 +200,10 @@ fn empty_comparable_set_is_incomplete() {
 
     assert_eq!(error.outcome(), Some(Outcome::Incomplete));
     assert!(matches!(error, BaselineError::EmptyComparable { .. }));
-    assert!(error.to_string().contains("fixture"), "{error}");
+    // The empty-comparable message names both baseline names, because the
+    // identifiers differ and there is no single one to point at.
+    assert!(error.to_string().contains("ci-reference"), "{error}");
+    assert!(error.to_string().contains("ci-current"), "{error}");
 }
 
 #[test]
@@ -213,7 +216,9 @@ fn missing_reference_sample_is_incomplete_and_names_the_path() {
 
     assert_eq!(error.outcome(), Some(Outcome::Incomplete));
     let message = error.to_string();
-    assert!(message.contains("sample.json"), "{message}");
+    // `case(..., false)` marks both estimate files absent; the check reports
+    // the first one it finds missing, in Criterion's required-file order.
+    assert!(message.contains("estimates.json"), "{message}");
     assert!(message.contains("ci-reference"), "{message}");
 }
 
