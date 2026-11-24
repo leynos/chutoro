@@ -409,6 +409,21 @@ it.
   workspace `Cargo.toml:19`. Impact: Constraint 11 exists because RFC 0001
   requires effective MSRV metadata, and no CI lane builds under 1.89 either
   (see the next finding).
+- Observation: `main` removed the no-op `skeleton` feature while this plan was
+  in review, and the removal sets a feature-surface policy this work must
+  respect. Evidence: commit `d6fdbe3`, "Remove the no-op `skeleton` feature
+  (#461)", which deletes `skeleton = []` from `chutoro-core`, drops
+  `features = ["skeleton"]` from the dense and text provider dependencies, and
+  records the change in `docs/migration-notes.md`. Impact: the removal carries
+  the stated rationale that "once published, deleting a feature is a breaking
+  change for any manifest that names it", so the feature surface should be
+  settled *before* the first release rather than corrected after it. That
+  strengthens Constraint 2: the plan must not add a public `fearless_simd`
+  feature, because such a feature would be a permanent compatibility commitment
+  created for an experiment that may end in a null result. It also means this
+  plan's manifest snippet is already correct without the removed line, and
+  `--all-features` now enables one fewer feature than when the matrix in
+  EP-M3 was written.
 - Observation: there is no MSRV continuous-integration lane, and no
   `make deny`/`cargo-deny` target, despite a dependency being added by this
   work. Evidence: `.github/workflows/` contains no 1.89 job; the Makefile has no
@@ -552,6 +567,21 @@ it.
   effort to confirm arithmetic — is exactly Q5, and the maintainer may decline
   EP-M2 onward at approval.
   Date/Author: 2026-11-24, planning agent, after expert-panel review.
+- D14. Decision: adopt `main`'s feature-surface discipline from `d6fdbe3`, and
+  treat the absence of a public `fearless_simd` feature as load-bearing rather
+  than incidental.
+  Rationale: `d6fdbe3` removed the no-op `skeleton` feature before the first
+  crates.io release precisely because "once published, deleting a feature is a
+  breaking change for any manifest that names it". A `fearless_simd` feature
+  added for an experiment that may end in a null result would create the same
+  permanent commitment, so Constraint 2's `dep:`-only activation is now
+  justified by the repository's own stated policy rather than by taste. Two
+  consequences follow. First, the rejection path in D12 stays cheap: it can
+  delete `dep:fearless_simd` without a breaking change, which it could not do if
+  a public feature existed. Second, EP-M3's `--all-features` matrix now enables
+  one fewer feature than it did when written, so that step re-derives the set
+  from the manifest rather than copying a list.
+  Date/Author: 2026-11-24, planning agent, on rebase onto `d6fdbe3`.
 - D12. Decision: a null result retains the level-2 benchmark target, the noise
   study, the protocol record, and the documentation update; it removes the
   dependency, the generic kernel, the invocation wiring, the testing seam, the
@@ -1646,7 +1676,11 @@ Requirements and gaps: `REQ-F1`, `REQ-F4`, `REQ-F5`, `REQ-T2`, `REQ-T4`,
 6. Feature matrix. Build and test: `--no-default-features`; each single
    `simd_avx2`/`simd_avx512`/`simd_neon`; all three; `--all-features`; and
    nightly with `nightly_portable_simd`. Record the selected backend and the
-   compiled mask for each.
+   compiled mask for each. Re-derive the feature list from
+   `chutoro-providers/dense/Cargo.toml` at the time of the run rather than
+   copying it, because `main` already removed one feature (`skeleton`,
+   `d6fdbe3`) during this plan's review and D14 makes the surface deliberately
+   small.
 7. Proof. Add the partition harness described in the verification plan, run
    `make kani`, mutate the loop bound to show teeth, and revert. Add the
    harness to `make kani`'s list only if it stays within the verification-cost
@@ -2316,3 +2350,21 @@ does. The plan's default is stated for each.
 
   No production code, manifest, or lockfile change has been made in any
   revision. The status remains DRAFT pending maintainer approval.
+
+- 2026-11-24, revision 4: Rebased onto `main` at `d6fdbe3`, which removed the
+  no-op `skeleton` feature (#461). The rebase itself was clean: the branch
+  changes two documents, and `main` touched neither. The plan absorbs the
+  change rather than merely surviving it.
+
+  - New observation recording the removal, its stated rationale, and why it
+    matters here.
+  - New Decision D14 adopting the feature-surface discipline: no public
+    `fearless_simd` feature, justified by the repository's own precedent that a
+    published feature cannot be withdrawn without a breaking change. This
+    strengthens Constraint 2 and keeps the null-result path cheap.
+  - `EP-M3`'s feature matrix now re-derives the set from the manifest instead of
+    copying a list that `main` has already invalidated once.
+
+  No requirement, milestone order, or acceptance criterion changed. The plan's
+  quoted dense manifest already matched the post-`main` file, because it never
+  included the removed line.
