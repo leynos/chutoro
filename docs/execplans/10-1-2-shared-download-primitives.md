@@ -267,8 +267,9 @@ Recorded during planning; extend during implementation.
   doctests are affected; `chutoro-bench-datasets/tests/error.rs` is not.
   Evidence: at `e4b1c6f`, `tests/error.rs` contained exactly one test,
   `recipe_error_other_wraps_arbitrary_source`, which never mentions checksums.
-  `recipe_error_size_budget_is_respected` now lives on `main` as well, added by
-  `main`'s #439 (issue #208); see the dedicated observation below. The
+  `main`'s #439 (issue #208) later added
+  `recipe_error_size_budget_is_respected` there; see the dedicated observation
+  below. This branch's `tests/error.rs` still has the single test. The
   conclusion is unchanged: no test in this file mentions checksums. The
   assertions below were re-derived from source and pinned to commit `e4b1c6f`,
   whose `chutoro-bench-datasets` tree is identical to `main` at `2222257`; the
@@ -328,23 +329,24 @@ Recorded during planning; extend during implementation.
   `cargo test --doc -p chutoro-bench-datasets --all-features`.
 
   Impact: Stage A must budget for three doctest edits and scope its red/green
-  loop to `make test`, not Nextest alone. Stage A's red-test list reuses
-  `recipe_error_size_budget_is_respected`, which now exists on `main`; this
-  plan must not add it a second time. The Stage A checklist below names every
-  assertion site.
+  loop to `make test`, not Nextest alone. Stage A's red-test list covers
+  `recipe_error_size_budget_is_respected`; derive whether the tree already has
+  it before writing it, because `main`'s #439 defines it and this branch's tree
+  does not. The Stage A checklist below names every assertion site.
 - Observation: `recipe_error_size_budget_is_respected` already exists on `main`,
   so this layer must not define it again. Evidence: `main`'s #439 (issue #208)
   added the test to `chutoro-bench-datasets/tests/error.rs`. Issue #209 and
   #439 were developed in parallel, so both trees gained a function of the same
   name from the same base, and a plain Git merge of the two reports a conflict
-  in that file even though the intent is identical. Impact: this layer keeps
-  only the catalogue work. The compile-time guard
+  in that file even though the intent is identical. This branch therefore drops
+  its own definition and keeps only the catalogue work; its `tests/error.rs`
+  has no size-budget test. The compile-time guard
   `const _: () = assert!(std::mem::size_of::<RecipeError>() <= 32);` in
-  `chutoro-bench-datasets/src/error.rs` remains the authoritative assertion and
-  is unchanged, and a comment beside it records that `tests/error.rs` asserts
-  the same bound. Stage A therefore inherits the test rather than adding one,
-  and gains both `integrity_failure_boxed_payload_preserves_source` and
-  `recipe_error_size_budget_is_respected` already written.
+  `chutoro-bench-datasets/src/error.rs` remains the only size check on this
+  branch, and a comment beside it says so. Stage A lands after #439 merges, so
+  it inherits `recipe_error_size_budget_is_respected` from `main` rather than
+  writing it, while `integrity_failure_boxed_payload_preserves_source` is still
+  Stage A's to add.
 - Observation (superseded 2026-11-11): the first draft found that
   `sha2 0.10` cannot serialize hasher midstate, and adopted chunked digests in
   response. Two things have since changed. First, `main` resolves `sha2 0.11.0`,
@@ -801,11 +803,14 @@ dependency, `sha2`. This stage should pass every gate first time.
   over arbitrary 32-byte arrays, and a rejection property over arbitrary
   strings that are not valid digests.
 - Extend `chutoro-bench-datasets/tests/error.rs` with
-  `integrity_failure_boxed_payload_preserves_source`. Reuse the
-  `recipe_error_size_budget_is_respected` test that `main` already carries:
-  `main`'s #439 added it, and it asserts `size_of::<RecipeError>() <= 32`. Do
-  not add a duplicate; keep the `const _` guard in `src/error.rs` in place as
-  the compile-time enforcement.
+  `integrity_failure_boxed_payload_preserves_source`. This branch's
+  `tests/error.rs` carries no size-budget test, so add
+  `recipe_error_size_budget_is_respected` asserting
+  `size_of::<RecipeError>() <= 32`, unless the tree has already gained one:
+  `main`'s #439 (issue #208) defines the same test, and Stage A lands after
+  that work is merged, so re-derive the current state before writing it. Keep
+  the `const _` guard in `src/error.rs` as the compile-time enforcement, and
+  never leave two definitions of the test in one tree.
 
 Run them; confirm they fail to compile or fail for the intended reason; capture
 the log.
@@ -1543,11 +1548,14 @@ goes into `EntryMetadata`, never into the signature.
 ## Revision note
 
 2026-11-23 (issue #209 test provenance):
-`recipe_error_size_budget_is_respected` already exists on `main`, added by #439
-for issue #208, so this layer keeps only the catalogue work and does not define
-the test a second time. The compile-time guard in `src/error.rs` remains the
-authoritative bound, with a comment beside it recording that `tests/error.rs`
-asserts the same limit.
+`recipe_error_size_budget_is_respected` exists on `main`, added by #439 for
+issue #208, and this branch originally added a duplicate. Because the native
+stack merges into `main`, the duplicate produced a conflict in
+`chutoro-bench-datasets/tests/error.rs`; this layer now keeps only the
+catalogue work. Its `tests/error.rs` has no size-budget test, so the
+compile-time guard in `src/error.rs` is the only size check on this branch, and
+the comment beside it says exactly that. Stage A inherits the test from `main`
+once #439 has merged.
 
 2026-11-23 (sixth revision, issue #210): re-verified the hash dependency and
 made the read-back bound testable. `cargo tree -i sha2 -e all --workspace` and
@@ -1583,12 +1591,12 @@ from the first verification read to the publishing rename, so a pass that
 completes its read and then stops before the rename costs that pass and its
 replacement.
 
-2026-11-21 (issue #209 catalogue corrections): Stage A now reuses the
+2026-11-21 (issue #209 catalogue corrections): Stage A now inherits the
 `recipe_error_size_budget_is_respected` test that #439 added to `main` instead
-of adding it again, and the claim that `tests/error.rs` contains only one test
-is marked as historical. The catalogue also distinguishes a hypothetical
-inhabitation-only change from the M2 change as planned, which inhabits
-`Checksum` and replaces the placeholder parser together.
+of defining it again on this branch, and the claim that `tests/error.rs`
+contains only one test is marked as historical. The catalogue also
+distinguishes a hypothetical inhabitation-only change from the M2 change as
+planned, which inhabits `Checksum` and replaces the placeholder parser together.
 
 2026-11-21 (fifth revision, review of #199): retired the checkpointed hasher
 midstate. Review raised two points. The serialized state of the buffered
