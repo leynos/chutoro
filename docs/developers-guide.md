@@ -1871,7 +1871,7 @@ repository to carry a token, and the one here, `dependabot-automerge.yml`,
 merges Dependabot pull requests rather than building, so cancelling it
 mid-flight is a hazard with no minutes to win.
 
-### The cancellation contract
+### The pull-request workflows
 
 All four pull-request workflows carry the block above: `ci.yml`,
 `property-tests.yml`, `kani-pr.yml` and `benchmark-regressions.yml`. The last
@@ -1884,38 +1884,6 @@ four writes a trunk baseline or publishes, so none needs a ref-only group;
 `coverage-main.yml`, the coverage publisher, keeps its own queued
 `coverage-main-${{ github.ref }}` group and is outside this rule, since it has
 no `pull_request` trigger.
-
-`tests/workflow_contracts/pr_concurrency_test.py` holds the rule. It discovers
-every workflow declaring a `pull_request` trigger, reading `on:` as a mapping,
-a list or a bare name under both the quoted key and PyYAML's boolean `True`,
-and refuses a workflow declaring both, since GitHub would read one trigger set
-and the contract another. A floor of the four workflows above keeps discovery
-from emptying into a vacuous pass. For each workflow it then requires a group
-that, rendered by `pr_concurrency_groups.py`, keeps two pushes to one pull
-request together and keeps apart that pull request, a fork's pull request from
-a branch of the same name, two pushes to `main`, and two dispatches of another
-branch; and that uses `github.run_id` only as the fallback behind the
-pull-request number. A `github.ref` or `github.base_ref` fallback, a
-`github.head_ref`, `github.sha` or `github.run_id`-only group, the run
-identifier ahead of the number, or a constant group fails, and an expression
-the renderer does not model is refused rather than guessed at. It also requires
-exactly the event-conditioned `cancel-in-progress` expression, so the literal
-`true` fails. No two pull-request workflows may render the same group for one
-pull request, since whichever started last would cancel the others; each is
-rendered under its own name, and the groups are compared casefolded because
-GitHub treats group names case-insensitively. The files are read at test setup,
-not at import, through `workflow_support.all_workflow_documents`, whose parser
-refuses a duplicated mapping key because PyYAML keeps the last of two
-`concurrency:` blocks and says nothing; a file that cannot be read fails the
-tests that need it, with the reason, and a test drives the scope decision over
-a constructed directory. Each clause was proved by mutation: the cancel line
-removed, a literal `true`, a `ref` fallback, the run identifier ahead of the
-number, a constant group, a `head_ref` group, a `format()` group, the block
-removed, the trigger renamed to `pull_request_target`, a duplicated block, and
-an unquoted `on:` beside the quoted one each fail it. So do a renderer that
-lets a comparison through, a workflow renamed to a case-only variant of
-another, and a reader that stops reading `.yaml` files, all three of which the
-first version of the contract passed.
 
 ## Test timeouts: four tiers, outermost last
 
@@ -2407,8 +2375,7 @@ and workflow contract readers share duplicate-key rejection through
 `StrictYamlLoader` in `tests/workflow_contracts/strict_yaml.py`. The Dependabot
 contract uses that loader directly in `dependabot_config_test.py`. Workflow
 text is parsed by `parse_workflow_text`: `workflow_support.py` uses it when
-reading workflow documents, and `pr_concurrency_test.py` uses it for its own
-workflow input. Keep shared workflow document reads behind
+reading workflow documents. Keep shared workflow document reads behind
 `workflow_support.py`, and do not use this loader as an application YAML API.
 
 ### Arrow and Parquet family updates
