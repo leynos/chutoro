@@ -333,7 +333,7 @@ jobs:
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
       - name: Setup Rust
-        uses: leynos/shared-actions/.github/actions/setup-rust@3551a0bf76fe47d0cc5ff632c7796a8ddb23717e
+        uses: leynos/shared-actions/.github/actions/setup-rust@ab489303d8b0f0175bd334335b696ca48e0e7586
         with:
           # `cargo deny` shells out to `cargo metadata`; it never compiles the
           # workspace, so a compiler cache would only add a writer for a path
