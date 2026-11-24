@@ -225,3 +225,24 @@ def test_criterion_flags_are_present(feature: str, expected: str) -> None:
     text = re.sub(r"\s+", " ", _script_text())
 
     assert feature in text, expected
+
+
+def test_the_comparison_selects_both_baselines_and_the_filter() -> None:
+    """The comparison loads the measured data and names the reference once."""
+    compare_steps = [
+        step
+        for step in _steps()
+        if "Compare current against reference baseline" in step.get("name", "")
+    ]
+    assert len(compare_steps) == 1, "the lane compares in exactly one step"
+    script = compare_steps[0].get("run", "")
+
+    for flag in (
+        "--load-baseline ci-current",
+        "--baseline ci-reference",
+        "--noplot",
+        "--color never",
+    ):
+        assert flag in script, f"the comparison must pass {flag}"
+    assert "filter.txt" in script, "the comparison must use the emitted filter"
+    assert "--exact" not in script, "an exact filter would select nothing"

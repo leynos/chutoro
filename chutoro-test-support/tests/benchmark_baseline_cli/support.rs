@@ -167,16 +167,15 @@ pub const fn complete() -> RequiredFiles {
 }
 
 /// Run the helper binary with the supplied arguments and environment.
-#[expect(
-    clippy::expect_used,
-    reason = "a helper that cannot spawn the binary is a broken test harness"
-)]
-pub fn run(binary: &Path, arguments: &[&str], environment: &[(&str, &Path)]) -> Output {
+pub fn run(
+    binary: &Path,
+    arguments: &[&str],
+    environment: &[(&str, &Path)],
+) -> std::io::Result<Output> {
     Command::new(binary)
         .args(arguments)
         .envs(environment.iter().copied())
         .output()
-        .expect("helper binary must run")
 }
 
 /// Return the process exit code, failing when the process was signalled.
@@ -196,10 +195,6 @@ pub fn stderr(output: &Output) -> String {
 }
 
 /// Return an environment file's text.
-#[expect(
-    clippy::expect_used,
-    reason = "the evidence file must exist for the assertion to mean anything"
-)]
-pub fn read(path: &Path) -> String {
-    fs::read_to_string(path).expect("environment file must be readable")
+pub fn read(path: &Path) -> std::io::Result<String> {
+    fs::read_to_string(path)
 }

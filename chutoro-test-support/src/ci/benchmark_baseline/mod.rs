@@ -90,7 +90,10 @@ pub const EXIT_USAGE: i32 = 64;
 #[derive(Clone, Copy, Debug, Deserialize, Eq, PartialEq, Serialize)]
 #[serde(rename_all = "snake_case")]
 pub enum Outcome {
-    /// Every comparable identifier stayed within noise.
+    /// Every comparable identifier stayed within noise or improved.
+    ///
+    /// An improvement is not a regression, so it does not fail the lane; it is
+    /// still recorded per identifier in the verdict.
     Pass,
     /// At least one comparable identifier regressed.
     Regression,

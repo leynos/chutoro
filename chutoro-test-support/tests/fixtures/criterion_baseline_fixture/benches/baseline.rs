@@ -9,9 +9,14 @@
 
 // The repository's `.cargo/config.toml` sets `-D missing_docs` for every crate
 // beneath it. `criterion_group!` expands to a generated public harness
-// function, which cannot carry a doc comment, so this isolated fixture — which
-// is a bench harness rather than a public API — relaxes that one lint.
-#![allow(missing_docs)]
+// function that cannot carry a doc comment, and a lint expectation on the
+// macro invocation does not reach the expansion, so the allow has to cover the
+// crate. This fixture is a bench harness, not a published API; every item the
+// fixture itself declares still carries its own documentation.
+#![allow(
+    missing_docs,
+    reason = "criterion_group! generates the harness entry point without a doc comment"
+)]
 
 use std::time::Duration;
 

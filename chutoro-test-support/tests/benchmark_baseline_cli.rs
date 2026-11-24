@@ -20,7 +20,7 @@ use rstest::rstest;
 
 #[rstest]
 fn usage_error_exits_sixty_four(binary: PathBuf) {
-    let output = run(&binary, &[], &[]);
+    let output = run(&binary, &[], &[]).expect("helper binary must run");
 
     assert_eq!(exit_code(&output), 64);
     assert!(
@@ -32,7 +32,7 @@ fn usage_error_exits_sixty_four(binary: PathBuf) {
 
 #[rstest]
 fn help_exits_zero(binary: PathBuf) {
-    let output = run(&binary, &["--help"], &[]);
+    let output = run(&binary, &["--help"], &[]).expect("helper binary must run");
 
     assert_eq!(exit_code(&output), 0);
     let stdout = String::from_utf8_lossy(&output.stdout);
@@ -82,7 +82,8 @@ fn missing_reference_sample_exits_incomplete_and_names_the_path(
             &workspace.evidence.display().to_string(),
         ],
         &[],
-    );
+    )
+    .expect("helper binary must run");
 
     assert_eq!(exit_code(&output), 2);
     let message = stderr(&output);
@@ -125,7 +126,8 @@ fn version_mismatch_exits_incompatible_and_names_both_versions(
             &workspace.evidence.display().to_string(),
         ],
         &[],
-    );
+    )
+    .expect("helper binary must run");
 
     assert_eq!(exit_code(&output), 3);
     let message = stderr(&output);
@@ -163,7 +165,8 @@ fn inventory_honours_a_non_default_criterion_home(
             "--noplot",
         ],
         &[("CRITERION_HOME", &custom_root)],
-    );
+    )
+    .expect("helper binary must run");
 
     assert_eq!(exit_code(&output), 0, "{}", stderr(&output));
     let manifest = read_manifest(&manifest_path).expect("manifest must be readable");
@@ -232,7 +235,8 @@ fn classify_reports_the_expected_outcome(
             ("GITHUB_OUTPUT", &github_output),
             ("GITHUB_STEP_SUMMARY", &step_summary),
         ],
-    );
+    )
+    .expect("helper binary must run");
 
     assert_eq!(exit_code(&output), expected_code, "{}", stderr(&output));
     let stdout = String::from_utf8_lossy(&output.stdout);
@@ -240,12 +244,12 @@ fn classify_reports_the_expected_outcome(
         stdout.contains(&format!("outcome={expected_outcome}")),
         "{stdout}"
     );
-    let outputs = read(&github_output);
+    let outputs = read(&github_output).expect("output file must be readable");
     assert!(
         outputs.contains(&format!("outcome={expected_outcome}")),
         "{outputs}"
     );
-    let summary = read(&step_summary);
+    let summary = read(&step_summary).expect("summary file must be readable");
     assert!(
         summary.contains(&format!("| Outcome | {expected_outcome} |")),
         "{summary}"
@@ -279,13 +283,14 @@ fn no_reference_exits_four_without_recording_a_pass(
             "shallow",
         ],
         &[("GITHUB_OUTPUT", &github_output)],
-    );
+    )
+    .expect("helper binary must run");
 
     assert_eq!(exit_code(&output), 4);
     let verdict = BaselineVerdict::read(&verdict_path).expect("verdict must be readable");
     assert_eq!(verdict.outcome, Outcome::NoReference);
     assert!(!verdict.to_line().contains("outcome=pass"));
-    let outputs = read(&github_output);
+    let outputs = read(&github_output).expect("output file must be readable");
     assert!(outputs.contains("outcome=no_reference"), "{outputs}");
 }
 
@@ -314,7 +319,8 @@ fn classify_rejects_an_unreadable_preflight_report(
                 .to_string(),
         ],
         &[],
-    );
+    )
+    .expect("helper binary must run");
 
     assert_eq!(exit_code(&output), 2);
     assert!(
