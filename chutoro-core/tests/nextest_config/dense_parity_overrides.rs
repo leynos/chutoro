@@ -40,6 +40,28 @@ fn dense_parity_profiles_declare_a_bounded_timeout(#[case] profile_name: &str) {
     );
 }
 
+/// Verifies the periods are the measured policy, not merely present.
+///
+/// The heavy period is three times the slowest completed duration (81.115 s)
+/// rounded up to a whole minute: 300 s. The bounded defaults cover the
+/// 250-case pull-request lane and deeper local runs. Pinning the values stops
+/// a later reduction that still satisfies `heavy > ci` from restoring the
+/// 60-second failure.
+#[rstest]
+#[case("default", 180)]
+#[case("ci", 180)]
+#[case("property-heavy", 300)]
+fn dense_parity_periods_pin_the_measured_policy(
+    #[case] profile_name: &str,
+    #[case] expected_seconds: u64,
+) {
+    assert_eq!(
+        dense_parity_period(profile_name),
+        Some(expected_seconds),
+        "profile '{profile_name}' should carry the measured dense parity period"
+    );
+}
+
 /// Verifies the heavy profile layers over the CI profile rather than beside it.
 #[test]
 fn property_heavy_profile_inherits_ci() {

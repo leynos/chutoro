@@ -2404,15 +2404,35 @@ includes fork overhead.
 | Property                                                          | Slowest | Per case |
 | ----------------------------------------------------------------- | ------- | -------- |
 | `pairwise::pairwise_backends_match_scalar_oracle`                 | 14.6 s  | 0.58 ms  |
-| `non_finite::pairwise_backends_canonicalise_non_finite_to_nan`    | 18.9 s  | 0.75 ms  |
+| `non_finite::pairwise_backends_canonicalize_non_finite_to_nan`    | 18.9 s  | 0.75 ms  |
 | `query_points::query_point_backends_match_scalar_oracle`          | 37.3 s  | 1.49 ms  |
-| `non_finite::query_point_backends_canonicalise_non_finite_to_nan` | 81.1 s  | 3.24 ms  |
+| `non_finite::query_point_backends_canonicalize_non_finite_to_nan` | 81.1 s  | 3.24 ms  |
 
 Three times the slowest completed duration is 243.4 s, rounded up to a whole
 minute is 300 s, about 3.7 times the slowest observed run and far below the
 4,800-second global timeout the heavy profile inherits. The properties declare
 no `prop_assume!` or `prop_filter`; the run-wide reject budget is 100,000
 (`max_global_rejects_for(25_000)`), and a passing run performs no shrinking.
+
+The forked weekly lane also carries explicit per-case and shrink bounds. The
+dense parity configuration sets a 20-second per-case timeout and a 60-second
+shrink-time bound when forking; proptest's defaults leave both at zero, so the
+weekly lane previously had no in-case bound and the 300-second nextest
+allowance bounded the whole property. The unforked pull-request and local lanes
+keep proptest's disabled timeout, because a non-zero per-case timeout
+implicitly enables forking. Proptest's shrink iteration bound stays its default
+of four times the case count.
+
+The logs record each property's duration and the configured 25,000 cases; the
+nextest summary for the three measurement runs was
+`4 tests run: 4 passed, 125 skipped` in 45.7 s, 81.3 s and 54.7 s. A passing
+forked run implies 25,000 successes per property, but proptest 1.12.0 prints
+the parent's success and reject counters only when a case fails, so the logs do
+not state those counts. The weekly lane sets `PROPTEST_VERBOSE=1`, which prints
+a line for every rejected or failed case; the three measurement runs printed
+none. The per-case cost in the table includes fork overhead; a separate fork
+cost and in-test progress are not exposed by proptest 1.12.0 in forked mode.
+Structured inventory and progress reporting is tracked in shared-actions#592.
 
 A timeout is unresolved work. It says an allowance was too small or a runner
 too slow; it does not prove the suite passed, and it is not a numerical failure
