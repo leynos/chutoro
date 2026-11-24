@@ -9,7 +9,9 @@
 #[path = "benchmark_baseline_cli/support.rs"]
 mod support;
 
-use support::{Sandbox, binary, complete, exit_code, read, run, run_stage, sandbox, stderr};
+use support::{
+    Sandbox, binary, complete, exit_code, read, run, run_stage, sandbox, signal_description, stderr,
+};
 
 use std::fs;
 use std::path::{Path, PathBuf};
@@ -22,7 +24,12 @@ use rstest::rstest;
 fn usage_error_exits_sixty_four(binary: PathBuf) {
     let output = run(&binary, &[], &[]).expect("helper binary must run");
 
-    assert_eq!(exit_code(&output), 64);
+    assert_eq!(
+        exit_code(&output),
+        Some(64),
+        "{}",
+        signal_description(&output)
+    );
     assert!(
         stderr(&output).contains("no subcommand"),
         "{}",
@@ -34,7 +41,12 @@ fn usage_error_exits_sixty_four(binary: PathBuf) {
 fn help_exits_zero(binary: PathBuf) {
     let output = run(&binary, &["--help"], &[]).expect("helper binary must run");
 
-    assert_eq!(exit_code(&output), 0);
+    assert_eq!(
+        exit_code(&output),
+        Some(0),
+        "{}",
+        signal_description(&output)
+    );
     let stdout = String::from_utf8_lossy(&output.stdout);
     assert!(stdout.contains("inventory"), "{stdout}");
     assert!(stdout.contains("no_reference"), "{stdout}");
@@ -53,7 +65,12 @@ fn missing_reference_sample_exits_incomplete_and_names_the_path(
     let output =
         run_stage(&binary, &workspace, ("0.5.1", incomplete), "0.5.1").expect("staging must run");
 
-    assert_eq!(exit_code(&output), 2);
+    assert_eq!(
+        exit_code(&output),
+        Some(2),
+        "{}",
+        signal_description(&output)
+    );
     let message = stderr(&output);
     assert!(message.contains("fixture/alpha"), "{message}");
     assert!(message.contains("sample.json"), "{message}");
@@ -69,7 +86,12 @@ fn version_mismatch_exits_incompatible_and_names_both_versions(
     let output =
         run_stage(&binary, &workspace, ("0.4.0", complete()), "0.5.1").expect("staging must run");
 
-    assert_eq!(exit_code(&output), 3);
+    assert_eq!(
+        exit_code(&output),
+        Some(3),
+        "{}",
+        signal_description(&output)
+    );
     let message = stderr(&output);
     assert!(message.contains("0.4.0"), "{message}");
     assert!(message.contains("0.5.1"), "{message}");
@@ -108,7 +130,12 @@ fn inventory_honours_a_non_default_criterion_home(
     )
     .expect("helper binary must run");
 
-    assert_eq!(exit_code(&output), 0, "{}", stderr(&output));
+    assert_eq!(
+        exit_code(&output),
+        Some(0),
+        "{}",
+        signal_description(&output)
+    );
     let manifest = read_manifest(&manifest_path).expect("manifest must be readable");
     assert_eq!(manifest.output_root, custom_root);
     assert_eq!(manifest.cases.len(), 1);
@@ -178,7 +205,12 @@ fn classify_reports_the_expected_outcome(
     )
     .expect("helper binary must run");
 
-    assert_eq!(exit_code(&output), expected_code, "{}", stderr(&output));
+    assert_eq!(
+        exit_code(&output),
+        Some(expected_code),
+        "{}",
+        signal_description(&output)
+    );
     let stdout = String::from_utf8_lossy(&output.stdout);
     assert!(
         stdout.contains(&format!("outcome={expected_outcome}")),
@@ -226,7 +258,12 @@ fn no_reference_exits_four_without_recording_a_pass(
     )
     .expect("helper binary must run");
 
-    assert_eq!(exit_code(&output), 4);
+    assert_eq!(
+        exit_code(&output),
+        Some(4),
+        "{}",
+        signal_description(&output)
+    );
     let verdict = BaselineVerdict::read(&verdict_path).expect("verdict must be readable");
     assert_eq!(verdict.outcome, Outcome::NoReference);
     assert!(!verdict.to_line().contains("outcome=pass"));
@@ -262,7 +299,12 @@ fn classify_rejects_an_unreadable_preflight_report(
     )
     .expect("helper binary must run");
 
-    assert_eq!(exit_code(&output), 2);
+    assert_eq!(
+        exit_code(&output),
+        Some(2),
+        "{}",
+        signal_description(&output)
+    );
     assert!(
         stderr(&output).contains("bad-preflight.json"),
         "{}",

@@ -220,15 +220,21 @@ pub fn run_stage(
     )
 }
 
-/// Return the process exit code, failing when the process was signalled.
-pub fn exit_code(output: &Output) -> i32 {
-    output.status.code().unwrap_or_else(|| {
-        panic!(
-            "helper was signalled\nstdout:\n{}\nstderr:\n{}",
-            String::from_utf8_lossy(&output.stdout),
-            String::from_utf8_lossy(&output.stderr),
-        )
-    })
+/// Return the process exit code, or `None` when the process was signalled.
+///
+/// Callers assert on the value, so a signalled helper fails the test with its
+/// captured output rather than panicking inside this shared helper.
+pub fn exit_code(output: &Output) -> Option<i32> {
+    output.status.code()
+}
+
+/// Describe a signalled helper for a test's failure message.
+pub fn signal_description(output: &Output) -> String {
+    format!(
+        "helper was signalled\nstdout:\n{}\nstderr:\n{}",
+        String::from_utf8_lossy(&output.stdout),
+        String::from_utf8_lossy(&output.stderr),
+    )
 }
 
 /// Return the helper's stderr as text.
