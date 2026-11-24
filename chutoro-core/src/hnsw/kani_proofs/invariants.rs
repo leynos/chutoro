@@ -145,16 +145,19 @@ fn verify_no_self_loops_2_nodes_upper_layer() {
     check_no_self_loops_at_level(1);
 }
 
-/// Captures a node's selected-level neighbour list as its sole possible entry.
+/// Captures a node's selected-level list as its length and first entry.
 ///
-/// The bounded two-node fixture gives each selected-level list at most one
-/// entry, so the first entry describes the whole list exhaustively. A plain
-/// `Option` keeps the symbolic state free of array constants, whose
-/// allocation identity is expensive for the solver.
-fn selected_level_snapshot(graph: &Graph, node_id: usize, level: usize) -> Option<usize> {
-    graph
-        .node(node_id)
-        .and_then(|node| node.neighbours(level).first().copied())
+/// The bounded two-node fixture gives each list at most one entry before the
+/// call, so `(length, first entry)` describes the whole pre-call list.
+/// Comparing the length afterwards also rejects a duplicate entry, which a
+/// first-entry-only snapshot would miss. A tuple of scalars keeps the symbolic
+/// state free of array constants, whose allocation identity is expensive for
+/// the solver.
+fn selected_level_snapshot(graph: &Graph, node_id: usize, level: usize) -> (usize, Option<usize>) {
+    graph.node(node_id).map_or((0, None), |node| {
+        let neighbours = node.neighbours(level);
+        (neighbours.len(), neighbours.first().copied())
+    })
 }
 
 /// Shared body for the per-level no-self-loop proofs.
@@ -199,8 +202,8 @@ fn check_valid_target_reconciled(graph: &mut Graph, ctx: KaniUpdateContext, leve
 
     kani::assert(added, "reverse edge must be ensured");
     kani::assert(
-        selected_level_snapshot(graph, 1, level) == Some(0),
-        "valid reconciliation must link the target back to the origin",
+        selected_level_snapshot(graph, 1, level) == (1, Some(0)),
+        "valid reconciliation must link the target back to the origin exactly once",
     );
     kani::assert(has_no_self_loops(graph), "no self-loops invariant violated");
 }
