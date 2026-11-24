@@ -17,9 +17,11 @@ use crate::hnsw::graph::Graph;
 /// Visited-node set for the iterative healing queues.
 ///
 /// Production builds use a `HashSet`. Under Kani the default hasher's
-/// randomized `SipHash` state is symbolic, which makes a healing path with
-/// symbolic inputs intractable, so the linear-scan set below is substituted;
-/// healing queues visit each node at most once, so the scan stays bounded.
+/// randomized `SipHash` state is symbolic whenever a harness lets a node, a
+/// level, or a connection budget vary, so the linear-scan set below is
+/// substituted; healing queues visit each node at most once, so the scan stays
+/// bounded. The concrete two-node proof does not by itself show that a
+/// symbolic healing path is intractable.
 #[cfg(not(kani))]
 type VisitedSet = HashSet<usize>;
 

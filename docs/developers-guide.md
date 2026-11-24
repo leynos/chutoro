@@ -3544,17 +3544,17 @@ past the longest parallel job. The `.verus` cache reduces the installation cost
 but does not remove it: a cache miss downloads and verifies the pinned release
 again.
 
-Kani is narrower. `make kani` runs six curated harnesses, and the path-filtered
-`kani-pr.yml` workflow runs it only for pull requests to `main` that touch a
-harness, its production module, the `Makefile` or the Cargo dependency graph. A
-new harness reaches that configured check only if it matches a path filter and
-is named in the `make kani` list. Otherwise it runs only in the nightly
-`make kani-full` sweep, and only if its package is in that target's package
-list; the dataset crate is not. The nightly job can also skip with a green
-result when its commit-recency gate finds no recent `main` commits. A
-successful harness explores every reachable path within its unwind bound and
-stated assumptions, so its result is bounded and conditional rather than a
-general proof; incomplete unwinding leaves the property unproved. See
+Kani is narrower. `make kani` runs seven curated harnesses, and the
+path-filtered `kani-pr.yml` workflow runs it only for pull requests to `main`
+that touch a harness, its production module, the `Makefile` or the Cargo
+dependency graph. A new harness reaches that configured check only if it
+matches a path filter and is named in the `make kani` list. Otherwise it runs
+only in the nightly `make kani-full` sweep, and only if its package is in that
+target's package list; the dataset crate is not. The nightly job can also skip
+with a green result when its commit-recency gate finds no recent `main`
+commits. A successful harness explores every reachable path within its unwind
+bound and stated assumptions, so its result is bounded and conditional rather
+than a general proof; incomplete unwinding leaves the property unproved. See
 [Kani CI policy](#kani-ci-policy) for the tier details.
 
 `proptest` runs on every pull request as well, because `build-test` runs the

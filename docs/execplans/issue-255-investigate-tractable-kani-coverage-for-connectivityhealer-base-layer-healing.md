@@ -586,10 +586,19 @@ permitted.
 - 2026-11-21: Initial draft and reconnaissance recorded.
 - 2026-11-21: `EP-M0` through `EP-M3` complete. The concrete two-node healing
   harness verifies in 9.57 s with zero aborted paths and both covers satisfied;
-  the three-node symbolic widening was measured past the budget and removed;
-  both negative controls fail for the intended reason. The harness is in the
-  fast-tier `kani:` recipe and the documentation is updated. Remaining work is
-  the final gate run, the commit, and the draft pull request.
+  the three-node widening probe was stopped past 600 s of solving, before the
+  plan's 20-minute single-harness limit, and removed; both negative controls
+  fail for the intended reason. The harness is in the fast-tier `kani:` recipe
+  and the documentation is updated. Remaining work is the final gate run, the
+  commit, and the draft pull request.
+- 2026-11-24 tolerance exception: the documentation budget in `Tolerances` was
+  120 net lines across the ADR and the hypothesis-testing document. The ADR
+  adds 42 net lines and the hypothesis document 92, so the combined change
+  exceeds the budget by 14 lines. The exception is accepted because the
+  branching instructions require both a dated ADR finding and a short evidence
+  section in the hypothesis document, and the measured-limit record is the
+  deliverable the issue asks for when a design is bounded. No plan milestone or
+  acceptance item was dropped to stay inside the budget.
 - 2026-11-24 review qualification: three deviations from this plan are
   recorded rather than left implicit. The earlier timed-out harness was not
   reconstructed, so the plan's unchanged warning-denied baselines were not
