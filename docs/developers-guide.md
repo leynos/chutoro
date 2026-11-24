@@ -1172,6 +1172,14 @@ Individual lints are referenced elsewhere in this guide where they apply: the
 [support-module boundaries](#support-module-boundaries) section covers the
 400-line `module_max_lines` cap.
 
+Cognitive complexity is not gated by Clippy. Clippy's `cognitive_complexity`
+scores code after macro expansion, so it counts branching a macro generated, and
+`clippy.toml` does not set `cognitive-complexity-threshold`. Whitaker's
+experimental `macro_aware_cognitive_complexity` gates it at
+`max_complexity = 9`, CodeScene's ceiling. `dylint.toml` opts in with
+`[whitaker] experimental = ["macro_aware_cognitive_complexity"]`. Fix a finding
+by extracting named helpers, never by raising the threshold.
+
 ### Installing Whitaker locally
 
 Install the `whitaker` wrapper the same way continuous integration (CI) does,
