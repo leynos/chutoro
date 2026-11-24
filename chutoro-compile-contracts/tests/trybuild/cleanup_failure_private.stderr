@@ -1,0 +1,9 @@
+error[E0451]: fields `phase_error` and `cleanup_error` of struct `CleanupFailure` are private
+ --> tests/trybuild/cleanup_failure_private.rs:7:9
+  |
+6 |     let _ = CleanupFailure {
+  |             -------------- in this type
+7 |         phase_error: RecipeError::prepare("archive corrupt"),
+  |         ^^^^^^^^^^^ private field
+8 |         cleanup_error: RecipeError::port(PortName::Storage, "cache locked"),
+  |         ^^^^^^^^^^^^^ private field
