@@ -267,6 +267,44 @@ Code that matched `RecipeError::ChecksumUnsupported` should handle
 `RecipeError::Integrity` and inspect the boxed `IntegrityFailure` for the
 specific cause, such as `UnknownAlgorithm` or `InvalidDigestLength`.
 
+### Additive API: compound cleanup failures
+
+When a recipe phase and its cleanup both fail, `run_recipe` now returns a
+`RecipeError::Cleanup` whose source is a `CleanupFailure`. That payload retains
+both the original phase error and the cleanup error, so a caller can diagnose
+the compound failure from the returned `Result` without a `tracing` subscriber.
+
+The new public items are `CleanupFailure`,
+`RecipeError::cleanup_with_phase_error`, `RecipeError::cleanup_failure`,
+`CleanupFailure::phase_error`, and `CleanupFailure::cleanup_error`. The phase
+error is the payload's source; the cleanup error is read through
+`cleanup_error()`:
+
+```rust
+use chutoro_bench_datasets::{Phase, PortName, RecipeError};
+
+let error = RecipeError::cleanup_with_phase_error(
+    Phase::Prepare,
+    RecipeError::prepare("archive corrupt"),
+    RecipeError::port(PortName::Storage, "cache locked"),
+);
+let cleanup = error
+    .cleanup_failure()
+    .ok_or_else(|| std::io::Error::other("cleanup failure should be retained"))?;
+assert!(matches!(cleanup.phase_error(), RecipeError::Prepare(_)));
+assert_eq!(
+    cleanup.cleanup_error().to_string(),
+    "port Storage failed: cache locked",
+);
+# Ok::<(), Box<dyn std::error::Error>>(())
+```
+
+`RecipeError::cleanup(phase, source)` is unchanged and still stores only the
+cleanup failure. `cleanup_failure()` returns `None` when the `Cleanup` source
+is not a `CleanupFailure`, so ordinary cleanup errors keep their previous
+behaviour, and existing matches on `RecipeError::Cleanup { phase, .. }` need no
+change.
+
 ## 0.1.0
 
 The public `ClusteringResult::from_assignments` constructor is no longer
