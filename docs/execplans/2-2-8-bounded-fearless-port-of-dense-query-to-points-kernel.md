@@ -1601,9 +1601,11 @@ Requirements and gaps: `REQ-F2`, `REQ-F3`, `REQ-T1` (candidate half), `REQ-T3`,
    Table 5's packed limits.
 
 Acceptance: every differential case passes; the bit-identity mutation is
-rejected; disassembly shows packed arithmetic with no fused multiply-add; MSRV
-checks pass; scalar-only builds exclude the dependency; the packed-kernel gate
-passes or the experiment stops here with a recorded null result.
+rejected; MSRV checks pass; scalar-only builds exclude the dependency; the
+level-1 A/A study passes for every gated packed cell; the packed-kernel gate
+passes or the experiment stops here with a recorded null result. Disassembly is
+**not** required here — it moves to EP-M3, where a production binary contains
+the kernel.
 
 Recovery: revert the manifest, lockfile, module, tests, seam, and benchmark
 group in one commit; the EP-M1 benchmark target survives untouched.
@@ -1649,18 +1651,29 @@ Requirements and gaps: `REQ-F1`, `REQ-F4`, `REQ-F5`, `REQ-T2`, `REQ-T4`,
 8. Allocation test, per the verification plan: the dedicated nextest binary,
    its allocating negative control, and both transcripts.
 9. `INV-pairwise-unchanged` evidence: scoped `git diff` plus the pairwise suite.
-10. Set `EXECUTION_EVIDENCE` to include AVX2, run the complete-batch matrix, and
+10. Disassembly. Build the release binary that contains the kernel and inspect
+    it with `objdump -d --no-show-raw-insn`, looking for `vsubps`/`vmulps`/
+    `vaddps` and for the absence of any `vfmadd*`. Record the command, the
+    symbol inspected, and the excerpt. If `#[inline(always)]` inlined the
+    kernel, quote the enclosing symbol and name the call site instead of
+    claiming a missing symbol is a failure.
+11. Set `EXECUTION_EVIDENCE` to include AVX2, run the complete-batch matrix, and
     apply Table 5's batch limits.
 
 Acceptance: parity and policy tests pass; every supported feature combination
 compiles and selects the documented backend; the Kani harness passes and is
 rejected under its mutation; the allocation test passes and its allocating
-control proves the counter is armed; the complete-batch gate passes or the
-experiment stops with a recorded null result.
+control proves the counter is armed; disassembly shows packed arithmetic with no
+fused multiply-add; the complete-batch gate passes or the experiment stops with
+a recorded null result.
 
-Recovery: the wiring commit is self-contained. Reverting it restores the single
-function pointer cache and leaves EP-M2's kernel unused, which is the cue to
-revert EP-M2 as well.
+Recovery: this milestone's revert is **two commits, unconditionally** — the
+wiring commit and then EP-M2. Reverting only the wiring leaves the manifest
+entry, the `testing` seam, the packed benchmark group, and the scalar-helper
+extraction in place with nothing production-side calling them, which contradicts
+EP-M4's "no unused dependency" acceptance. Record that the post-revert tree's
+manifest, `Cargo.lock`, and scalar oracle are byte-identical to their
+pre-EP-M2 state.
 
 Remaining gaps: the maintenance decision.
 
