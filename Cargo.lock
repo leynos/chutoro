@@ -528,16 +528,24 @@ dependencies = [
 name = "chutoro-compile-contracts"
 version = "0.1.0-beta1"
 dependencies = [
+ "anyhow",
  "arrow-array",
  "arrow-schema",
  "bytes",
  "camino",
+ "cap-std",
  "chutoro-bench-datasets",
+ "chutoro-cli",
  "chutoro-core",
  "chutoro-providers-dense",
+ "chutoro-providers-text",
+ "clap",
  "mockable",
  "parquet",
+ "rayon",
  "rstest",
+ "tempfile",
+ "toml 1.1.4+spec-1.1.0",
  "trybuild",
 ]
 
