@@ -1,0 +1,17 @@
+[package]
+name = "criterion-baseline-fixture"
+version = "0.1.0"
+edition = "2024"
+publish = false
+
+[[bench]]
+name = "baseline"
+harness = false
+
+[dependencies]
+criterion = "0.5.1"
+
+# A separate workspace keeps this fixture out of the main workspace's feature
+# and lint unification, and lets the end-to-end test build it offline from its
+# own lockfile.
+[workspace]

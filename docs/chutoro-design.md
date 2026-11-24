@@ -2865,13 +2865,10 @@ Roadmap item 2.1.7 is implemented with a two-tier benchmark CI strategy in
 - A path-filtered pull request (PR) job runs benchmark discovery checks
   (`cargo bench ... -- --list`) across benchmark binaries. This keeps PR
   feedback fast while still validating benchmark harness health.
-- A scheduled weekly job (plus manual `workflow_dispatch`) runs Criterion
-  baseline comparison for each benchmark binary using the previous commit on
-  the same branch as the reference:
-  - in a temporary worktree at `HEAD^`, run
-    `cargo bench ... -- --save-baseline ci-reference --noplot`
-  - on the current commit, run
-    `cargo bench ... -- --baseline ci-reference --noplot`
+- A scheduled weekly job (plus manual `workflow_dispatch`) measures the
+  previous commit on the same branch and the current revision, transfers the
+  reference data into the current Criterion tree, compares the two, and
+  classifies the result.
 
 This avoids comparing a benchmark against a baseline generated from the same
 revision.
@@ -2892,6 +2889,51 @@ disable optional benchmark side reports:
 - `CHUTORO_BENCH_HNSW_MEMORY_PROFILE=0`
 - `CHUTORO_BENCH_HNSW_RECALL_REPORT=0`
 - `CHUTORO_BENCH_HNSW_CLUSTER_QUALITY_REPORT=0`
+
+**Baseline layout.** Criterion 0.5.1 stores each benchmark's data beneath
+`<output-root>/<benchmark-id>/<baseline-name>/`, where the identifier directory
+may contain separators and may carry a collision suffix. A single
+`<output-root>/ci-reference` directory therefore never holds a baseline, and
+the lane that assumed one failed before comparing on every scheduled run from
+its introduction until #261. The output root is resolved from
+`CRITERION_HOME`, then `CARGO_TARGET_DIR`, then `cargo metadata`, then
+`./target/criterion`, matching the pinned release rather than a later upstream
+source.
+
+**Comparison model.** The lane measures each revision once: the reference into
+`ci-reference` in a temporary worktree, the current into `ci-current` in the
+working tree. A local helper, `benchmark_baseline` in `chutoro-test-support`,
+inventories both trees from each per-identifier `benchmark.json`, copies the
+comparable reference baselines into the current identifier directories, and
+emits an anchored filter naming only those identifiers. The comparison then
+runs `--load-baseline ci-current --baseline ci-reference`, so it does not
+measure again. Identifiers present on only one side are reported as
+`new_unverified` or `removed` but do not fail the lane on their own; a shrinking
+benchmark set must be visible without being mistaken for a regression.
+
+**Policy.** Criterion reports significance from a t-test against a noise
+threshold. That is a statistical judgement, not a project policy, so the gate
+applies its own rule to the mean-change confidence interval in
+`change/estimates.json`: a lower bound strictly above the threshold is a
+regression, an upper bound strictly below its negation is an improvement, and
+anything else is within noise. The threshold is a project decision, defaults to
+`0.05` (`CHUTORO_BASELINE_THRESHOLD`), and is recorded in every verdict. The
+gate additionally requires the interval to have been computed at confidence
+level `0.95`, and treats any other level as incompatible evidence.
+
+**Job status.** Only a classification of `pass` succeeds. `incompatible` and
+`no_reference` succeed with a warning naming the outcome and reason;
+`regression` fails with an error stating "performance regression" and listing
+the regressed identifiers; `incomplete` and subprocess failures fail with an
+error stating "lane defect, not a performance regression" and naming the failed
+stage, which is recorded in the verdict before the step exits. A successful
+save, a successful comparison command, or a passing smoke job does not satisfy
+the gate.
+
+**Scope.** The helper stays local to this repository until a tested second
+consumer demonstrates the same need; the generic heavy-lane evidence question
+is tracked in
+[shared-actions#592](https://github.com/leynos/shared-actions/issues/592).
 
 This strategy treats baseline comparison as a scheduled regression detector
 rather than a PR merge gate, matching the roadmap allowance for expensive

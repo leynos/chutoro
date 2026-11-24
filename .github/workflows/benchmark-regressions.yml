@@ -142,6 +142,11 @@ jobs:
       CHUTORO_BENCH_HNSW_MEMORY_PROFILE: '0'
       CHUTORO_BENCH_HNSW_RECALL_REPORT: '0'
       CHUTORO_BENCH_HNSW_CLUSTER_QUALITY_REPORT: '0'
+      # Project decision: a mean-change lower bound strictly above five per
+      # cent is a regression. The threshold is recorded in every verdict, so
+      # changing it here does not silently reinterpret old evidence. See
+      # "Benchmark regression workflow" in docs/developers-guide.md.
+      CHUTORO_BASELINE_THRESHOLD: '0.05'
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
         with:
@@ -155,57 +160,235 @@ jobs:
         with:
           install-mold: 'true'
           use-sccache: 'false'
+      - name: Create benchmark evidence directory
+        run: |
+          set -o pipefail
+          evidence="${RUNNER_TEMP}/bench-evidence/${{ matrix.bench }}"
+          mkdir -p "${evidence}"
+          cat > "${evidence}/verdict.json" <<EOF
+          {
+            "schema_version": 1,
+            "bench": "${{ matrix.bench }}",
+            "outcome": "incomplete",
+            "stage": "started",
+            "failed_stage": null,
+            "reason": "the lane has not reached classification",
+            "reference_revision": null,
+            "current_revision": null,
+            "threshold": ${CHUTORO_BASELINE_THRESHOLD},
+            "comparable_count": 0,
+            "cases": [],
+            "diagnostics": []
+          }
+          EOF
+          echo "resolve-reference" > "${evidence}/current-stage"
       - name: Resolve benchmark reference commit
         id: reference
         run: |
+          evidence="${RUNNER_TEMP}/bench-evidence/${{ matrix.bench }}"
+          echo "resolve-reference" > "${evidence}/current-stage"
           if git rev-parse --verify HEAD^ >/dev/null 2>&1; then
             echo "has_reference=true" >> "$GITHUB_OUTPUT"
             echo "commit=$(git rev-parse HEAD^)" >> "$GITHUB_OUTPUT"
+            echo "reason=" >> "$GITHUB_OUTPUT"
           else
             echo "has_reference=false" >> "$GITHUB_OUTPUT"
+            if [ "$(git rev-parse --is-shallow-repository)" = "true" ]; then
+              echo "reason=shallow" >> "$GITHUB_OUTPUT"
+            else
+              echo "reason=root-commit" >> "$GITHUB_OUTPUT"
+            fi
           fi
-      - name: Compare against reference commit baseline
+      - name: Warn when no reference commit exists
+        if: ${{ steps.reference.outputs.has_reference != 'true' }}
+        run: |
+          set -o pipefail
+          evidence="${RUNNER_TEMP}/bench-evidence/${{ matrix.bench }}"
+          echo "no-reference" > "${evidence}/current-stage"
+          # `classify --no-reference` exits 4. The lane succeeds with a
+          # warning because no comparison was possible, and it records the
+          # outcome rather than saving a current-only baseline as a substitute.
+          cargo run -p chutoro-test-support --bin benchmark_baseline -- classify \
+            --bench "${{ matrix.bench }}" \
+            --preflight "${evidence}/preflight.json" \
+            --verdict "${evidence}/verdict.json" \
+            --threshold "${CHUTORO_BASELINE_THRESHOLD}" \
+            --no-reference "${{ steps.reference.outputs.reason }}" \
+            2>&1 | tee "${evidence}/classify.log"
+          status=${PIPESTATUS[0]}
+          if [ "${status}" -eq 4 ]; then
+            echo "::warning::benchmark baseline outcome=no_reference reason=${{ steps.reference.outputs.reason }}; no comparison was possible"
+            exit 0
+          fi
+          echo "::error::benchmark baseline lane defect, not a performance regression: classify exited ${status}"
+          exit 2
+      - name: Save reference baseline
         if: ${{ steps.reference.outputs.has_reference == 'true' }}
         run: |
           set -o pipefail
-          reference_dir="/tmp/chutoro-reference-${{ matrix.bench }}"
-          reference_commit="${{ steps.reference.outputs.commit }}"
-          trap 'git worktree remove --force "${reference_dir}" >/dev/null 2>&1 || true' EXIT
-          git worktree add "${reference_dir}" "${reference_commit}"
-
+          evidence="${RUNNER_TEMP}/bench-evidence/${{ matrix.bench }}"
+          echo "reference-save" > "${evidence}/current-stage"
+          reference_dir="${RUNNER_TEMP}/chutoro-reference-${{ matrix.bench }}"
+          git worktree add "${reference_dir}" "${{ steps.reference.outputs.commit }}"
           (
             cd "${reference_dir}"
             set -o pipefail
             cargo bench -p chutoro-benches --bench "${{ matrix.bench }}" -- \
-              --save-baseline ci-reference --noplot \
-              2>&1 | tee "/tmp/bench-${{ matrix.bench }}-reference-save.log"
+              --save-baseline ci-reference --noplot --color never \
+              2>&1 | tee "${evidence}/reference-save.log"
           )
-
-          baseline_source="${reference_dir}/target/criterion/ci-reference"
-          baseline_destination="./target/criterion/ci-reference"
-          if [ ! -d "${baseline_source}" ]; then
-            echo "missing saved benchmark baseline at ${baseline_source}" >&2
-            exit 1
-          fi
-          mkdir -p "./target/criterion"
-          rm -rf "${baseline_destination}"
-          cp -R "${baseline_source}" "${baseline_destination}"
-
-          cargo bench -p chutoro-benches --bench "${{ matrix.bench }}" -- \
-            --baseline ci-reference --noplot \
-            2>&1 | tee "/tmp/bench-${{ matrix.bench }}-compare.log"
-      - name: Save baseline when no reference commit exists
-        if: ${{ steps.reference.outputs.has_reference != 'true' }}
+      - name: Inventory reference baseline
+        if: ${{ steps.reference.outputs.has_reference == 'true' }}
         run: |
           set -o pipefail
+          evidence="${RUNNER_TEMP}/bench-evidence/${{ matrix.bench }}"
+          reference_dir="${RUNNER_TEMP}/chutoro-reference-${{ matrix.bench }}"
+          echo "reference-inventory" > "${evidence}/current-stage"
+          cargo run -p chutoro-test-support --bin benchmark_baseline -- inventory \
+            --workspace "${reference_dir}" \
+            --bench "${{ matrix.bench }}" \
+            --baseline ci-reference \
+            --revision "${{ steps.reference.outputs.commit }}" \
+            --output "${evidence}/reference-manifest.json" \
+            --fresh-since "${evidence}/verdict.json" \
+            --bench-argument --noplot \
+            --bench-argument --color \
+            --bench-argument never \
+            2>&1 | tee "${evidence}/reference-inventory.log"
+      - name: Save current baseline
+        if: ${{ steps.reference.outputs.has_reference == 'true' }}
+        run: |
+          set -o pipefail
+          evidence="${RUNNER_TEMP}/bench-evidence/${{ matrix.bench }}"
+          echo "current-save" > "${evidence}/current-stage"
           cargo bench -p chutoro-benches --bench "${{ matrix.bench }}" -- \
-            --save-baseline ci-reference --noplot \
-            2>&1 | tee "/tmp/bench-${{ matrix.bench }}-reference-save.log"
-      - name: Upload baseline comparison logs
+            --save-baseline ci-current --noplot --color never \
+            2>&1 | tee "${evidence}/current-save.log"
+      - name: Inventory current baseline
+        if: ${{ steps.reference.outputs.has_reference == 'true' }}
+        run: |
+          set -o pipefail
+          evidence="${RUNNER_TEMP}/bench-evidence/${{ matrix.bench }}"
+          echo "current-inventory" > "${evidence}/current-stage"
+          cargo run -p chutoro-test-support --bin benchmark_baseline -- inventory \
+            --workspace "$PWD" \
+            --bench "${{ matrix.bench }}" \
+            --baseline ci-current \
+            --revision "$(git rev-parse HEAD)" \
+            --output "${evidence}/current-manifest.json" \
+            --fresh-since "${evidence}/verdict.json" \
+            --bench-argument --noplot \
+            --bench-argument --color \
+            --bench-argument never \
+            2>&1 | tee "${evidence}/current-inventory.log"
+      - name: Stage reference baselines
+        id: stage
+        if: ${{ steps.reference.outputs.has_reference == 'true' }}
+        run: |
+          set +e
+          set -o pipefail
+          evidence="${RUNNER_TEMP}/bench-evidence/${{ matrix.bench }}"
+          echo "stage" > "${evidence}/current-stage"
+          cargo run -p chutoro-test-support --bin benchmark_baseline -- stage \
+            --bench "${{ matrix.bench }}" \
+            --reference-manifest "${evidence}/reference-manifest.json" \
+            --current-manifest "${evidence}/current-manifest.json" \
+            --evidence "${evidence}" \
+            --filter-output "${evidence}/filter.txt" \
+            2>&1 | tee "${evidence}/preflight.log"
+          status=${PIPESTATUS[0]}
+          set -e
+          echo "status=${status}" >> "$GITHUB_OUTPUT"
+          if [ "${status}" -eq 2 ]; then
+            echo "::error::benchmark baseline lane defect, not a performance regression: stage=stage"
+            exit 2
+          fi
+          # Exit 3 (incompatible) is recorded and reported by the classify
+          # step as a warning; the comparison below is skipped in that case.
+      - name: Compare current against reference baseline
+        if: ${{ steps.reference.outputs.has_reference == 'true' && steps.stage.outputs.status == '0' }}
+        run: |
+          set -o pipefail
+          evidence="${RUNNER_TEMP}/bench-evidence/${{ matrix.bench }}"
+          echo "compare" > "${evidence}/current-stage"
+          filter="$(cat "${evidence}/filter.txt")"
+          cargo bench -p chutoro-benches --bench "${{ matrix.bench }}" -- \
+            --load-baseline ci-current --baseline ci-reference \
+            --noplot --color never "${filter}" \
+            2>&1 | tee "${evidence}/compare.log"
+      - name: Classify benchmark comparison
+        if: ${{ steps.reference.outputs.has_reference == 'true' }}
+        run: |
+          set +e
+          set -o pipefail
+          evidence="${RUNNER_TEMP}/bench-evidence/${{ matrix.bench }}"
+          echo "classify" > "${evidence}/current-stage"
+          cargo run -p chutoro-test-support --bin benchmark_baseline -- classify \
+            --bench "${{ matrix.bench }}" \
+            --preflight "${evidence}/preflight.json" \
+            --verdict "${evidence}/verdict.json" \
+            --threshold "${CHUTORO_BASELINE_THRESHOLD}" \
+            2>&1 | tee "${evidence}/classify.log"
+          status=${PIPESTATUS[0]}
+          set -e
+          touch "${evidence}/classified"
+          case "${status}" in
+            0)
+              echo "benchmark baseline outcome=pass"
+              ;;
+            1)
+              regressed="$(sed -n 's/^regressed_ids=//p' "${evidence}/classify.log" | tail -1)"
+              echo "::error::performance regression detected in: ${regressed:-see ${evidence}/verdict.json}"
+              exit 1
+              ;;
+            3)
+              echo "::warning::benchmark baseline outcome=incompatible; no comparison was possible"
+              ;;
+            4)
+              echo "::warning::benchmark baseline outcome=no_reference; no comparison was possible"
+              ;;
+            *)
+              echo "::error::benchmark baseline lane defect, not a performance regression: classify exited ${status}"
+              exit 2
+              ;;
+          esac
+      - name: Record the failed stage in the verdict
+        if: failure()
+        run: |
+          evidence="${RUNNER_TEMP}/bench-evidence/${{ matrix.bench }}"
+          if [ -f "${evidence}/classified" ]; then
+            exit 1
+          fi
+          stage="$(cat "${evidence}/current-stage" 2>/dev/null || echo unknown)"
+          case "${stage}" in
+            stage) log="preflight.log" ;;
+            *) log="${stage}.log" ;;
+          esac
+          cargo run -p chutoro-test-support --bin benchmark_baseline -- classify \
+            --bench "${{ matrix.bench }}" \
+            --preflight "${evidence}/preflight.json" \
+            --verdict "${evidence}/verdict.json" \
+            --threshold "${CHUTORO_BASELINE_THRESHOLD}" \
+            --failed-stage "${stage}" \
+            --failure-reason "stage ${stage} failed; see ${evidence}/${log}" \
+            2>&1 | tee -a "${evidence}/classify.log" || true
+          echo "::error::benchmark baseline lane defect, not a performance regression: stage=${stage}"
+          exit 1
+      - name: Remove the reference worktree
+        if: always()
+        continue-on-error: true
+        run: |
+          evidence="${RUNNER_TEMP}/bench-evidence/${{ matrix.bench }}"
+          reference_dir="${RUNNER_TEMP}/chutoro-reference-${{ matrix.bench }}"
+          if [ -e "${reference_dir}" ]; then
+            git worktree remove --force "${reference_dir}" >> "${evidence}/cleanup.log" 2>&1 \
+              || echo "::warning::could not remove ${reference_dir}; see ${evidence}/cleanup.log"
+          fi
+      - name: Upload baseline comparison evidence
         if: always()
         uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9
         with:
           name: benchmark-baseline-${{ matrix.bench }}
-          path: |
-            /tmp/bench-${{ matrix.bench }}-reference-save.log
-            /tmp/bench-${{ matrix.bench }}-compare.log
+          path: ${{ runner.temp }}/bench-evidence/${{ matrix.bench }}
+          if-no-files-found: error
+          retention-days: 14
