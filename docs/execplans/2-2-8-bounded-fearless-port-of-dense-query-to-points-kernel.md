@@ -212,7 +212,7 @@ Measured survey of the surface this work touches:
 | `simd/point_view.rs`                       | 177   | Packed layout and padding                          |
 | `simd/semantics.rs`                        | 192   | Test-only distance contract and oracles            |
 | `simd/kani_proofs.rs`                      | 196   | Two bounded harnesses                              |
-| `simd/tests/**`                            | 1,398 | Parity, entrypoint, packing, mask tests            |
+| `simd/tests/**`                            | 1,507 | Parity, entrypoint, packing, mask tests            |
 | `chutoro-benches/src/neighbour_scoring/**` | —     | The only existing dense batch measurement          |
 
 *Table 1: Measured surface, from `wc -l` at `2c89752`.*
