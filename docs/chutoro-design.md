@@ -3021,8 +3021,10 @@ pub struct ClusteringSession<D: DataSource + Send + Sync> {
     /// Source-indexed dirty state for core-distance cells.
     dirty_core_distances: Vec<bool>,
 
-    /// Accumulated MST edges from the most recent complete refresh.
-    mst_edges: Vec<MstEdge>,
+    /// Raw candidate edges selected into the MST by the most recent
+    /// complete refresh. Raw distances are retained so each refresh
+    /// reweights from scratch instead of ratcheting a stored weight.
+    mst_backbone: Vec<CandidateEdge>,
 
     /// Non-MST edges retained from previous refreshes whose
     /// mutual-reachability weights may shift when core distances
@@ -3048,17 +3050,19 @@ pub struct ClusteringSession<D: DataSource + Send + Sync> {
 ```
 
 _Figure 3: Sketch of `ClusteringSession` state. The session owns the live HNSW
-index, cached core distances, current MST edges, pending delta edges, and the
-latest label snapshot._
+index, cached core distances, the current MST backbone (retained as raw
+candidate edges), pending delta edges, and the latest label snapshot._
 
 **Memory growth and edge retention.** Between refreshes, `pending_edges` grows
 by roughly O(M) entries per appended point (where M is the HNSW connectivity
 parameter), because each insertion discovers up to M candidate edges. On
 refresh, `pending_edges` is drained: the edges are merged into the Kruskal
 candidate set, and the buffer is cleared. After refresh, the session retains
-two edge collections: (a) `mst_edges`, whose size is bounded by n − 1 where n
-is the total point count; and (b) `historical_edges`, a bounded set of non-MST
-edges retained for correctness under core-distance drift (see §12.5). The
+two edge collections: (a) `mst_backbone`, whose size is bounded by n − 1 where
+n is the total point count; and (b) `historical_edges`, a bounded set of
+non-MST edges retained for correctness under core-distance drift (see §12.5).
+The backbone holds raw `CandidateEdge` values, not weighted `MstEdge` values,
+so the next refresh reweights from the raw distances; see §12.5. The
 `historical_edges` set is capped at a configurable multiple of the MST edge
 count (default 2×); edges with the highest mutual-reachability weight are
 evicted first when the cap is exceeded. This bounds total edge memory to O(n ×
@@ -3075,11 +3079,12 @@ The session lifecycle follows four phases:
    insertion calls the edge-harvesting HNSW insertion path (currently
    `insert_harvesting`) and accumulates delta candidate edges in
    `pending_edges`.
-3. **Refreshing.** Call `session.refresh()` to merge `pending_edges` with the
-   existing `mst_edges`, recompute core distances for new points, apply
-   mutual-reachability weighting to the merged edge set, rerun
-   `parallel_kruskal`, extract labels via `extract_labels_from_mst`, and
-   publish a new immutable label snapshot.
+3. **Refreshing.** Call `session.refresh()` to recompute dirty core distances,
+   merge `pending_edges` with the raw `mst_backbone` and `historical_edges`,
+   apply mutual-reachability weighting to the merged edge set, rerun
+   `parallel_kruskal`, extract labels via `extract_labels_from_mst`, retain the
+   raw inputs of the accepted edges as the new backbone, and publish a new
+   immutable label snapshot.
 4. **Reading.** Concurrent readers access the latest label snapshot via
    `session.labels()`, which returns an `Arc<Vec<usize>>` that does not block
    the writer.
@@ -3281,6 +3286,14 @@ currently recomputes from scratch. Specifically:
   `Vec<bool>` rather than `FixedBitSet` because the workspace did not already
   carry `fixedbitset` and this milestone avoids new production dependencies.
 
+  Roadmap item `11.2.1` adds `ClusteringSession::refresh`, which calls
+  `recompute_core_distances()` itself rather than refusing while cells are
+  dirty. The dirty set is therefore drained by the refresh rather than blocking
+  it: the recompute is best-effort before the publish point, so a failure
+  part-way leaves the remaining cells dirty and a retry reprocesses them.
+  `recompute_core_distances_full()` remains an explicit caller choice;
+  `refresh_full()` and its automatic triggers are roadmap item `11.2.4`.
+
   The v1 incremental recompute set is intentionally local, so it can miss an
   existing point whose true k-th neighbour improved without that point
   appearing as a neighbour of a new insertion. The full recompute path bounds
@@ -3388,8 +3401,9 @@ The v1 MST refresh strategy follows the same pragmatic approach as the
 reference FISHDBC implementation rather than implementing a fully dynamic MST
 data structure:
 
-1. Collect the existing `mst_edges` from the previous refresh (already stored
-   in the session).
+1. Collect the existing `mst_backbone` from the previous refresh (already
+   stored in the session). The backbone is retained as **raw** `CandidateEdge`
+   values, including the raw distance.
 2. Collect the `historical_edges` — non-MST edges retained from previous
    refreshes whose mutual-reachability weights may have changed due to
    core-distance updates (see §12.4). These edges are necessary because
@@ -3398,21 +3412,57 @@ data structure:
    MST edge and belong in the true MST. Without retaining these candidates, the
    refresh candidate set would be incomplete and incremental clustering could
    silently drift from the batch baseline.
-3. Append the new `pending_edges` (converted to mutual-reachability weights).
+3. Append the new `pending_edges`. All three buffers hold raw candidate edges.
 4. Reweight all edges in the combined set using current core distances:
-   `weight = max(distance, core_dist[source], core_dist[target])`.
-5. Construct a fresh `EdgeHarvest` from the combined edge set
-   (`mst_edges` + `historical_edges` + `pending_edges`).
-6. Run `parallel_kruskal` over the combined harvest. The candidate set is
-   larger than `mst_edges + pending_edges` alone but still much smaller than
-   the full O(n × M) edge set that a from-scratch build would produce.
-7. Extract labels via `extract_labels_from_mst` with the current
+   `weight = max(distance, core_dist[source], core_dist[target])`. Reweighting
+   always starts from the raw distance, never from a previously computed
+   weight, so the result is independent of how many refreshes have run.
+5. Feed the combined edge slice directly to the crate-internal
+   `parallel_kruskal_from_edges` entry point, which the public
+   `parallel_kruskal` delegates to. A fresh `EdgeHarvest` allocation and its
+   redundant ordering sort are not needed. The candidate set is larger than
+   `mst_backbone + pending_edges` alone but still much smaller than the full
+   O(n × M) edge set that a from-scratch build would produce.
+6. Extract labels via `extract_labels_from_mst` with the current
    `HierarchyConfig`.
-8. Partition the Kruskal output: edges selected for the MST become the new
-   `mst_edges`; non-MST edges are retained in `historical_edges` up to the
-   configured cap (default 2× MST edge count, heaviest edges evicted first).
+7. Recover the raw inputs of the accepted forest edges by canonical
+   `(source, target, sequence)` key and retain them as the new `mst_backbone`.
+   Non-MST retention into `historical_edges` (the cap and heaviest-first
+   eviction) is roadmap item `11.2.5`; until then that buffer is read as empty.
    Clear `pending_edges`.
-9. Publish the new label snapshot and advance `snapshot_version`.
+8. Publish the new label snapshot and advance `snapshot_version`.
+
+**Implementation status (roadmap 11.2.1).** `ClusteringSession::refresh`
+implements this strategy.
+[ADR-010](adrs/adr-0010-incremental-refresh-domain-boundary.md) records the
+decision, the raw-backbone rationale, and its consequences. Duplicated raw
+edges across the three buffers need no pre-merge filtering:
+`mst::prepare_edge_list` canonicalizes, sorts, and then removes only
+**adjacent** identical `(weight, source, target)` triples inside Kruskal.
+Duplicates that sort apart can both survive; they reweight identically under
+the same core distances, so the result is unchanged. Backbone recovery matches
+each accepted key at most once, so overlap cannot double-count a retained edge.
+
+**Degenerate sessions.** A refresh on a session with no appended points
+publishes an empty snapshot, and a session with fewer points than
+`min_cluster_size` publishes an all-noise snapshot (every label `0`). Both
+advance `snapshot_version`. A warm-up refresh selects no tree, but it retains
+the merged raw candidates as the backbone rather than discarding them: HNSW
+harvests an edge only when the later endpoint is inserted, so an old-old edge
+harvested during warm-up is never offered again. This diverges intentionally
+from batch `Chutoro::run`, which returns `EmptySource` or `InsufficientItems`:
+a streaming session must make progress during warm-up.
+
+**Point-id contiguity.** `refresh` requires appended point ids to form the
+contiguous prefix `[0, point_count)`. HNSW node ids are the source indices, and
+core distances and label extraction are indexed by them. A non-contiguous
+append is reported as `CpuMstFailure` with code `INVALID_NODE_ID` before any
+reweight work runs, rather than panicking or mislabelling.
+
+**Early `labels()` accessor.** `refresh` publishes the snapshot that
+`ClusteringSession::labels()` returns. Roadmap item `11.2.2` formalizes that
+reader contract; the accessor already returns a reference-counted immutable
+snapshot, so publishing swaps an `Arc` rather than mutating a visible vector.
 
 This strategy produces a high-quality approximate MST rather than a universally
 exact one. Kruskal's algorithm is exact over its input edge set, so the output
@@ -3443,7 +3493,7 @@ The `ClusteringSession` uses a single-writer, multiple-reader concurrency model:
 - **Writer thread.** A single writer thread (or serialized writer task)
   performs `append()` and `refresh()` operations. The HNSW `insert_mutex`
   already serializes insertions, so the writer acquires this lock during
-  appends. During refresh, the writer holds exclusive access to `mst_edges`,
+  appends. During refresh, the writer holds exclusive access to `mst_backbone`,
   `core_distances`, and `pending_edges`.
 - **Reader threads.** Readers access the latest label snapshot via
   `Arc<Vec<usize>>`. Because the snapshot is immutable and reference-counted,
@@ -3505,7 +3555,7 @@ the architecture. The required steps for future enablement are:
    neighbours may have stale core distances. The session must track affected
    neighbourhoods and recompute their core distances during the next refresh.
 3. **MST edge pruning.** Edges incident on deleted points must be removed from
-   `mst_edges` before the next Kruskal pass. Edges whose mutual-reachability
+   `mst_backbone` before the next Kruskal pass. Edges whose mutual-reachability
    weights depended on invalidated core distances must be reweighted.
 4. **Relabelling semantics.** Deletion can split or merge clusters. The
    refresh strategy (§12.5) handles this naturally via the full Kruskal +

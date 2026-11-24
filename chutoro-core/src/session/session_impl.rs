@@ -79,6 +79,25 @@ impl<D: DataSource + Send + Sync> ClusteringSession<D> {
             metrics::Unit::Seconds,
             "Session core-distance recompute duration in seconds."
         );
+        metrics::describe_histogram!(
+            "chutoro.session.refresh.seconds",
+            metrics::Unit::Seconds,
+            "Session refresh duration in seconds, including core-distance recompute."
+        );
+        metrics::describe_counter!(
+            "chutoro.session.refresh.errors_total",
+            "Total number of refresh failures, labelled by reason."
+        );
+        metrics::describe_histogram!(
+            "chutoro.session.refresh.candidate_edges",
+            metrics::Unit::Count,
+            "Candidate edges merged by a refresh: backbone, historical, and pending."
+        );
+        metrics::describe_histogram!(
+            "chutoro.session.refresh.cluster_count",
+            metrics::Unit::Count,
+            "Distinct labels in the snapshot published by a refresh."
+        );
     }
 
     /// Construct a session from an already attempted HNSW allocation.
@@ -102,13 +121,13 @@ impl<D: DataSource + Send + Sync> ClusteringSession<D> {
             index,
             core_distances: Vec::with_capacity(source.len()),
             dirty_core_distances: Vec::with_capacity(source.len()),
-            _mst_edges: Vec::new(),
-            _historical_edges: Vec::new(),
+            mst_backbone: Vec::new(),
+            historical_edges: Vec::new(),
             pending_edges: Vec::new(),
-            _labels: Arc::new(Vec::new()),
+            labels: Arc::new(Vec::new()),
             snapshot_version: 0,
             source,
-            _last_refresh_len: 0,
+            last_refresh_len: 0,
             #[cfg(feature = "metrics")]
             clock: std::sync::Arc::new(super::clock::StdMonotonicClock),
         })

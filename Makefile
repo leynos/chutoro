@@ -127,7 +127,8 @@ VERUS_INSTALL_FLAGS ?=
 # invocation, so the package verifies them one at a time and stops at the
 # first failure.
 VERUS_PROOF_FILES ?= $(if $(VERUS_PROOF_FILE),$(VERUS_PROOF_FILE),\
-	verus/edge_harvest_proofs.rs verus/session_core_distance.rs)
+	verus/edge_harvest_proofs.rs verus/session_core_distance.rs \
+	verus/session_refresh.rs)
 VERUS_PROOF_ARGS = $(foreach proof,$(VERUS_PROOF_FILES),--proof-file "$(proof)")
 
 # `prover-tools kani install` runs `cargo kani setup`, which unpacks the

@@ -101,7 +101,8 @@ fn build_mutual_reachability_forest(
     core_distances: &[f32],
 ) -> Result<MinimumSpanningForest> {
     let transform_started = Instant::now();
-    let mutual_edges = mutual_reachability_edges(source_name, harvested, core_distances)?;
+    let mutual_edges =
+        mutual_reachability_edges(source_name, harvested.as_slice(), core_distances)?;
     record_stage(
         PipelineStage::MutualReachability.as_label(),
         transform_started.elapsed(),
@@ -122,13 +123,12 @@ fn build_mutual_reachability_forest(
 /// transform preserves input order, so the parallel slice walk and a
 /// sequential walk over [`EdgeHarvest::iter`] return the same vector.
 #[cfg(feature = "cpu")]
-fn mutual_reachability_edges(
+pub(crate) fn mutual_reachability_edges(
     source_name: &str,
-    harvested: &EdgeHarvest,
+    edges: &[CandidateEdge],
     core_distances: &[f32],
 ) -> Result<Vec<CandidateEdge>> {
-    harvested
-        .as_slice()
+    edges
         .par_iter()
         .map(|edge| mutual_reachability_edge(source_name, edge, core_distances))
         .collect()
@@ -151,12 +151,22 @@ fn mutual_reachability_edge(
         .get(right)
         .copied()
         .ok_or_else(|| missing_core_distance(source_name, "target", right))?;
-    let weight = edge
-        .distance()
-        .max(left_core_distance)
-        .max(right_core_distance);
+    let weight =
+        mutual_reachability_weight(edge.distance(), left_core_distance, right_core_distance);
 
     Ok(CandidateEdge::new(left, right, weight, edge.sequence()))
+}
+
+/// Computes the mutual-reachability weight of one raw edge.
+///
+/// The weight is the maximum of the raw distance and both endpoints' current
+/// core distances. It is a pure function of those three values, which is what
+/// keeps a refresh independent of how many times an edge was reweighted
+/// before: callers must always pass the *raw* distance, never a previously
+/// computed weight.
+#[cfg(feature = "cpu")]
+const fn mutual_reachability_weight(distance: f32, core_source: f32, core_target: f32) -> f32 {
+    distance.max(core_source).max(core_target)
 }
 
 /// Builds the error reported when a harvested endpoint has no core distance.
@@ -287,7 +297,7 @@ impl CoreDistanceInputs {
 
 /// Translate an MST failure into the public CPU-pipeline error type.
 #[cfg(feature = "cpu")]
-fn map_cpu_mst_error(error: &MstError) -> ChutoroError {
+pub(crate) fn map_cpu_mst_error(error: &MstError) -> ChutoroError {
     ChutoroError::CpuMstFailure {
         code: Arc::from(error.code().as_str()),
         message: Arc::from(error.to_string()),
@@ -296,7 +306,7 @@ fn map_cpu_mst_error(error: &MstError) -> ChutoroError {
 
 /// Translate a hierarchy failure into the public CPU-pipeline error type.
 #[cfg(feature = "cpu")]
-fn map_cpu_hierarchy_error(error: &crate::HierarchyError) -> ChutoroError {
+pub(crate) fn map_cpu_hierarchy_error(error: &crate::HierarchyError) -> ChutoroError {
     ChutoroError::CpuHierarchyFailure {
         code: Arc::from(error.code().as_str()),
         message: Arc::from(error.to_string()),

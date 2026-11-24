@@ -41,3 +41,15 @@ Feature: Clustering session append
     Then the append succeeds
     And source index 0 has core distance 1
     And the snapshot version is 0
+
+  Scenario: Refreshing a populated session publishes labels for every point
+    Given a clustering session over 4 points with min cluster size 2
+    When I append source indices "0,1,2,3"
+    And I refresh the session
+    Then the label snapshot has length 4
+    And the snapshot version is 1
+
+  Scenario: Refreshing an empty session bumps the version, empty labels
+    When I refresh the session
+    Then the label snapshot is empty
+    And the snapshot version is 1
