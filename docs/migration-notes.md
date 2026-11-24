@@ -4,6 +4,14 @@ This document records compatibility changes for upcoming Chutoro releases.
 
 ## 0.2.0
 
+### The `skeleton` feature is removed
+
+`chutoro-core` no longer declares the `skeleton` feature. It had enabled
+nothing since the CPU backend stopped depending on it, and it was kept only so
+that older manifests would still resolve. Remove `"skeleton"` from any
+`features` list that names it for `chutoro-core`; Cargo rejects a dependency
+that requests an undeclared feature. No code or behaviour changes.
+
 ### `DataSource::distance_batch` takes `PointPair` slices
 
 `DataSource::distance_batch` no longer accepts `&[(usize, usize)]`. A pair is

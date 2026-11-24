@@ -697,8 +697,6 @@ The crate exposes the following feature flags:
 - `metrics` exposes metrics emission from hot paths.
 - `gpu` prepares the GPU execution path selection surface (the accelerator
   implementation is not yet available).
-- `skeleton` is a legacy compatibility flag retained for early versions; it is
-  no longer required by the CPU backend.
 
 When the `metrics` feature is enabled, the distance cache emits four metrics:
 `distance_cache_hits` counts successful lookups, `distance_cache_misses` counts
