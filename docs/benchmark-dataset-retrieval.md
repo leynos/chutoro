@@ -10,7 +10,8 @@ and estimates:
 - approximate retrieval cost from object storage (AWS S3, Scaleway Object
   Storage, and DigitalOcean Spaces)
 
-Pricing and source checks were refreshed on 2026-03-02.
+Pricing and source checks were refreshed on 2026-03-02. Upstream HTTP range
+support was probed on 2026-08-16 (§3.2.1).
 
 ## 2. Process
 
@@ -75,10 +76,44 @@ consumption._
 - Version preprocessing so model-dependent transforms (for example CIFAR
   embeddings) are hash-addressed and reproducible.
 
+Only a pinned SHA-256 digest of the transferred bytes establishes integrity.
+Validators such as `ETag` and `Last-Modified` answer a different question:
+whether the representation is the one the client started reading. Neither is a
+digest of content, and neither is an integrity pin (see
+[RFC 9110 §13.1.5](https://www.rfc-editor.org/rfc/rfc9110.html#section-13.1.5)).
+
+Pins live with the recipe, not with the manifest. `SourceSpec` now carries an
+optional parsed `Checksum`, so a recipe can record the digest its source should
+match before any manifest exists. Roadmap item 10.1.3 later serializes those
+same pins into the canonical `manifest.json`; the manifest records the pin
+rather than being its authority.
+
+Checksum parsing exists; pin verification does not. `Checksum` pairs a
+`DigestAlgorithm::Sha256` tag with a 32-byte digest, and `Checksum::parse`
+accepts canonical `sha256:<hex>` text and returns a `Checksum`, or a typed
+`RecipeError::Integrity` failure for a malformed value. Parsing validates only
+the textual form; it does not hash or verify downloaded bytes, and fetch-time
+verification remains part of roadmap item 10.1.2.
+
+ETags are validators, not integrity pins. The ANN-Benchmarks hosts return S3
+multipart ETags such as `"2bf1ef4c0c3e17031bd64980774eea09-63"` and
+`"c4aecb89b5369bc649bacb0b3ec3be4b-115"` (see
+[§3.2.1](#321-upstream-range-support-evidence-2026-08-16)). The value is a
+digest of per-part digests with the part count appended after a hyphen. Such an
+ETag is syntactically strong because it has no `W/` prefix, so RFC 9110 §13.1.5
+permits it in `If-Range` and it is valid for resume validation. It still says
+nothing verifiable about the bytes: two byte-identical objects uploaded with
+different part sizes receive different ETags. The MNIST mirror's single-part,
+MD5-like ETag `"f68b3c2dcbeaaa9fbdd348bbdeb94873"` is no better. It is opaque
+server metadata rather than a published commitment, and an MD5 digest would not
+satisfy the SHA-256 requirement. Integrity comes only from the pinned SHA-256
+value.
+
 ### 3.2. Transport, cache, and object storage
 
 - Add resumable transfer support with retry and backoff plus partial-download
-  cleanup logic.
+  cleanup logic, following the resume-safety requirements in
+  [§3.2.2](#322-resume-safety-requirements).
 - Implement object-store adapters via Rust `object_store`[^2] to support AWS S3
   and S3-compatible endpoints (Scaleway and DigitalOcean) with the same code
   path, including endpoint override support from `AmazonS3Builder`.[^3]
@@ -113,6 +148,100 @@ lock. The governing decision is
 - The staging lock is not the roadmap 10.1.5 cache index or lockfile. It
   excludes writers to one staging artefact only; it does not deduplicate recipe
   preparation, index cache entries, or coordinate object-store publication.
+
+#### 3.2.1. Upstream range-support evidence (2026-08-16)
+
+On 2026-08-16 the upstreams this project downloads from, or has committed to
+downloading, were probed with one `Range: bytes=100-199` request. All three
+returned `206 Partial Content`.
+
+| Source                                                                  | `Content-Range`           | `Accept-Ranges` | `ETag`                                   | `Content-Encoding` |
+| ----------------------------------------------------------------------- | ------------------------- | --------------- | ---------------------------------------- | ------------------ |
+| `ann-benchmarks.com/sift-128-euclidean.hdf5`                            | `bytes 100-199/525128288` | `bytes`         | `"2bf1ef4c0c3e17031bd64980774eea09-63"`  | absent             |
+| `ann-benchmarks.com/glove-200-angular.hdf5`                             | `bytes 100-199/962819488` | `bytes`         | `"c4aecb89b5369bc649bacb0b3ec3be4b-115"` | absent             |
+| `storage.googleapis.com/cvdf-datasets/mnist/train-images-idx3-ubyte.gz` | `bytes 100-199/9912422`   | `bytes`         | `"f68b3c2dcbeaaa9fbdd348bbdeb94873"`     | absent             |
+
+_Table 1: Responses to `Range: bytes=100-199` on 2026-08-16._
+
+The third row is the mirror already selected by
+`chutoro-benches/src/source/mnist/mod.rs`: the default `MnistConfig::base_url`
+is `https://storage.googleapis.com/cvdf-datasets/mnist`, and the helper appends
+`train-images-idx3-ubyte.gz`.
+
+The evidence is point-in-time and bounded:
+
+- The sibling test file `t10k-images-idx3-ubyte.gz` was not probed.
+- SIFT and GloVe ingestion is planned, but this checkout has no downloader for
+  either, so the two ANN-Benchmarks rows describe hosts a future recipe will
+  use rather than a code path that exists today.
+- One request per host does not prove that a host keeps the same validator
+  across an hours-long transfer, nor that an intermediary never adds a content
+  coding.
+- The probe exercised `Range`, not `If-Range`. It does not demonstrate
+  end-to-end resume, so the re-probe must also cover matching and mismatching
+  validators.
+
+The evidence must be re-probed before roadmap item 10.1.2 relies on it.
+
+The impact is that resumable transfer has a working primary path on real
+sources, not merely a fallback that no live host exercises. A ranged request
+can be validated against a strong `ETag` with `If-Range` and appended at the
+durable offset. If a host later lacks range support, or presents only a weak
+validator, the implementation must fall back to a full-representation download
+and rewrite the file (see [§3.2.2](#322-resume-safety-requirements)). The
+integrity consequence of these validators is recorded in
+[§3.1](#31-shared-retrieval-crate-and-contracts).
+
+#### 3.2.2. Resume-safety requirements
+
+The following rules are requirements for roadmap item 10.1.2. They describe
+behaviour to implement, not behaviour present in this checkout.
+
+- Use `If-Range` only with a strong validator, and use an HTTP-date only when
+  the client has no entity tag for the representation. RFC 9110
+  [§13.1.5](https://www.rfc-editor.org/rfc/rfc9110.html#section-13.1.5) forbids
+  a weak entity tag in `If-Range`, and permits an HTTP-date only when the
+  client has no entity tag and the date is a strong validator. A client holding
+  a weak `ETag` and a strong `Last-Modified` date must use neither; it starts
+  fresh.
+- Treat `Accept-Ranges` as advisory (RFC 9110
+  [§14.3](https://www.rfc-editor.org/rfc/rfc9110.html#section-14.3)). Never
+  gate a range request on it, and always handle a full-representation response.
+- Validate `Content-Range` against the durable offset and the expected
+  representation length before appending anything (RFC 9110
+  [§14.4](https://www.rfc-editor.org/rfc/rfc9110.html#section-14.4)). The
+  appended range must start at the next byte required, and the complete length
+  must agree with the pinned expectation.
+- Never recombine a malformed range. A `Content-Range` whose `last-pos` is less
+  than its `first-pos`, or whose complete length is less than or equal to
+  `last-pos`, is invalid under RFC 9110 §14.4, and the received content must be
+  discarded.
+- Truncate to zero and rewrite when a ranged request receives a full
+  representation (RFC 9110
+  [§14.2](https://www.rfc-editor.org/rfc/rfc9110.html#section-14.2) and
+  §13.1.5). The server either ignored the range or the representation changed;
+  this is the normal fallback, not an error.
+- Disable resume for any URL whose response carries `Content-Encoding`. RFC
+  9110 [§14.1.2](https://www.rfc-editor.org/rfc/rfc9110.html#section-14.1.2)
+  calculates byte offsets against the encoded octet stream, and on-the-fly
+  compression is not byte-stable across requests, so offsets learned from one
+  response cannot address another.
+- Disable automatic decompression in the HTTP adapter. If the adapter decodes
+  the body, the client's offsets no longer refer to the octet stream that the
+  server ranged over.
+
+HTTP content coding is not a file format. A `.gz` file served with an identity
+content coding is an octet stream whose byte offsets are stable, so it remains
+resumable; decompressing it is a separate extraction step performed after the
+transfer completes. The rule above disables resume only when the HTTP response
+itself is encoded, for example with `Content-Encoding: gzip`, which is not the
+same as serving a gzip file.
+
+The detailed resume state machine, including its full-representation,
+unsatisfiable-range, and no-progress branches, is specified in the
+[10.1.2 shared download primitives ExecPlan](https://github.com/leynos/chutoro/blob/10-1-2-shared-download-primitives/docs/execplans/10-1-2-shared-download-primitives.md)
+(draft, on branch `10-1-2-shared-download-primitives`, PR #199). The ExecPlan
+is not present on this branch.
 
 ### 3.3. Governance and telemetry
 
@@ -234,7 +363,7 @@ Effort scale:
 | GIST1M                                             | Fully automatable via ANN-Benchmarks HDF5. `S-M`.                                                                            | 3.600                                                   | 0.324                  | 0.036                    | 0.036                        |
 | DEEP1B / BigANN                                    | Automatable but operationally heavy (multi-hundred-GB artefacts, resumable download, sharded upload, long validation). `XL`. | 89.4-476.8 (1B vectors, uint8 to float32)               | 8.046-42.912           | 0.894-4.768              | 0.894-4.768                  |
 
-_Table 1: Dataset preparation effort, cache size, and approximate one-time
+_Table 2: Dataset preparation effort, cache size, and approximate one-time
 retrieval cost by provider._
 
 ## 7. Dataset-specific implementation tasks for suite and matrix readiness
