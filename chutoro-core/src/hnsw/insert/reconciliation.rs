@@ -147,11 +147,11 @@ impl<'graph> EdgeReconciler<'graph> {
             neighbours.push(ctx.origin);
         } else if !neighbours.is_empty() {
             // Keep the committed length while making room: drop the front entry
-            // and append the origin. Trimming emits ascending distance order, so
-            // the front entry is the nearest, not the furthest; the workspace
-            // fallback instead evicts the tail. Neither choice is a distance
-            // judgement, and design §6.8 documents both as local ordering
-            // choices rather than a furthest-first policy.
+            // and append the origin. A trimmed list is ordered nearest-first, so
+            // a front entry there is not the furthest; the workspace fallback
+            // instead evicts the tail. Neither choice is a distance judgement,
+            // and design §6.8 documents both as local ordering choices rather
+            // than a furthest-first policy.
             evicted_origin = Some(neighbours.remove(0));
             neighbours.push(ctx.origin);
         }
