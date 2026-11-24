@@ -135,8 +135,15 @@ These are hard invariants. Violating one requires escalation, not a workaround.
     `fearless_simd_macros = "0.1"` is authorized but is **not** used unless
     Decision D3 is revised. Development: `pretty_assertions = "1.4.1"` and
     `googletest = "0.14.4"`, dev-dependencies of
-    `chutoro-providers-dense` only, authorized by the maintainer for this task.
-    No other dependency, in any crate, is authorized.
+    `chutoro-providers-dense` only, authorized by the maintainer for this task,
+    and each used only where it earns its place:
+    `pretty_assertions::assert_eq` in the differential suite's byte-for-byte
+    float comparisons, where the default `assert_eq!` output does not show which
+    bits differ; and `googletest`'s matchers in the policy enumeration, where a
+    table of 320 cases needs to report the failing combination rather than a
+    bare index. If EP-M2 finds either unnecessary, it is dropped and the
+    manifest stays smaller — an unused dev-dependency is not added "for
+    completeness". No other dependency, in any crate, is authorized.
 13. **File size.** No source file may exceed 400 lines (`AGENTS.md`).
     `chutoro-providers/dense/src/simd/kernels/mod.rs` is 303 lines and
     `simd/dispatch.rs` is 232, so the new module must be its own file rather
@@ -415,8 +422,11 @@ it.
   omits `pipeline` and `neighbour_scoring`. Evidence:
   `.github/workflows/benchmark-regressions.yml:70`. Impact: a new benchmark
   target is silently excluded from scheduled baseline comparison unless it is
-  added there. EP-M1 decides explicitly, and records why, because `pipeline` and
-  `neighbour_scoring` are omitted on purpose.
+  added there. EP-M1 decides explicitly and records why. Note that `pipeline`
+  and `neighbour_scoring` are absent through **drift, not policy**:
+  `git log -S 'bench_matrix=['` shows the matrix was written once, in
+  `9db920e`, against the five targets that existed then, and neither later
+  target was ever added. Their absence is not a precedent to follow silently.
 - Observation: the Kani pull-request workflow's path filter already covers
   `chutoro-providers/dense/src/simd/**` and `**/kani_*.rs`. Evidence:
   `.github/workflows/kani-pr.yml:5-21`. Impact: a new harness inside
@@ -503,13 +513,31 @@ it.
   `rstest-bdd` would be an unauthorized dev-dependency in a crate with no
   behavioural suite. The proposed acceptance scenarios are expressed as named
   `rstest` cases instead. Date/Author: 2026-11-24, planning agent.
-- D11. Decision: adoption requires at least a 10% net reduction in the complete
-  maintained query-kernel surface, counting retained legacy bodies, dispatch,
-  query tests, and the query proof harness. Rationale: RFC 0001 requires a
-  "useful" net reduction but does not quantify it. Ten percent is small enough
-  to be achievable by a genuine consolidation and large enough not to be
-  satisfied by deleting a comment. This operationalization needs maintainer
-  confirmation at approval. Date/Author: 2026-11-24, planning agent.
+- D11. Decision: adoption is decided by `RULE-PROD` — deleted production lines
+  must be at least added production lines, plus a 10% reduction in the
+  arithmetic-body subset — while tests, proofs, the benchmark seam, and manifest
+  lines are reported separately under `REPORT-COST`.
+  Rationale: the first draft counted tests and proofs inside the net-reduction
+  gate. Measured, that rule cannot pass in any configuration: the only
+  deletable body on this host is 14 lines, and the structurally necessary
+  additions exceed 300. A gate that cannot pass decides the outcome before any
+  work is done, which is the opposite of a pre-registered measurement. This
+  revision narrows the gate to the question RFC 0001 actually asks — does the
+  consolidation reduce maintained production surface — and keeps the evidence
+  cost visible without letting it veto the design. Needs maintainer confirmation
+  at approval, because it reinterprets T1's "including … test, and proof code".
+  Date/Author: 2026-11-24, planning agent, after expert-panel review.
+- D13. Decision: keep the experiment in the plan, with an explicitly expected
+  null result on this host, rather than declining it at the outset.
+  Rationale: `RULE-PROD` cannot pass with AVX2-only substitution, so a reader
+  could reasonably ask why EP-M2 and EP-M3 exist. Two reasons. First, the RFC
+  requires an evaluation, and a recorded measured null result with parity
+  evidence is a stronger artefact than an argument from line counts. Second,
+  EP-M2's differential suite and the level-2 benchmark are independently useful
+  and are retained even under D12. The counter-argument — that this spends
+  effort to confirm arithmetic — is exactly Q5, and the maintainer may decline
+  EP-M2 onward at approval.
+  Date/Author: 2026-11-24, planning agent, after expert-panel review.
 - D12. Decision: a null result retains the level-2 benchmark target, the noise
   study, the protocol record, and the documentation update; it removes the
   dependency, the generic kernel, the invocation wiring, the testing seam, the
@@ -950,18 +978,40 @@ Lemmas required to connect the invariants to the required behaviour:
   `n`, so each remainder branch is reachable; the harness records a failure if
   no `L` and `n` combination produces a non-empty remainder.
 - Obligation `INV-token-provenance`, `INV-selector-authority`.
-  Method: exhaustive enumeration of the pure policy function, plus a named
-  integration test on the real host. Rationale: the policy is a total function
-  of three small finite domains, so enumeration is complete; the real-host test
-  confirms the token actually obtained matches the recorded expectation.
+  Method: three complementary artefacts — exhaustive enumeration of the pure
+  policy function, a named real-host integration test, and a standing source
+  contract.
+  Rationale: enumeration proves the *policy* is total and correct, but it
+  cannot see where a token came from, because the policy only ever receives
+  booleans. A contributor could add `Avx2::assume_supported()` in the kernel
+  file and every enumerated case would still pass. The repository already has
+  the right mechanism for this: `tests/workflow_contracts/`, run
+  unconditionally by `make test-workflow-contracts`
+  (`.github/workflows/ci.yml:194`), whose `trim_scoring_dispatch_test.py` pins
+  functions by name and rejects forbidden call shapes by source scan.
   Domain: 5 backends × 8 token-availability combinations × 8 evidence-set
-  combinations. Artefact: `simd/tests/fearless.rs` policy cases;
-  `simd/tests/support_masks.rs` extended with a real-token assertion. Evidence:
-  a mutation that enables a backend absent from the evidence set must fail a
-  named case. Non-vacuity: the domain includes the `Avx2`-selected-but-no-token
-  case, which must return `Legacy(Avx2)`, and the
-  `Avx512`-selected-but-not-in-evidence case, which must return
-  `Legacy(Avx512)`.
+  combinations for the policy; the real host for the integration test; the whole
+  of `simd/kernels/fearless.rs` and the selection function for the contract.
+  Artefact:
+  - `simd/tests/fearless.rs` policy cases;
+  - `simd/tests/support_masks.rs` extended with a real-token assertion that
+    compares against `Level::new()`, not against a recomputation of
+    `is_x86_feature_detected!` — the existing helpers at
+    `simd/tests/support_masks.rs:62-95` recompute their own expectation, so a
+    test written in that style cannot detect the two predicates disagreeing;
+  - a new `tests/workflow_contracts/fearless_token_provenance_test.py` that
+    pins the kernel module and `select_query_invocation`, rejects the tokens
+    `assume_supported`, `dispatch!`, `Level::baseline`, and any `unsafe` block
+    in those files, and fails closed when a pinned item is renamed. It must
+    carry docstrings or `make interrogate` fails (`Makefile:197-217`).
+  Evidence: `make test-workflow-contracts` fails when `assume_supported` is
+  added to the kernel and passes once removed; that is the negative control.
+  Non-vacuity: the policy domain includes `Avx2`-selected-with-no-token, which
+  must return `Legacy(Avx2, TokenAbsent)`, and
+  `Avx512`-selected-with-token-but-not-in-evidence, which must return
+  `Legacy(Avx512, NotInEvidence)`. These are the two cells a boolean-only
+  policy could conflate, so naming them separately is what proves the
+  distinction survives.
 - Obligation `INV-no-contraction`, `REQ-F2` bit identity.
   Method: disassembly inspection plus a bit-identity test against the legacy
   same-backend kernel. Rationale: the property is about generated code, so it
@@ -1098,44 +1148,85 @@ and are likewise controls.
   `chutoro-benches`, `harness = false`, registered in
   `chutoro-benches/Cargo.toml`.
 - Corroboration: `hyperfine` 1.20.0 through a new
-  `scripts/bench-dense-distance.sh`, modelled on
-  `scripts/bench-neighbour-scoring.sh:22-55`: build with
-  `cargo bench -p chutoro-benches --bench dense_distance --no-run --message-format=json`,
-  extract the executable with `jq`, then run it with
-  `--bench --profile-time 2`. Treat `hyperfine` as corroboration; Criterion and
-  cycle counts remain the primary signal, per
-  `docs/developers-guide.md:2934-2935`.
-- Pairing: baseline and candidate binaries are built from two worktrees at the
-  same commit graph and run **interleaved** in one `hyperfine` invocation, so
-  drift in machine state affects both. Use a positional Criterion filter, not
-  `--exact`: this repository intercepts the literal `--exact` flag to mean a
-  bounded probe (`is_exact_benchmark_probe_args`,
+  `scripts/bench-dense-distance.sh`, built like
+  `scripts/bench-neighbour-scoring.sh:22-46`: one
+  `cargo bench -p chutoro-benches --bench dense_distance --no-run --message-format=json`
+  per arm, with `jq` extracting `.target.name == "dense_distance"`, and a
+  separate `CARGO_TARGET_DIR` per arm so the two executables do not overwrite
+  each other. Treat `hyperfine` as a **smoke check only**; Criterion and cycle
+  counts are the primary signal, per `docs/developers-guide.md:2934-2935`.
+
+  **Do not use `--profile-time` for a decision.** Criterion's profile mode
+  computes `iterations = remaining / mean_exec_time` and runs exactly enough
+  iterations to fill a fixed budget, so the process takes about 2 s whether the
+  kernel is 10% faster or 10% slower; it cannot corroborate a direction. The
+  existing helper script uses it precisely because it is a smoke check. For a
+  directional measurement the script must run a fixed iteration count, so wall
+  time is proportional to throughput.
+
+- Pairing: RFC 0001 requires paired, interleaved measurements, and `hyperfine`
+  does **not** interleave — with two commands and three runs it executes
+  `A A A B B B`. Alternation must be driven explicitly, one round at a time, and
+  aggregated by per-round ratio:
+
+  ```sh
+  for round in 1 2 3 4 5; do
+    taskset -c 4-7 hyperfine --warmup 0 --runs 1 \
+      --export-json "/tmp/dd-$round.json" "$BASELINE" "$CANDIDATE"
+  done
+  jq -s 'map(.results[1].mean / .results[0].mean) | sort | .[length/2|floor]' /tmp/dd-*.json
+  ```
+
+  Report the median and the full set of five per-round ratios. Pin the round
+  count at five and the aggregation rule here, so the statistic is not chosen
+  after seeing it. `taskset` narrows scheduling; it does **not** isolate these
+  cores from other agents, so the noise study below decides whether the
+  instrument is usable at all.
+
+- Use a positional Criterion filter, not `--exact`: this repository intercepts
+  the literal `--exact` flag to mean a bounded probe
+  (`is_exact_benchmark_probe_args`,
   `chutoro-benches/src/criterion_support.rs:60-69`), and several targets switch
-  to reduced sizes or no-op registration when they see it. An `--exact` run
-  would therefore measure the probe path rather than the workload.
+  to reduced sizes or no-op registration when they see it. Criterion applies a
+  positional filter *after* fixture construction, so register filtered cases
+  cheaply or accept the setup cost.
+- Criterion comparison across two worktrees: Criterion's output directory is
+  per worktree (`$CARGO_TARGET_DIR/criterion`, else `./target/criterion`), and
+  `--baseline` panics when the named baseline is absent. Copy the baseline
+  across, exactly as the repository's own CI does
+  (`.github/workflows/benchmark-regressions.yml:184-192`), and pass `--noplot`
+  to match CI:
 
   ```sh
-  taskset -c 4-7 hyperfine --warmup 3 --runs 20 \
-    --export-json /tmp/hyperfine-dense-distance.json \
-    "$BASELINE --bench --profile-time 2 'dense_distance/batch/dim_128_candidates_32'" \
-    "$CANDIDATE --bench --profile-time 2 'dense_distance/batch/dim_128_candidates_32'"
+  # In the baseline worktree:
+  cargo bench -p chutoro-benches --bench dense_distance -- \
+    --save-baseline reference --noplot
+  # Copy reference/ into the candidate worktree's target/criterion, then:
+  cargo bench -p chutoro-benches --bench dense_distance -- \
+    --baseline reference --noplot
   ```
 
-  `--profile-time` is the argument the existing helper script uses
-  (`scripts/bench-neighbour-scoring.sh:50-55`): it runs each case for a fixed
-  wall-clock period and suppresses Criterion's own statistics, which is what
-  makes the process a stable `hyperfine` subject.
-- Criterion: save a baseline on the base revision and compare on the candidate,
-  both under `taskset -c 4-7`:
-
-  ```sh
-  cargo bench -p chutoro-benches --bench dense_distance -- --save-baseline run-1
-  cargo bench -p chutoro-benches --bench dense_distance -- --baseline run-1
-  ```
-
-  Never compare against a stored baseline from another day.
-- Fixed inputs: `BENCH_SEED = 0` plus explicit per-case value generation, so
-  both binaries measure the same data.
+  Define the baseline worktree as the EP-M1 commit: it contains the complete
+  benchmark target and the seam-free level-2 path, and it is the only revision
+  that is comparable without containing the candidate kernel. Never compare
+  against a stored baseline from another day.
+- Level 1 needs its own mechanism, because the packed group exists only after
+  the seam is added and Criterion compares per benchmark id, so
+  `packed/legacy` can never be the baseline for `packed/fearless`. Select the
+  variant by an environment variable so the **same** id is registered in both
+  runs; save the legacy run as the baseline and compare the fearless run against
+  it, in two processes. The level-1 baseline revision is therefore the EP-M2
+  commit that adds the seam, not the EP-M1 commit.
+- Fixed inputs: reuse the existing seed constant
+  (`BENCH_SEED = 0xC4A7_0203_0000_0231`,
+  `chutoro-benches/src/neighbour_scoring/benchmark_support.rs:28`) or state that
+  the new target defines its own; either way, generate every value
+  deterministically so both arms measure identical data.
+- Dimension 0 cannot be built through the `neighbour_scoring` fixture pattern:
+  Arrow collapses a zero-width `FixedSizeListArray` to zero rows, so the
+  provider reports `OutOfBounds` before any kernel runs. Either construct the
+  provider with a zero-width-but-nonzero-length array, or record dimension 0 as
+  unmeasurable. Do not silently drop it.
 - Release builds, warmed caches, one thread (the kernel is single-threaded;
   `RAYON_NUM_THREADS` is pinned anyway so a future parallel caller cannot
   confound the comparison).
@@ -1148,95 +1239,233 @@ and are likewise controls.
 ### Noise establishment
 
 Before any candidate timing, run five unchanged-versus-unchanged Criterion
-comparisons at the decision sizes on the base revision. The instrument passes
-at a given cell only if the 95% confidence interval half-width of the relative
-change is at most 1.0%, **or** at most `max(1.0%, 2.0 ns / measured time)`,
-whichever is larger.
+comparisons at each gated cell on the base revision. A cell's instrument passes
+only if **both** of these hold, where `limit` is that cell's Table 5 tolerance:
 
-The second term exists because Criterion cannot resolve a sub-10 ns cell to 1%:
-its own timer resolution and per-iteration overhead dominate, and demanding 1%
-there would manufacture an inconclusive verdict for reasons unrelated to the
-kernel. The escape clause is bounded: it never relaxes a cell whose measured
-time exceeds 200 ns, because at that point 2 ns is under 1% anyway. Every cell
-that uses the clause is marked as such in the evidence table, with its measured
-time and half-width.
+1. **Spread.** The 95% confidence interval half-width of every A/A comparison is
+   at most `min(1.0%, limit / 2)`.
+2. **Drift.** The *point estimate* of every A/A comparison lies within
+   `±min(1.0%, limit / 2)`.
 
-Sizing: gate all four dimension classes (32, 128, 768) at the decision counts,
-plus the dimension 8 class as a diagnostic. Cells whose measured time is under
-2 ns are reported as unmeasurable rather than gated; that is a recorded limit
-of the instrument, not a pass.
+Tying the allowance to the cell's own limit is what stops a noisy cell from
+passing the noise check while being unable to decide the gate: a cell whose
+half-width were 5% could never resolve a 3% limit, so admitting it only defers
+an inconclusive verdict. The drift condition is the one that matters on this
+host: Criterion's change interval is bootstrapped from a single pair of runs, so
+a systematic shift between the two blocks — a frequency or neighbour change —
+moves the point estimate while leaving the interval narrow. A rule that checked
+only half-widths would certify a biased instrument as precise.
+
+Report all five point estimates and all five half-widths per cell, not only the
+intervals.
+
+Rationale for allowing anything above 1.0%: Criterion amortizes timer
+resolution by batching many iterations per sample, so quantization is not the
+constraint. The real limits are per-iteration harness overhead folded into the
+measured mean, and drift on a host shared with other agents' builds. The
+allowance is therefore an overhead allowance, capped by the gate it protects.
+
+Sizing and the gated set: see the single table in `Decision tolerances`. Cells
+whose measured time is under 2 ns are reported as unmeasurable rather than
+gated; that is a recorded limit of the instrument, not a pass.
+
+Level-1 cells need their own A/A study, run after the EP-M2 seam exists
+(legacy variant against legacy variant), because the packed group does not exist
+during EP-M1. A packed cell without an A/A study is reported, not gated.
 
 If a cell fails after one tightening pass (higher sample size, longer
-measurement time, pinned cores), the experiment is inconclusive at that cell
-and is recorded with the observed half-width rather than being accepted as
-equivalent.
+measurement time, pinned cores), the experiment is inconclusive at that cell and
+is recorded with the observed half-width and point estimates rather than being
+accepted as equivalent.
 
 ### Decision tolerances
 
-The upper bound of the 95% confidence interval of the relative change,
-candidate against baseline, must be within the following limits.
+This table is the single definition of which cells are gated. No other section
+may restate or extend it. The upper bound of the 95% confidence interval of the
+relative change, candidate against baseline, must be within the stated limit.
 
-| Size class                              | Level            | Limit                |
-| --------------------------------------- | ---------------- | -------------------- |
-| Candidates 0, 1; dimension 0 (controls) | batch and packed | no gate; report only |
-| Candidates 8                            | batch            | +5.0%                |
-| Candidates 16, 24, 32, 48               | batch            | +3.0%                |
-| Candidates 64, 128, 256, 1024           | batch            | +2.0%                |
-| Candidates 2, 4                         | batch and packed | no gate; report only |
-| Candidates 16, 32, 64, 128              | packed           | +3.0%                |
+Dimensions are `32`, `128`, and `768` unless a row says otherwise. Those three
+are the dimensions the existing `neighbour_scoring` plan already measures
+(`chutoro-benches/src/neighbour_scoring/benchmark_plan.rs:9`), so a conclusion
+here speaks to a workload callers actually run.
 
-*Table 5: Pre-registered regression limits. The limits are one-sided: any
+| Level  | Candidates         | Dimensions   | Limit                            |
+| ------ | ------------------ | ------------ | -------------------------------- |
+| batch  | 8                  | 32, 128, 768 | +5.0%                            |
+| batch  | 16, 24, 32, 48     | 32, 128, 768 | +3.0%                            |
+| batch  | 64, 128, 256, 1024 | 32, 128, 768 | +2.0%                            |
+| packed | 16, 32, 64, 128    | 32, 128, 768 | +3.0%                            |
+| either | 0, 1               | any          | control: no gate, report only    |
+| either | any                | 0            | control: no gate, report only    |
+| either | 2, 4               | any          | diagnostic: no gate, report only |
+| either | any                | 1, 8, 16     | diagnostic: no gate, report only |
+
+*Table 5: The pre-registered gated set and limits. Limits are one-sided: any
 improvement is acceptable, and no speed-up is required.*
 
-Why two classes are reported but not gated. Candidates 0 and 1 and dimension 0
-never enter the packed kernel at all: `should_pack_query_points_for_backend`
-requires `dimension > 0 && candidate_count > 1`
-(`chutoro-providers/dense/src/simd/mod.rs:148-154`). Gating them would fail the
-plan for a change the kernel cannot cause, so they are scope-drift *controls*:
-a measurable change there means something outside the kernel moved, and that is
-reported and investigated rather than scored. Candidates 2 and 4 are ungated
-because one native vector covers them at every width in the matrix, so the cell
-measures dispatch and call overhead rather than arithmetic; it is still
-reported, because a dispatch regression would show there first.
+Why some classes are reported but not gated:
+
+- Candidates 0 and 1, and every dimension-0 cell, never enter the packed kernel:
+  `should_pack_query_points_for_backend` requires
+  `dimension > 0 && candidate_count > 1`
+  (`chutoro-providers/dense/src/simd/mod.rs:148-154`). Gating them would fail the
+  plan for a change the kernel cannot cause. They are scope-drift *controls*: a
+  measurable change means something outside the kernel moved, which is reported
+  and investigated rather than scored.
+- Candidates 2 and 4 are ungated because one native vector covers them at every
+  width, so the cell measures dispatch and call overhead rather than arithmetic.
+  Still reported, because a dispatch regression would show there first.
+- Dimensions 1, 8, and 16 are diagnostic. On this host's 8-lane AVX2 token they
+  execute at most two vector chunks, so any honest half-width is a large fraction
+  of the measurement; gating them would decide the experiment on instrument
+  error. They are measured and reported because they expose a remainder bug
+  immediately.
 
 Rules:
 
-1. Adoption requires every gated cell to be within its limit, for every
-   dimension in the matrix, on the same host in the same session.
+1. Adoption requires every gated cell of Table 5 to be within its limit, on the
+   same host in the same session, with the `Noise establishment` conditions
+   satisfied for that cell.
 2. A packed-kernel regression must be reported even when the complete-batch
    number hides it.
 3. No pipeline benefit may be claimed from any of these measurements, and no
    end-to-end speed-up is required for adoption.
-4. An interval that straddles a limit, or whose half-width exceeds the noise
-   rule in `Noise establishment`, is inconclusive rather than a pass.
+4. An interval that straddles a limit, or a cell whose noise evidence fails
+   `Noise establishment`, is inconclusive rather than a pass.
+5. A diagnostic or control cell that moves outside its own noise band is
+   reported as drift and investigated before the gate result is accepted, even
+   though it is not scored.
+
+### Measurement budget
+
+The full Table 4 matrix is far larger than the gated set and would not fit the
+per-milestone time tolerance. Pre-register the cost:
+
+- Gate only the Table 5 cells. Measure the remaining matrix cells once, at
+  reduced cost, for the record.
+- Use explicit `--warm-up-time 1 --measurement-time 2 --sample-size 30
+  --noplot` for every recording run. Criterion's defaults (3 s warm-up, 5 s
+  measurement, 100 samples) cost at least 8 s per cell and are not affordable
+  across the matrix.
+- Budget: one full gated run is expected under 10 minutes at these settings;
+  the five-round A/A study is under 50 minutes per level. If a milestone's
+  measurement work exceeds two hours of wall clock, stop and record the reduced
+  matrix actually measured rather than silently extending the milestone.
 
 ## Maintenance accounting
 
-RFC 0001 requirement T1 makes the maintenance reduction the deciding gate, so
-its arithmetic is pre-registered here.
+RFC 0001 requirement T1 makes the maintenance reduction the deciding gate. Its
+arithmetic is pre-registered here, and it is stated so that it *can* pass. A
+gate that cannot pass is not a gate; it is a foregone conclusion that wastes the
+measurement work, so the first draft's single net-reduction rule is replaced by
+two separately reported quantities and one bounded production rule.
 
-Counted surface, all in `chutoro-providers/dense/src/simd/` unless stated:
+### Measured starting surface
 
-1. every packed query-to-points arithmetic body, including retained legacy
-   bodies and the scalar oracle;
-2. the query-to-points dispatch: the invocation type, the policy function, the
-   cached static, and the match that invokes a kernel;
-3. every test whose subject is the packed query kernel, including the new
-   differential suite;
-4. the packed-query Kani harness, including the new partition harness;
-5. the new dependency's manifest lines and the new benchmark support seam.
+Non-blank, non-comment lines at `2c89752`, counted with
+`sed -e 's://.*$::' <range> | grep -vc '^\s*$'`:
 
-Method: count non-blank, non-comment lines in the named items at the base
-revision and at the candidate, using the same
-`git show <rev>:<path> | <command>` invocation for both so the numbers are
-comparable. Record both columns and the difference in
-`Outcomes & retrospective`.
+| Item                                             | Lines | Deletable on adoption?                    |
+| ------------------------------------------------ | ----- | ----------------------------------------- |
+| x86 query macro body (`x86_simd.rs:56-106`)      | 46    | Only if both x86 backends are substituted |
+| AVX-512 instantiation (`x86_simd.rs:130-144`)    | 14    | Only with AVX-512 execution evidence      |
+| AVX2 instantiation (`x86_simd.rs:168-182`)       | 14    | Yes, with AVX2 evidence                   |
+| NEON query entry and body (`neon_simd.rs:41-80`) | 33    | Only with AArch64 execution evidence      |
+| Scalar oracle (`kernels/mod.rs:236-256`)         | 21    | Never (Constraint 4)                      |
+| Portable-SIMD query (`portable_simd.rs:31-61`)   | 29    | Never (Constraint 5)                      |
 
-Adoption rule (D11): the complete patch must show at least a **10% net
-reduction** in that counted surface. Deleting a body while adding an equivalent
-body elsewhere does not count. Retaining every legacy body while adding a
-generic body will, on this analysis, fail the rule, and that is a recorded null
-result rather than a defect in the work.
+*Table 6: The deletable surface, measured. Under D6's AVX2-only substitution the
+removable total is 14 lines; with every backend substituted it is 107.*
+
+### Production rule (`RULE-PROD`)
+
+The deciding gate, and the only one that can fail the experiment:
+
+- `PROD_DELTA` = deleted production lines in
+  `chutoro-providers/dense/src/simd/**`, counting arithmetic bodies, dispatch,
+  and `cfg` gates, and excluding tests, proofs, and documentation.
+- `PROD_ADD` = added production lines in the same scope, counting the generic
+  kernel, the token and invocation types, the policy function, the cached
+  static, and the selection match.
+- Adoption requires `PROD_DELTA >= PROD_ADD` **and** a recorded net reduction
+  of at least 10% in the *arithmetic-body* subset alone (the six rows of
+  Table 6). The second clause prevents a patch that deletes one body and adds
+  ninety lines of dispatch from claiming a consolidation.
+
+This rule is satisfiable and is not trivially satisfied. Under AVX2-only
+substitution, `PROD_DELTA = 14`, so `PROD_ADD` must stay at or below 14 lines —
+which no honest token-carrying implementation of this design reaches. **The
+expected outcome on this host is therefore a null result, and the plan says so
+in advance** rather than discovering it after the measurement work. That is the
+faithful reading of RFC 0001: it explicitly contemplates that "preserving every
+legacy body while adding the generic body can increase both implementation count
+and maintenance cost. Record a null result if the complete patch cannot
+demonstrate a useful net reduction."
+
+`RULE-PROD` can pass only if Q2 supplies AVX-512 and AArch64 execution, or Q3
+permits deleting bodies whose only role is a weak-capability fallback. Both are
+maintainer decisions, and Q5 asks whether the experiment should proceed at all
+on an AVX2-only host given this arithmetic.
+
+### Reported cost (`REPORT-COST`)
+
+Tests, proofs, benchmark seam, and manifest lines are counted and reported but
+are **not** part of `RULE-PROD`, because they are the price of the evidence
+rather than maintained runtime surface, and because charging them to the gate
+would guarantee failure regardless of design quality:
+
+- the differential suite, the policy enumeration, and the partition harness;
+- the `testing`-gated seam and the new benchmark group;
+- the manifest and lockfile lines.
+
+### Method
+
+Two analysts must get the same number, so the count is pinned to files and
+line spans rather than to a description.
+
+For each revision `R`, run:
+
+```sh
+count() { git show "$1:$2" | sed -n "$3p" | sed -e 's://.*$::' | grep -vc '^\s*$'; }
+# Examples; repeat per row of the manifest below.
+count "$R" chutoro-providers/dense/src/simd/kernels/x86_simd.rs 56,106
+count "$R" chutoro-providers/dense/src/simd/kernels/mod.rs 236,256
+```
+
+Manifest — the exact ranges counted, all files under
+`chutoro-providers/dense/src/simd/`:
+
+| Item                                          | File                       | Base range                                                                            | Candidate range                           |
+| --------------------------------------------- | -------------------------- | ------------------------------------------------------------------------------------- | ----------------------------------------- |
+| x86 query macro body                          | `kernels/x86_simd.rs`      | 56-106                                                                                | as found (grep the macro name)            |
+| AVX-512 instantiation                         | `kernels/x86_simd.rs`      | 130-144                                                                               | as found                                  |
+| AVX2 instantiation                            | `kernels/x86_simd.rs`      | 168-182                                                                               | as found                                  |
+| NEON query entry and body                     | `kernels/neon_simd.rs`     | 41-80                                                                                 | as found                                  |
+| Scalar oracle query kernel                    | `kernels/mod.rs`           | 236-256                                                                               | as found                                  |
+| Portable query kernel                         | `kernels/portable_simd.rs` | 31-61                                                                                 | as found                                  |
+| Generic kernel                                | `kernels/fearless.rs`      | n/a                                                                                   | whole file                                |
+| Query dispatch (types, policy, static, match) | `kernels/mod.rs`           | the `EUCLIDEAN_QUERY_POINTS_KERNEL` static and `select_euclidean_query_points_kernel` | the corresponding new items, whole ranges |
+
+*Table 7: The counting manifest. "As found" means the range is located by
+grep for the item's name in the candidate revision, because line numbers move.*
+
+`PROD_DELTA` is the sum of base lines for deleted items; `PROD_ADD` is the sum
+of candidate lines for added items. Tests, proofs, the `testing` seam, the
+benchmark target, the benchmark script, and manifest lines are counted and
+reported under `REPORT-COST`, and are excluded from `RULE-PROD`. Record both
+columns and the arithmetic in `Outcomes & retrospective`.
+
+### Why this replaces the single net-reduction rule
+
+The first draft required a 10% net reduction in a surface that included the new
+tests and proofs. Measured against the 14 deletable lines above, and the
+structurally necessary 300-plus added lines of kernel, dispatch, tests, and
+proofs, no base count makes that rule pass. It was recorded as "very likely a
+null result"; it was in fact a certain one. A pre-registered gate that cannot
+pass is worse than no gate, because it conceals that the design decision was
+already made. `RULE-PROD` is the narrowest rule that still answers RFC 0001's
+question — *does the consolidation reduce maintained production surface?* —
+while keeping the evidence cost visible and out of the verdict.
 
 ## Plan of work
 
@@ -1276,9 +1505,10 @@ is measured against an unprincipled instrument.
    `chutoro-benches/benches/mst.rs:50-59` and `:98-102`); without it the smoke
    suite's `--list` run pays full fixture construction. Add the target to the
    hard-coded matrix at `.github/workflows/benchmark-regressions.yml:70` only
-   if its full run fits that job's budget — `pipeline` and `neighbour_scoring`
-   are deliberately absent there, so following that precedent is acceptable and
-   must be recorded either way.
+   if its full run fits that job's budget. `pipeline` and `neighbour_scoring`
+   are absent through drift rather than policy (see `Surprises & discoveries`),
+   so their absence settles nothing; decide on measured cost and record the
+   decision either way.
 5. Run the noise study and record the half-widths.
 6. Record baseline level-2 medians for every gated cell at the default
    dimensions, plus the selected backend and token availability.
@@ -1324,18 +1554,28 @@ Requirements and gaps: `REQ-F2`, `REQ-F3`, `REQ-T1` (candidate half), `REQ-T3`,
    the red state, and its failure message must name the missing item.
 3. Green. Add `simd/kernels/fearless.rs` with
    `euclidean_distance_query_points_fearless<S: Simd>`, declared from
-   `kernels/mod.rs` under `#[cfg(all(test, <arch and feature gate>))]` for this
-   milestone only, so it is never dead code in a non-test build.
+   `kernels/mod.rs` under `#[cfg(all(any(test, feature = "testing"),
+   <arch and feature gate>))]` for this milestone only, so it is never dead
+   code in a non-test build while remaining reachable from the level-1
+   benchmark fixture. `cfg(test)` alone would **not** be reachable: the bench
+   crate builds the dense crate with `testing` and without `cfg(test)`, which
+   are different build configurations. Getting this wrong blocks step 8.
 4. Refactor. Extract the per-index squared sum from
    `euclidean_distance_query_points_scalar` into a private helper so the scalar
    remainder and the scalar kernel share one definition, and keep the naive
    test oracle independent of it (D8).
 5. Proof of teeth. Temporarily replace the separate multiply and add with
-   `mul_add`; the bit-identity case must fail. Revert and record the transcript.
-6. Assembly evidence. Build a release test or bench binary, disassemble the
-   kernel symbol with `objdump -d --no-show-raw-insn`, and record whether packed
-   `vsubps`/`vmulps`/`vaddps` appear and whether any `vfmadd*` appears. If the
-   loop is scalar, revise D3 and try `fearless_simd_macros`.
+   `mul_add`; the bit-identity case must fail. The mutation is an **unstaged
+   working-tree edit**, never a commit: record `git diff --stat` before and
+   after, revert, and require `git status --porcelain` to be clean before the
+   next commit. Record both transcripts.
+6. Assembly evidence. Move this obligation to `EP-M3`, where the kernel is
+   reachable from a production binary. Here it can only be attempted against a
+   release test build
+   (`cargo test -p chutoro-providers-dense --release --all-features --no-run`),
+   and `#[inline(always)]` may erase the symbol. If EP-M3's inspection is
+   performed, quote the enclosing symbol and name the call site inspected when
+   the kernel itself is inlined.
 7. MSRV. Run and record
    `cargo +1.89 check -p chutoro-providers-dense --all-features --locked` and
    `cargo +1.89 check -p chutoro-providers-dense --no-default-features --locked`,
@@ -1593,12 +1833,25 @@ make lint      2>&1 | tee /tmp/lint-chutoro-2-2-8.out
 make test      2>&1 | tee /tmp/test-chutoro-2-2-8.out
 ```
 
-Known host conditions to separate from regressions: the compile-admission pool
-is shared with other agents on this machine, so a gate may queue for many
-minutes and `[build-limits]` lines on standard error are normal; a nextest
-global-timeout expiry while queued is not a test failure, and the run should be
-repeated once the queue has drained. Record the log path, never paste the whole
-log.
+Host conditions: the compile-admission pool is shared with other agents on this
+machine, so a gate may queue for many minutes and `[build-limits]` lines on
+standard error are normal. Triage by signal, not by intuition, because two
+different expiries look similar and only one is dismissible:
+
+| Signal                                        | Where it appears               | Meaning                                                            | Action                                                                                        |
+| --------------------------------------------- | ------------------------------ | ------------------------------------------------------------------ | --------------------------------------------------------------------------------------------- |
+| `[build-limits] … waiting for a compile slot` | stderr, during the build       | Admission queueing                                                 | Normal. Wait.                                                                                 |
+| `global-timeout`                              | nextest run summary, whole run | The 80-minute whole-run budget expired (`.config/nextest.toml:78`) | Re-run once, after `build-limits-status` reports healthy                                      |
+| A **named** test plus its `slow-timeout` line | nextest per-test line          | One test exceeded its own budget (`.config/nextest.toml:75`, 60 s) | **Not** dismissible. A real hang is the failure mode ADR 0006 exists to prevent. Investigate. |
+
+Bound the retry at one. Before re-running, run `build-limits-status` and
+confirm the supervisor is healthy and the queue is moving. Record the log path;
+never paste the whole log.
+
+Kani is a separate instrument: `kani-compiler` is deliberately outside sccache
+(`.github/workflows/nightly-kani.yml:31-48`), so a slow harness is solver time,
+not admission. Triage a slow harness against the verification-cost tolerance
+(15 minutes) and never re-run it "for the queue".
 
 ## Validation and acceptance
 
@@ -1813,7 +2066,9 @@ fn euclidean_distance_query_points_fearless<S: Simd>(
 ```
 
 Required items at the end of `EP-M3`, in
-`chutoro-providers/dense/src/simd/kernels/mod.rs`:
+`chutoro-providers/dense/src/simd/kernels/mod.rs`. Every variant and every
+`cfg` below is load-bearing: Fearless SIMD gates `Avx2`/`Avx512` on x86 and
+`Neon` on AArch64, so an ungated enum does not compile on either architecture.
 
 ```rust
 /// Which native backends this CPU's safe tokens prove available.
@@ -1825,6 +2080,10 @@ struct TokenAvailability {
 }
 
 /// Which backends have recorded native execution evidence.
+///
+/// The value records a measurement, not an intention. Each enabled bit must
+/// name its host, date, and the command that produced it in its doc comment;
+/// see `Execution evidence` in the plan.
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
 struct EvidenceSet {
     avx2: bool,
@@ -1832,25 +2091,49 @@ struct EvidenceSet {
     neon: bool,
 }
 
+/// Why a call kept the established implementation.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+enum LegacyReason {
+    /// The selector chose scalar or portable SIMD; no token applies.
+    NoNativeBackend,
+    /// No safe token for the selected backend is available on this CPU.
+    TokenAbsent,
+    /// The backend has no recorded native execution evidence.
+    NotInEvidence,
+}
+
 /// The implementation a query-to-points call will use, and for which backend.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 enum QueryKernelChoice {
     Fearless(EuclideanBackend),
-    Legacy(EuclideanBackend),
+    Legacy(EuclideanBackend, LegacyReason),
 }
 
-/// Pure policy: the selected backend decides; the token and the evidence
-/// decide whether the generic kernel is allowed to answer.
+/// Pure policy: the selector decides the backend; the token and the evidence
+/// decide whether the generic kernel is allowed to answer it.
 const fn choose_query_kernel(
     backend: EuclideanBackend,
     tokens: TokenAvailability,
     evidence: EvidenceSet,
 ) -> QueryKernelChoice;
 
-/// A safely obtained capability token, one variant per compiled native feature.
+/// A safely obtained capability token, one variant per compiled native
+/// feature and architecture.
 enum FearlessToken {
+    #[cfg(all(
+        feature = "simd_avx2",
+        any(target_arch = "x86", target_arch = "x86_64")
+    ))]
     Avx2(fearless_simd::Avx2),
+    #[cfg(all(
+        feature = "simd_avx512",
+        any(target_arch = "x86", target_arch = "x86_64")
+    ))]
     Avx512(fearless_simd::Avx512),
+    #[cfg(all(
+        feature = "simd_neon",
+        any(target_arch = "arm", target_arch = "aarch64")
+    ))]
     Neon(fearless_simd::Neon),
 }
 
@@ -1860,8 +2143,23 @@ enum QueryInvocation {
     Legacy(EuclideanQueryPointsKernel),
 }
 
-static EUCLIDEAN_QUERY_POINTS_INVOCATION: OnceLock<QueryInvocation>;
+static EUCLIDEAN_QUERY_POINTS_INVOCATION: OnceLock<QueryInvocation> = OnceLock::new();
 ```
+
+Two `EP-M3` acceptance checks follow from this block, because both defects are
+invisible to a test that only runs on the author's architecture:
+
+- The crate builds with the enum present under every configuration named in
+  step 6, including each single native feature on its own architecture and
+  `--no-default-features`.
+- `choose_query_kernel` is exhaustive over all three `LegacyReason` values, so
+  a fall-through to scalar cannot happen silently. Add a named case per reason.
+
+The `Legacy` reason is also emitted once at selection time as a
+`tracing::debug!` carrying the selected backend, token availability, evidence
+set, and reason. That is the only fleet-observable fact distinguishing "Fearless
+ran" from "legacy ran" from "scalar ran"; without it, adoption is decided on a
+document rather than on what shipped.
 
 Reuse policy: the generic kernel is owned by the dense provider, is private, is
 called only from `kernels::euclidean_distance_query_points`, and must not be
