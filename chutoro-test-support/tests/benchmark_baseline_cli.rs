@@ -53,10 +53,18 @@ impl Sandbox {
     }
 
     /// Write a complete baseline tree for one identifier.
+    ///
+    /// The `benchmark.json` carries Criterion's own identifier shape, so a
+    /// real inventory of this tree succeeds; the other two files only need to
+    /// exist for the required-file checks.
     fn write_baseline(root: &Path, directory: &str, baseline: &str) -> std::io::Result<()> {
         let path = root.join(directory).join(baseline);
         fs::create_dir_all(&path)?;
-        for file in ["benchmark.json", "estimates.json", "sample.json"] {
+        fs::write(
+            path.join("benchmark.json"),
+            format!(r#"{{"full_id":"{directory}","directory_name":"{directory}"}}"#),
+        )?;
+        for file in ["estimates.json", "sample.json"] {
             fs::write(path.join(file), "{}")?;
         }
         Ok(())
