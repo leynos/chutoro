@@ -639,14 +639,13 @@ Incremental sessions are CPU-only, so `build_session` always rejects
 
 ### Select feature flags
 
-`chutoro-core` has four feature flags, listed in Table 8.
+`chutoro-core` has three feature flags, listed in Table 8.
 
-| Feature    | Default | Effect                                                                  |
-| ---------- | ------- | ----------------------------------------------------------------------- |
-| `cpu`      | Yes     | The CPU backend, `CpuHnsw`, sessions, and the MST and hierarchy stages. |
-| `metrics`  | No      | Emits the metrics listed in [Observe a run](#observe-a-run).            |
-| `gpu`      | No      | Lets `GpuPreferred` pass `build`; no GPU backend exists yet.            |
-| `skeleton` | No      | Legacy compatibility flag with no effect; retained for older manifests. |
+| Feature   | Default | Effect                                                                  |
+| --------- | ------- | ----------------------------------------------------------------------- |
+| `cpu`     | Yes     | The CPU backend, `CpuHnsw`, sessions, and the MST and hierarchy stages. |
+| `metrics` | No      | Emits the metrics listed in [Observe a run](#observe-a-run).            |
+| `gpu`     | No      | Lets `GpuPreferred` pass `build`; no GPU backend exists yet.            |
 
 _Table 8: `chutoro-core` feature flags._
 

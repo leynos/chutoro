@@ -251,6 +251,12 @@ candidate edges as a `&[CandidateEdge]`, so a Rayon consumer can split the list
 without first collecting a vector of references. Existing callers of `iter`,
 `into_iter`, and `into_inner` need no changes.
 
+## Drop the `skeleton` feature
+
+`chutoro-core` no longer declares the `skeleton` feature, which had no effect.
+Cargo rejects a dependency that requests an undeclared feature, so remove
+`"skeleton"` from any `features` list for `chutoro-core`. Nothing else changes.
+
 ## Use the new helpers and metrics
 
 These changes are additive and need no migration:
