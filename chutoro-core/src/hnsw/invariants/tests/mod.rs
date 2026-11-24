@@ -16,7 +16,9 @@ use crate::{
         CpuHnsw,
         error::HnswError,
         graph::{Graph, NodeContext},
+        insert::test_helpers::add_edge_if_missing,
         params::HnswParams,
+        tests::base_layer_reachability::unreachable_base_layer_nodes,
     },
 };
 use rstest::{fixture, rstest};
@@ -65,6 +67,72 @@ fn check_all_succeeds_for_valid_index(
 ) {
     let (index, _data) = index_res.expect("index should build");
     index.invariants().check_all().expect("graph valid");
+}
+
+/// Permitted upper-layer isolation must not weaken the base-layer contract.
+///
+/// The fixture's entry node occupies level 1 with an empty upper-layer list,
+/// while the base layer forms the reciprocal chain `0 <-> 1 <-> 2`. The public
+/// invariant suite is cross-layer, so this test also runs the test-only
+/// base-layer oracle. See `docs/chutoro-design.md` §6.5.1 and ADR 0010.
+#[test]
+fn upper_layer_isolation_preserves_base_layer_reachability() {
+    let params = HnswParams::new(2, 4).expect("params");
+    let index = CpuHnsw::with_capacity(params, 3).expect("capacity");
+    index
+        .write_graph(|graph| {
+            graph.insert_first(NodeContext {
+                node: 0,
+                level: 1,
+                sequence: 0,
+            })?;
+            graph.attach_node(NodeContext {
+                node: 1,
+                level: 0,
+                sequence: 1,
+            })?;
+            graph.attach_node(NodeContext {
+                node: 2,
+                level: 0,
+                sequence: 2,
+            })?;
+            add_edge_if_missing(graph, 0, 1, 0);
+            add_edge_if_missing(graph, 1, 0, 0);
+            add_edge_if_missing(graph, 1, 2, 0);
+            add_edge_if_missing(graph, 2, 1, 0);
+            Ok(())
+        })
+        .expect("test graph must be writable");
+
+    index
+        .invariants()
+        .check_all()
+        .expect("permitted upper-layer isolation must satisfy every invariant");
+    index
+        .invariants()
+        .reachability()
+        .expect("cross-layer reachability must hold");
+
+    index
+        .inspect_graph(|graph| {
+            let entry = graph.entry().expect("entry must exist");
+            assert_eq!(entry.level, 1, "fixture entry must occupy level 1");
+            assert!(
+                graph
+                    .node(entry.node)
+                    .expect("entry node must exist")
+                    .neighbours(1)
+                    .is_empty(),
+                "the entry's upper-layer list must remain empty",
+            );
+            let unreachable =
+                unreachable_base_layer_nodes(graph).expect("oracle must evaluate a valid graph");
+            assert!(
+                unreachable.is_empty(),
+                "base-layer reachability must hold; unreachable: {unreachable:?}",
+            );
+        })
+        .expect("graph inspection must succeed");
 }
 
 #[rstest]

@@ -314,6 +314,9 @@ fn commit_path_reconciliation_keeps_bidirectionality(
 /// Scenario: node 1 is at level-1 capacity with node 2. Node 0's update adds
 /// node 1, evicting node 2 from node 1 and deferring a scrub that removes the
 /// orphaned (2 -> 1) forward edge.
+///
+/// Node 2 is then isolated at level 1, which design §6.5.1 permits, while its
+/// reciprocal base-layer edge with node 1 survives untouched.
 #[rstest]
 fn eviction_deferred_scrub_keeps_reciprocity(
     #[from(params_one_connection)] params_res: Result<HnswParams, HnswError>,
@@ -326,7 +329,25 @@ fn eviction_deferred_scrub_keeps_reciprocity(
     assert_has_edge(&graph, 1, 0, 1);
     assert_no_edge(&graph, 2, 1, 1);
     assert_no_edge(&graph, 1, 2, 1);
+    assert_upper_isolation_after_eviction(&graph);
     assert_graph_bidirectional(&graph, 4);
 
     Ok(())
+}
+
+/// Asserts node 2's post-eviction shape at both layers.
+///
+/// Level 1 must be empty, which design §6.5.1 permits, and the reciprocal
+/// base-layer edge must survive because only level-0 isolation is a defect.
+fn assert_upper_isolation_after_eviction(graph: &Graph) {
+    let node_two = graph.node(2).expect("node 2 should exist");
+    assert!(
+        node_two.neighbours(1).is_empty(),
+        "upper-layer isolation after eviction is permitted by design §6.5.1",
+    );
+    assert!(
+        !node_two.neighbours(0).is_empty(),
+        "base-layer edges must survive upper-layer isolation",
+    );
+    assert_bidirectional_edge!(graph, 1, 2, 0);
 }

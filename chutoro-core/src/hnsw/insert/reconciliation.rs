@@ -8,6 +8,12 @@
 //! same batch touch overlapping edges. After all updates are processed, the
 //! deferred scrubs are filtered against the final edge set to ensure we don't
 //! remove edges that were added by later updates.
+//!
+//! Healing is base-only by design. An emptied neighbour list above level 0 is
+//! a permitted state rather than a defect, because upper layers only guide
+//! descent while level-0 best-first search produces the result set. See
+//! `docs/chutoro-design.md` §6.5.1 and ADR 0010 for the policy and its recall
+//! trade-off. Every `level == 0` condition below implements that boundary.
 
 use crate::hnsw::graph::Graph;
 
@@ -87,7 +93,9 @@ impl<'graph> EdgeReconciler<'graph> {
     /// Removes the target's reciprocal edge to the origin.
     ///
     /// Returns whether the removal leaves a base-layer target isolated, so the
-    /// caller can defer healing until all removals are complete.
+    /// caller can defer healing until all removals are complete. An emptied
+    /// upper-layer list is the permitted isolation state from design §6.5.1
+    /// and does not request healing.
     fn remove_reverse_edge(&mut self, ctx: &UpdateContext, target: usize) -> bool {
         let Some(target_node) = self.graph.node_mut(target) else {
             return false;
@@ -104,6 +112,8 @@ impl<'graph> EdgeReconciler<'graph> {
         };
 
         neighbours.remove(pos);
+        // Base-only by policy: an emptied upper-layer list is permitted
+        // because level-0 search still reaches the node (ADR 0010).
         ctx.level == 0 && neighbours.is_empty()
     }
 
@@ -213,6 +223,10 @@ impl<'graph> EdgeReconciler<'graph> {
     /// Returns true if connectivity healing should be triggered after removing
     /// a neighbour. Healing is needed when a node becomes isolated at the base
     /// layer after a successful removal.
+    ///
+    /// The `level == 0` requirement is the policy boundary: upper-layer
+    /// isolation is permitted, so a scrub that empties an upper-layer list is
+    /// left alone. See design §6.5.1 and ADR 0010.
     const fn should_heal_connectivity(
         initial_len: usize,
         neighbours: &[usize],
@@ -257,6 +271,7 @@ mod tests {
     use crate::hnsw::{
         error::HnswError,
         graph::{Graph, NodeContext},
+        insert::test_helpers::add_edge_if_missing,
         params::HnswParams,
     };
 
@@ -307,9 +322,16 @@ mod tests {
         );
     }
 
+    /// Upper-layer isolation is permitted, but only for the upper layer.
+    ///
+    /// Removing the target's last level-1 reverse edge leaves it isolated
+    /// there, as design §6.5.1 and ADR 0010 allow. The reciprocal base-layer
+    /// edges are not part of the removal and must survive unchanged.
     #[test]
     fn remove_reverse_edge_does_not_report_an_upper_layer_target_as_isolated() {
         let mut graph = graph_with_two_nodes(1).expect("test graph must be valid");
+        add_edge_if_missing(&mut graph, 0, 1, 0);
+        add_edge_if_missing(&mut graph, 1, 0, 0);
         graph
             .node_mut(1)
             .expect("target node must be present")
@@ -327,6 +349,24 @@ mod tests {
                 .expect("target node must be present")
                 .neighbours(1),
             [] as [usize; 0]
+        );
+        assert_eq!(
+            reconciler
+                .graph
+                .node(1)
+                .expect("target node must be present")
+                .neighbours(0),
+            [0] as [usize; 1],
+            "the target's base-layer edge must survive upper-layer removal",
+        );
+        assert_eq!(
+            reconciler
+                .graph
+                .node(0)
+                .expect("origin node must be present")
+                .neighbours(0),
+            [1] as [usize; 1],
+            "the origin's base-layer edge must survive upper-layer removal",
         );
     }
 

@@ -7,12 +7,43 @@ use rstest::rstest;
 use crate::{
     DataSource,
     hnsw::{
-        CpuHnsw, HnswParams,
+        CpuHnsw, HnswError, HnswParams,
         graph::{Graph, NodeContext, SearchContext},
+        insert::test_helpers::add_edge_if_missing,
     },
 };
 
 use crate::test_utils::NumericTestSource;
+
+/// Builds the shared upper-isolated entry fixture.
+///
+/// Node 0 is the entry at level 1 with an empty upper-layer list. Nodes 1 and
+/// 2 occupy level 0 and form the reciprocal base chain `0 <-> 1 <-> 2`, so a
+/// level-0 search reaches every node even though the entry is isolated at
+/// level 1. This is the permitted shape described in design §6.5.1.
+fn upper_isolated_entry_graph(params: &HnswParams) -> Result<Graph, HnswError> {
+    let mut graph = Graph::with_capacity(params.clone(), 3);
+    graph.insert_first(NodeContext {
+        node: 0,
+        level: 1,
+        sequence: 0,
+    })?;
+    graph.attach_node(NodeContext {
+        node: 1,
+        level: 0,
+        sequence: 1,
+    })?;
+    graph.attach_node(NodeContext {
+        node: 2,
+        level: 0,
+        sequence: 2,
+    })?;
+    add_edge_if_missing(&mut graph, 0, 1, 0);
+    add_edge_if_missing(&mut graph, 1, 0, 0);
+    add_edge_if_missing(&mut graph, 1, 2, 0);
+    add_edge_if_missing(&mut graph, 2, 1, 0);
+    Ok(graph)
+}
 
 #[rstest]
 fn greedy_descent_selects_closest_neighbour() {
@@ -208,6 +239,86 @@ fn layer_search_orders_equal_distance_deterministically() {
         .collect();
 
     assert_eq!(ids, vec![0, 1, 2], "ordering must remain stable under ties");
+}
+
+/// Greedy descent cannot leave an entry whose upper-layer list is empty.
+#[rstest]
+fn greedy_descent_stays_at_an_upper_isolated_entry() {
+    let source = NumericTestSource::new("upper-isolated", vec![0.0, 1.0, 2.0]);
+    let params = HnswParams::new(2, 4).expect("params must be valid");
+    let graph = upper_isolated_entry_graph(&params).expect("fixture must be valid");
+    let searcher = graph.searcher();
+
+    let descent = searcher
+        .greedy_search_layer(
+            None,
+            &source,
+            SearchContext {
+                query: 2,
+                entry: 0,
+                level: 1,
+            },
+        )
+        .expect("greedy descent must succeed");
+    assert_eq!(
+        descent, 0,
+        "an empty level-1 list leaves greedy descent at the entry",
+    );
+
+    let found = searcher
+        .search_layer(
+            None,
+            &source,
+            SearchContext {
+                query: 2,
+                entry: descent,
+                level: 0,
+            }
+            .with_ef(4),
+        )
+        .expect("layer search must succeed");
+    let ids: Vec<_> = found.into_iter().map(|neighbour| neighbour.id).collect();
+    assert_eq!(
+        ids,
+        vec![2, 1, 0],
+        "level-0 best-first search must reach the full base chain",
+    );
+}
+
+/// The public search reaches the base chain from an upper-isolated entry.
+///
+/// `ef = 4` leaves room for the whole fixture, and node 1 is not the query, so
+/// its presence in the result can only come from level-0 traversal.
+#[rstest]
+fn search_descends_from_an_upper_isolated_entry_into_the_base_chain() {
+    let source = NumericTestSource::new("upper-isolated", vec![0.0, 1.0, 2.0]);
+    let params = HnswParams::new(2, 4).expect("params must be valid");
+    let index =
+        CpuHnsw::with_capacity(params.clone(), source.len()).expect("capacity must be valid");
+    index
+        .write_graph(|graph| {
+            *graph = upper_isolated_entry_graph(&params)?;
+            Ok(())
+        })
+        .expect("test graph must be writable");
+
+    let neighbours = index
+        .search(
+            &source,
+            2,
+            NonZeroUsize::new(4).expect("ef must be non-zero"),
+        )
+        .expect("search must succeed");
+    let ids: Vec<_> = neighbours.iter().map(|neighbour| neighbour.id).collect();
+    assert_eq!(
+        ids,
+        vec![2, 1, 0],
+        "search must reach the base chain in distance order",
+    );
+    assert!(
+        ids.contains(&1),
+        "the base layer must make node 1 reachable without query fallback",
+    );
 }
 
 #[rstest]

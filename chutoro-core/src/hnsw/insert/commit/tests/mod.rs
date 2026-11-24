@@ -226,8 +226,15 @@ struct EvictionTestContext {
 impl EvictionTestContext {
     /// Creates a test graph with 4 nodes at level 1, where node 1 is seeded
     /// at capacity with a bidirectional edge to node 2.
+    ///
+    /// The pair also keeps a reciprocal base-layer edge, so tests can
+    /// distinguish permitted upper-layer isolation from base-layer isolation
+    /// (design §6.5.1).
     fn new(params: HnswParams) -> Result<Self, HnswError> {
-        Self::seeded(params, 4, (1, 2), NewNodeContext { id: 3, level: 1 })
+        let mut ctx = Self::seeded(params, 4, (1, 2), NewNodeContext { id: 3, level: 1 })?;
+        add_edge_if_missing(&mut ctx.graph, 1, 2, 0);
+        add_edge_if_missing(&mut ctx.graph, 2, 1, 0);
+        Ok(ctx)
     }
 
     /// Creates a test graph with `node_count` nodes at level 1, seeding the

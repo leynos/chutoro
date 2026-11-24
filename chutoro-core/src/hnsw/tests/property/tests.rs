@@ -25,7 +25,7 @@ use super::{
     types::HnswParamsSeed,
 };
 use crate::error::DataSourceError;
-use crate::hnsw::HnswError;
+use crate::hnsw::{HnswError, tests::base_layer_reachability::unreachable_base_layer_nodes};
 use crate::test_utils::suite_proptest_config;
 use crate::{CpuHnsw, DataSource};
 
@@ -240,6 +240,7 @@ fn bootstrap_uniform_fixture_remains_reachable() {
         index
             .insert(node, &source)
             .expect("bootstrap insertion must succeed");
+        assert_base_layer_reachability(&index, node);
     }
 
     index
@@ -258,6 +259,34 @@ fn bootstrap_uniform_fixture_remains_reachable() {
         .invariants()
         .check_all()
         .expect("bootstrap should preserve reachability");
+}
+
+/// Asserts the normative base-layer requirement after one sequential insert.
+///
+/// The public `check_all()` uses a cross-layer traversal, so it accepts a
+/// base-layer split bridged by an upper-layer edge. This helper runs the
+/// test-only base-layer oracle, which is the policy stated in design §6.5.1
+/// and ADR 0010. A failure here records the step, the entry point, and the
+/// level-0 edges so the divergence note and the follow-up issue (see
+/// issue #393) can be updated with the observed topology.
+fn assert_base_layer_reachability(index: &CpuHnsw, step: usize) {
+    index
+        .inspect_graph(|graph| {
+            let entry = graph.entry().expect("a populated graph must have an entry");
+            let edges: Vec<(usize, Vec<usize>)> = graph
+                .nodes_iter()
+                .map(|(id, node)| (id, node.neighbours(0).to_vec()))
+                .collect();
+            let unreachable = unreachable_base_layer_nodes(graph)
+                .expect("the oracle must evaluate a valid graph");
+            assert!(
+                unreachable.is_empty(),
+                "step {step}: entry {:?} left base-layer nodes {unreachable:?} unreachable; \
+                 level-0 edges: {edges:?}",
+                (entry.node, entry.level),
+            );
+        })
+        .expect("graph inspection must succeed");
 }
 
 fn bootstrap_uniform_vectors() -> Result<Vec<Vec<f32>>, serde_json::Error> {

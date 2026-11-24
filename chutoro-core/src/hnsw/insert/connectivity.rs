@@ -97,6 +97,13 @@ impl<'graph> ConnectivityHealer<'graph> {
 
     /// Ensures a node has base connectivity by linking it to the entry node.
     ///
+    /// Healing is deliberately limited to level 0. Upper-layer isolation is a
+    /// permitted state after eviction: an upper-isolated node cannot guide
+    /// greedy descent, but level-0 best-first search still reaches it, so the
+    /// effect is a possible recall reduction that a larger `ef` can offset.
+    /// The policy, its layer rationale and the trade-off are recorded in
+    /// `docs/chutoro-design.md` §6.5.1 and ADR 0010.
+    ///
     /// Uses an iterative work queue to process any nodes that become isolated
     /// due to evictions, avoiding deep recursion that could cause stack overflow.
     pub(super) fn ensure_base_connectivity(&mut self, node: usize, max_connections: usize) {

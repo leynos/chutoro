@@ -33,7 +33,12 @@ pub enum HnswInvariant {
     LayerConsistency,
     /// Enforces the per-layer degree bounds described in the design docs.
     DegreeBounds,
-    /// Guarantees every inserted node is reachable from the entry point.
+    /// Guarantees every inserted node is reachable from the entry point
+    /// through edges at any layer.
+    ///
+    /// This is weaker than the normative base-layer requirement: a level-0
+    /// split bridged by an upper-layer edge passes. See
+    /// `docs/chutoro-design.md` §6.5.1.
     Reachability,
     /// Ensures edges are bidirectional at every layer.
     BidirectionalLinks,
@@ -204,6 +209,10 @@ impl<'index> HnswInvariantChecker<'index> {
     }
 
     /// Runs the reachability invariant directly.
+    ///
+    /// The check follows edges at every layer, so it does not enforce the
+    /// normative base-layer requirement described in `docs/chutoro-design.md`
+    /// §6.5.1.
     ///
     /// # Errors
     ///

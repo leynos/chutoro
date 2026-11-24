@@ -3,12 +3,22 @@
 //! Validates that every node remains reachable from the entry point across all
 //! layers, reusing the shared `EvaluationMode` to either fail fast or collect
 //! every missing edge and unreachable vertex.
+//!
+//! This is a cross-layer check, not the normative base-layer requirement: an
+//! upper-layer edge can bridge two separate level-0 components and still pass.
+//! The normative requirement and its known gap are recorded in
+//! `docs/chutoro-design.md` §6.5.1 and ADR 0010; tests that need the stronger
+//! check use the test-only base-layer oracle.
 use std::collections::VecDeque;
 
 use super::{EvaluationMode, GraphContext, HnswInvariantViolation, helpers::LayerValidator};
 
 /// Verifies that every node in the graph remains reachable from the declared
 /// entry point by validating each layer and traversing the structure via BFS.
+///
+/// Neighbours at every layer are followed, so a base-layer split bridged by an
+/// upper-layer edge is accepted. That divergence from the normative base-layer
+/// requirement is deliberate and documented in `docs/chutoro-design.md` §6.5.1.
 ///
 /// Records violations through `mode` so callers that aggregate failures can
 /// continue collecting issues even when the function returns `Ok(())`.
