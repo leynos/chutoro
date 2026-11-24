@@ -8,7 +8,6 @@ rust-version = "1.89.0"
 default = ["cpu"]
 cpu = ["dep:rand", "dep:rayon", "dep:dashmap", "dep:lru"]
 metrics = ["dep:metrics"]
-skeleton = []
 gpu = []
 
 [package.metadata.docs.rs]
