@@ -17,10 +17,11 @@ plain sub-bullet rather than a checkbox, because it states a dependency rather
 than a deliverable; EP-M5 ticks the item itself and must not reintroduce a
 checkbox on that line.
 
-Reconciled against `main` at `00af09e` ("Delete the pull-request concurrency
-text test", PR 465), whose parent chain includes `51e8093` ("State the
-roadmap's task and phase dependencies", PR 463) and `d6fdbe3` ("Remove the no-op
-`skeleton` feature", PR 461). All source citations below are to `00af09e`
+Reconciled against `main` at `b2e4e54` ("Enforce the no-self-loop precondition
+in `EdgeReconciler::ensure_reverse_edge`", PR 448), whose parent chain includes
+`7ca9520` (cognitive-complexity lint, PR 468), `7df6870` (documentation style
+guide, PR 466), `51e8093` (roadmap dependencies, PR 463) and `d6fdbe3` (removal
+of the `skeleton` feature, PR 461). All source citations below are to `b2e4e54`
 unless a line says otherwise.
 
 Governing design: `docs/rfcs/rfc-0001-fearless-simd-query-to-points.md` (RFC
@@ -338,12 +339,37 @@ Measured survey of the surface this work touches:
   token variants by architecture.** The kernel is generic over `S: Simd` and
   names no token type, so it compiles on every target. If a residual warning
   remains, record it as cosmetic; do not add a lint policy change to this task.
+- **Risk: cognitive complexity is now gated at 9 by a macro-aware lint.**
+  `main` moved this from Clippy to Whitaker: `clippy.toml` no longer sets
+  `cognitive-complexity-threshold`, and `dylint.toml` opts in with
+  `[whitaker] experimental = ["macro_aware_cognitive_complexity"]` and
+  `[macro_aware_cognitive_complexity] max_complexity = 9`
+  (`docs/developers-guide.md` records that Clippy scores code after macro
+  expansion and so counted branching the macro generated). The generic kernel's
+  chunk loop plus dimension loop plus remainder is three nested constructs, and
+  `choose_query_kernel`'s exhaustive match over backends × tokens × evidence
+  risks crossing 9. Severity: medium. Likelihood: medium. Mitigation: EP-M2 and
+  EP-M3 treat `make lint-whitaker` as a required gate, not an optional one, and
+  fix a finding by extracting named helpers — never by raising the threshold,
+  which the developers' guide explicitly forbids. If `choose_query_kernel`
+  exceeds 9, split it into one predicate per backend rather than suppressing
+  the lint.
 - **Risk: lint friction.** The workspace denies `float_arithmetic`,
   `indexing_slicing`, `unwrap_used`, `expect_used`, `integer_division`, and
   `missing_docs_in_private_items`. Severity: low. Likelihood: high. Mitigation:
   the kernel uses `get`/`chunks_mut` idioms already present in
   `portable_simd.rs:41-52` instead of indexing, and any `#[expect]` carries a
   scoped reason.
+- **Risk: doctests must import the documented item.** `main` added a style-guide
+  rule: Rustdoc compiles a doctest as an external crate, so a bare call cannot
+  resolve and each example needs a hidden `# use crate_name::item;` line
+  (`docs/documentation-style-guide.md`). Any `///` example this work adds to
+  the generic kernel or the policy function must follow it, and examples should
+  run as doctests where they can execute. Severity: low. Likelihood: medium.
+  Mitigation: EP-M2 and EP-M3 run `make test-doc`, which compiles doctests as
+  external crates and is where this rule is enforced. The plan's own code
+  snippets are plan text, not rustdoc, so they are unaffected.
+
 - **Risk: MSRV drift in a caret requirement.** `fearless_simd = "1.2"` permits
   any 1.x, and a later 1.x may raise its MSRV. Severity: low. Likelihood: low.
   Mitigation: `--locked` builds, record the resolved version, and re-run the
@@ -2564,3 +2590,34 @@ does. The plan's default is stated for each.
   in `range-diff`. Note the exclusive boundary is `d6fdbe3`, not the branch's
   older base `2c89752`: `d6fdbe3` is `main`'s own commit, inherited by the
   previous rebase, and must not be replayed as branch work.
+
+- 2026-11-24, revision 8: Rebased onto `main` at `b2e4e54`. Four commits landed
+  since the previous rebase, and two of them change constraints this plan
+  depends on.
+
+  - `7ca9520` moved cognitive-complexity gating from Clippy to Whitaker's
+    experimental `macro_aware_cognitive_complexity` at `max_complexity = 9`,
+    because Clippy's version scores code after macro expansion and so counted
+    branching the macro generated. `clippy.toml` no longer sets the threshold.
+    This is a new gate that the kernel's nested loops and
+    `choose_query_kernel`'s exhaustive match must pass. Recorded as a risk, with
+    the rule that a finding is fixed by extracting helpers and never by raising
+    the threshold.
+  - `7df6870` added a style-guide rule that each `///` example must carry a
+    hidden `# use crate_name::item;`, because Rustdoc compiles doctests as
+    external crates. Recorded, with `make test-doc` named as the enforcing gate.
+  - `b2e4e54` and `b784587` touch `chutoro-core` and the dataset-retrieval
+    document. Neither intersects this plan's sources or citations; roadmap item
+    2.2.8 remains at line 428 and `Requires` remains a plain sub-bullet.
+
+  The replay was clean again: 20 commits, no conflicts, every commit unchanged
+  in `range-diff`. The exclusive boundary moved forward to `00af09e`, the
+  previous rebase's target, so `main`'s commits are never replayed as branch
+  work.
+
+  Gate note carried forward from revision 7: `make test` cannot complete on
+  this host. Nextest's `warm-compile-contracts` setup script is capped at 1800
+  s, while two of its trybuild tests measured 2839 s and 2156 s under this
+  machine's session contention. Every attempt reports `0/1618 tests run` and
+  zero failures, so no test has ever failed; the gate aborts before executing.
+  `make typecheck` compiles every target and exits 0.
