@@ -14,6 +14,10 @@ Roadmap item: `2.2.8` in `docs/roadmap.md` lines 396-411, "Evaluate and, if
 accepted, adopt a bounded Fearless SIMD port of the dense query-to-points
 Euclidean kernel".
 
+Reconciled against `main` at `d6fdbe3` ("Remove the no-op `skeleton` feature",
+PR 461). All source citations below are to that revision unless a line says
+otherwise.
+
 Governing design: `docs/rfcs/rfc-0001-fearless-simd-query-to-points.md` (RFC
 0001), `docs/adrs/adr-0007-fearless-simd-kernel-boundary.md` (ADR 0007), and
 `docs/chutoro-design.md` §6.3 and §6.3.1.
