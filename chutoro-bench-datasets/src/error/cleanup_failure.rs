@@ -1,8 +1,11 @@
 //! Payload retaining both failures when a recipe phase and its cleanup fail.
 
+use std::error::Error;
+
 use thiserror::Error;
 
 use super::RecipeError;
+use crate::Phase;
 
 /// Both failures retained when a recipe phase fails and cleanup also fails.
 ///
@@ -86,5 +89,93 @@ impl CleanupFailure {
     #[must_use]
     pub const fn cleanup_error(&self) -> &RecipeError {
         &self.cleanup_error
+    }
+}
+
+impl RecipeError {
+    /// Create a cleanup failure.
+    ///
+    /// # Examples
+    ///
+    /// ```
+    /// use chutoro_bench_datasets::{Phase, RecipeError};
+    ///
+    /// let source = std::io::Error::other("remove cache");
+    /// let error = RecipeError::cleanup(Phase::Prepare, source);
+    /// assert!(matches!(error, RecipeError::Cleanup { phase: Phase::Prepare, .. }));
+    /// ```
+    #[must_use]
+    pub fn cleanup(phase: Phase, source: impl Error + Send + Sync + 'static) -> Self {
+        Self::Cleanup {
+            phase,
+            source: Box::new(source),
+        }
+    }
+
+    /// Create a cleanup failure that retains the original phase error.
+    ///
+    /// # Parameters
+    /// - `phase`: Phase whose execution returned `phase_error`.
+    /// - `phase_error`: Error returned by the failed phase. It becomes the
+    ///   source of the retained cleanup failure.
+    /// - `cleanup_error`: Error returned by the recipe cleanup hook.
+    ///
+    /// # Returns
+    /// [`RecipeError::Cleanup`] whose source is a boxed [`CleanupFailure`]
+    /// retaining both errors.
+    ///
+    /// # Examples
+    ///
+    /// ```
+    /// use chutoro_bench_datasets::{Phase, PortName, RecipeError};
+    ///
+    /// let error = RecipeError::cleanup_with_phase_error(
+    ///     Phase::Prepare,
+    ///     RecipeError::prepare("archive corrupt"),
+    ///     RecipeError::port(PortName::Storage, "cache locked"),
+    /// );
+    /// assert!(matches!(
+    ///     error,
+    ///     RecipeError::Cleanup {
+    ///         phase: Phase::Prepare,
+    ///         ..
+    ///     }
+    /// ));
+    /// ```
+    #[must_use]
+    pub fn cleanup_with_phase_error(phase: Phase, phase_error: Self, cleanup_error: Self) -> Self {
+        Self::Cleanup {
+            phase,
+            source: Box::new(CleanupFailure::new(phase_error, cleanup_error)),
+        }
+    }
+
+    /// Borrow the failures retained by a driver-created cleanup error.
+    ///
+    /// # Returns
+    /// [`Some`] with the retained payload for an error built through
+    /// [`RecipeError::cleanup_with_phase_error`]; [`None`] for every other
+    /// variant and for cleanup errors built through [`RecipeError::cleanup`],
+    /// which retains only the cleanup failure.
+    ///
+    /// # Examples
+    ///
+    /// ```
+    /// use chutoro_bench_datasets::{Phase, PortName, RecipeError};
+    ///
+    /// let error = RecipeError::cleanup_with_phase_error(
+    ///     Phase::Fetch,
+    ///     RecipeError::port(PortName::Fetcher, "source missing"),
+    ///     RecipeError::port(PortName::Storage, "cache locked"),
+    /// );
+    /// assert!(error.cleanup_failure().is_some());
+    /// assert!(RecipeError::validate("bad manifest").cleanup_failure().is_none());
+    /// ```
+    #[must_use]
+    pub fn cleanup_failure(&self) -> Option<&CleanupFailure> {
+        match self {
+            Self::Cleanup { source, .. } => source.downcast_ref::<CleanupFailure>(),
+            _ => None,
+        }
     }
 }

@@ -1,14 +1,16 @@
 //! Typed failures emitted by dataset recipes and their I/O ports.
 
 mod cleanup_failure;
+mod payloads;
 
 pub use cleanup_failure::CleanupFailure;
+pub use payloads::{FetchSizeExceeded, IntegrityFailure, PortFailure};
 
-use std::{error::Error, fmt, sync::Arc};
+use std::{error::Error, sync::Arc};
 
 use thiserror::Error;
 
-use crate::{DigestAlgorithm, Phase, PortName, SourceUrl};
+use crate::{Phase, PortName, SourceUrl};
 
 /// Failure raised by a dataset recipe, driver, or port adapter.
 #[non_exhaustive]
@@ -305,92 +307,6 @@ impl RecipeError {
         }
     }
 
-    /// Create a cleanup failure.
-    ///
-    /// # Examples
-    ///
-    /// ```
-    /// use chutoro_bench_datasets::{Phase, RecipeError};
-    ///
-    /// let source = std::io::Error::other("remove cache");
-    /// let error = RecipeError::cleanup(Phase::Prepare, source);
-    /// assert!(matches!(error, RecipeError::Cleanup { phase: Phase::Prepare, .. }));
-    /// ```
-    #[must_use]
-    pub fn cleanup(phase: Phase, source: impl Error + Send + Sync + 'static) -> Self {
-        Self::Cleanup {
-            phase,
-            source: Box::new(source),
-        }
-    }
-
-    /// Create a cleanup failure that retains the original phase error.
-    ///
-    /// # Parameters
-    /// - `phase`: Phase whose execution returned `phase_error`.
-    /// - `phase_error`: Error returned by the failed phase. It becomes the
-    ///   source of the retained cleanup failure.
-    /// - `cleanup_error`: Error returned by the recipe cleanup hook.
-    ///
-    /// # Returns
-    /// [`RecipeError::Cleanup`] whose source is a boxed [`CleanupFailure`]
-    /// retaining both errors.
-    ///
-    /// # Examples
-    ///
-    /// ```
-    /// use chutoro_bench_datasets::{Phase, PortName, RecipeError};
-    ///
-    /// let error = RecipeError::cleanup_with_phase_error(
-    ///     Phase::Prepare,
-    ///     RecipeError::prepare("archive corrupt"),
-    ///     RecipeError::port(PortName::Storage, "cache locked"),
-    /// );
-    /// assert!(matches!(
-    ///     error,
-    ///     RecipeError::Cleanup {
-    ///         phase: Phase::Prepare,
-    ///         ..
-    ///     }
-    /// ));
-    /// ```
-    #[must_use]
-    pub fn cleanup_with_phase_error(phase: Phase, phase_error: Self, cleanup_error: Self) -> Self {
-        Self::Cleanup {
-            phase,
-            source: Box::new(CleanupFailure::new(phase_error, cleanup_error)),
-        }
-    }
-
-    /// Borrow the failures retained by a driver-created cleanup error.
-    ///
-    /// # Returns
-    /// [`Some`] with the retained payload for an error built through
-    /// [`RecipeError::cleanup_with_phase_error`]; [`None`] for every other
-    /// variant and for cleanup errors built through [`RecipeError::cleanup`],
-    /// which retains only the cleanup failure.
-    ///
-    /// # Examples
-    ///
-    /// ```
-    /// use chutoro_bench_datasets::{Phase, PortName, RecipeError};
-    ///
-    /// let error = RecipeError::cleanup_with_phase_error(
-    ///     Phase::Fetch,
-    ///     RecipeError::port(PortName::Fetcher, "source missing"),
-    ///     RecipeError::port(PortName::Storage, "cache locked"),
-    /// );
-    /// assert!(error.cleanup_failure().is_some());
-    /// assert!(RecipeError::validate("bad manifest").cleanup_failure().is_none());
-    /// ```
-    #[must_use]
-    pub fn cleanup_failure(&self) -> Option<&CleanupFailure> {
-        match self {
-            Self::Cleanup { source, .. } => source.downcast_ref::<CleanupFailure>(),
-            _ => None,
-        }
-    }
-
     /// Create an opaque adapter-specific failure while preserving its source.
     ///
     /// # Examples
@@ -409,107 +325,7 @@ impl RecipeError {
     }
 }
 
-/// Port failure payload useful for tests and future adapters.
-#[non_exhaustive]
-#[derive(Clone, Debug, Eq, PartialEq)]
-pub struct PortFailure {
-    /// Port that failed.
-    pub port: PortName,
-    /// Human-readable reason.
-    pub reason: Arc<str>,
-}
-
-impl fmt::Display for PortFailure {
-    fn fmt(&self, formatter: &mut fmt::Formatter<'_>) -> fmt::Result {
-        write!(formatter, "port {:?} failed: {}", self.port, self.reason)
-    }
-}
-
-/// Fetch-size failure payload useful for tests and future adapters.
-#[non_exhaustive]
-#[derive(Clone, Debug, Eq, PartialEq)]
-pub struct FetchSizeExceeded {
-    /// Source that exceeded the cap.
-    pub url: SourceUrl,
-    /// Maximum byte count allowed.
-    pub limit_bytes: usize,
-}
-
-impl fmt::Display for FetchSizeExceeded {
-    fn fmt(&self, formatter: &mut fmt::Formatter<'_>) -> fmt::Result {
-        write!(
-            formatter,
-            "fetch exceeded max_bytes={}: {}",
-            self.limit_bytes, self.url
-        )
-    }
-}
-
-/// Failure raised while parsing a source checksum.
-#[non_exhaustive]
-#[derive(Clone, Debug, Eq, Error, PartialEq)]
-pub enum IntegrityFailure {
-    /// The value has no `:` separator, or has nothing before it.
-    #[error("checksum is missing an algorithm prefix")]
-    MissingAlgorithmPrefix,
-    /// The algorithm prefix is not recognised; matching is case-sensitive.
-    #[error("unsupported checksum algorithm: {prefix}")]
-    UnknownAlgorithm {
-        /// Prefix exactly as it appeared in the rejected value.
-        prefix: Arc<str>,
-    },
-    /// The digest payload is not the algorithm's expected byte width.
-    #[error("invalid {algorithm} digest length: expected {expected} bytes, found {actual}")]
-    InvalidDigestLength {
-        /// Algorithm whose width was expected.
-        algorithm: DigestAlgorithm,
-        /// Required payload width in bytes.
-        expected: usize,
-        /// Payload width supplied, in bytes.
-        actual: usize,
-    },
-    /// A payload byte is not a hexadecimal digit.
-    #[error("invalid hexadecimal character at position {position}")]
-    InvalidHexCharacter {
-        /// Zero-based byte position within the digest payload.
-        position: usize,
-    },
-}
-
-
-
-
-
-
-
-
-
-
 const _: () = assert!(std::mem::size_of::<RecipeError>() <= 32);
-
-// `RecipeError` boxes cleanup payloads as `dyn Error + Send + Sync`, so the
-// compound failure must satisfy the same bounds as every other boxed source.
-
-// `RecipeError` boxes cleanup payloads as `dyn Error + Send + Sync`, so the
-// compound failure must satisfy the same bounds as every other boxed source.
-
-// `RecipeError` boxes cleanup payloads as `dyn Error + Send + Sync`, so the
-// compound failure must satisfy the same bounds as every other boxed source.
-
-// `RecipeError` boxes cleanup payloads as `dyn Error + Send + Sync`, so the
-// compound failure must satisfy the same bounds as every other boxed source.
-
-// `RecipeError` boxes cleanup payloads as `dyn Error + Send + Sync`, so the
-// compound failure must satisfy the same bounds as every other boxed source.
-
-// `RecipeError` boxes cleanup payloads as `dyn Error + Send + Sync`, so the
-// compound failure must satisfy the same bounds as every other boxed source.
-
-// `RecipeError` boxes cleanup payloads as `dyn Error + Send + Sync`, so the
-// compound failure must satisfy the same bounds as every other boxed source.
-
-// `RecipeError` boxes cleanup payloads as `dyn Error + Send + Sync`, so the
-// compound failure must satisfy the same bounds as every other boxed source.
 
 // `RecipeError` boxes cleanup payloads as `dyn Error + Send + Sync`, so the
 // compound failure must satisfy the same bounds as every other boxed source.
