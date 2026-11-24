@@ -7,10 +7,11 @@ rather than external sources._
 
 Phase numbers identify workstreams; they are not a strict delivery order.
 Phases whose prerequisites are met may proceed in parallel. In particular, the
-first public preview (8.2.1) ships the CPU baseline before the GPU, streaming,
-plugin, and DataFusion phases (3–7), and incremental clustering (phase 11)
-proceeds alongside them. Task-level `Requires` citations remain authoritative;
-Table 1 summarizes the phase-level picture.
+first public preview (8.2.1) requires only phases 0 and 1: it ships the CPU
+baseline without the GPU, streaming, plugin, and DataFusion features of phases
+3–7, which may proceed before or after it. Incremental clustering (phase 11)
+also proceeds alongside them. Task-level `Requires` citations remain
+authoritative; Table 1 summarizes the phase-level picture.
 
 | Phase | Workstream                              | Requires                                          |
 | ----- | --------------------------------------- | ------------------------------------------------- |
@@ -23,7 +24,7 @@ Table 1 summarizes the phase-level picture.
 | 6     | Dynamic plugin loader                   | Phase 0 (6.2.3 also informs GPU-aware providers)  |
 | 7     | DataFusion and `object_store` provider  | Phase 0                                           |
 | 8     | Documentation, examples, and release    | 8.2.1: phases 0 and 1; 8.2.2: phase 3, 6.2.2, 8.1 |
-| 9     | Hardening and enhancements              | 8.2.2                                             |
+| 9     | Hardening and enhancements              | Phase 1; 9.2.1 also step 6.1                      |
 | 10    | Benchmark dataset operations            | Step 2.1                                          |
 | 11    | Incremental clustering                  | Phase 1                                           |
 | 12    | Persistent snapshots and lineage        | Step 11.2                                         |
@@ -155,7 +156,7 @@ ______________________________________________________________________
   `ChutoroError` in public APIs and use `anyhow` in binaries; return
   `Result<T, ChutoroError>` with stable, documented error codes. (See §10.6)
 - [x] 0.3.4. Establish Continuous Integration (CI) (fmt, clippy, test),
-  feature gates (`cpu`, `gpu` off by default), and reproducible toolchain
+  feature gates (`cpu` on and `gpu` off by default), and reproducible toolchain
   (`rust-toolchain.toml`). (See §11)
 
 **Exit criteria:** compile+run on small datasets; end-to-end smoke test
@@ -602,10 +603,11 @@ ______________________________________________________________________
 - [ ] 6.1.1. Freeze `chutoro_v1` `#[repr(C)]` v-table with
   `abi_version`, `caps`, `state`, and function pointers; include optional
   `distance_batch`. (See §5.3)
-- [ ] 6.1.2. Add mandatory `destroy` callback to the v-table and ensure
-  the `PluginManager` calls it when unloading plugins. (See §5.3)
-  - Requires 6.1.1 and 6.2.1; the `PluginManager` that calls `destroy` is built
-    in 6.2.1.
+  - Requires 6.1.2; the v-table is frozen only once it carries the mandatory
+    `destroy` callback.
+- [ ] 6.1.2. Add the mandatory `destroy` callback to the v-table and specify
+  the host's unload contract for it; 6.2.1 implements that contract in the
+  `PluginManager`. (See §5.3)
   - ABI: `extern "C" fn destroy(state: *mut c_void)`; no panics across
     Foreign Function Interface (FFI).
   - Ordering: drop all host-side wrappers/handles; call `destroy`, wait
@@ -619,15 +621,16 @@ ______________________________________________________________________
   - Timeouts: enforce a configurable quiescence timeout (e.g., 30s) and
     log at WARN on expiry before proceeding to unload.
   - Safety: add logs at INFO with plugin name and timing.
-  - Tests: load→use→quiesce→destroy→unload cycle under leak detectors
-    and ASAN/UBSAN.
 
 ### 6.2. Plugin management
 
 - [ ] 6.2.1. Implement `PluginManager` using `libloading` to locate
   `_plugin_create`, validate `abi_version`, wrap as safe `DataSource`. (See
   §5.2, §5.3)
-  - Requires 6.1.1.
+  - Requires 6.1.1 and 6.1.2.
+  - Call `destroy` on unload following the 6.1.2 contract.
+  - Success: a load→use→quiesce→destroy→unload cycle passes under leak
+    detectors and ASAN/UBSAN.
 - [ ] 6.2.2. Ship example plugin `chutoro-plugin-csv` and
   `chutoro-plugin-parquet`; document build and loading. (See §5)
   - Requires 6.2.1.
