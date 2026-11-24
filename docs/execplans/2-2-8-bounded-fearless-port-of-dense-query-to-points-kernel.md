@@ -1681,9 +1681,11 @@ Remaining gaps: the maintenance decision.
 
 Requirements and gaps: `REQ-T1` (complete), and the adoption decision itself.
 
-1. Produce the counting table described in `Maintenance accounting`, at the
-   base revision and at the candidate, with the exact commands used.
-2. Apply D11's 10% rule.
+1. Produce the counting manifest of Table 7 at the base revision and at the
+   candidate, using the pinned commands and recording both columns.
+2. Apply `RULE-PROD` (D11): `PROD_DELTA >= PROD_ADD`, plus a 10% reduction in
+   the arithmetic-body subset. Report `REPORT-COST` alongside, without letting
+   it decide.
 3. If it passes: delete the legacy query arithmetic for every backend with both
    a token path and native execution evidence. On this host that is AVX2 only,
    unless Q2 changes the host inventory or Q3 permits deleting a body whose
@@ -1694,7 +1696,10 @@ Requirements and gaps: `REQ-T1` (complete), and the adoption decision itself.
    entries, the kernel module, the invocation wiring, the `testing` seam, the
    packed benchmark group, and the partition harness; keep the complete-batch
    benchmark target, the noise study, and the protocol record. Record the null
-   result with its deciding number.
+   result with its deciding arithmetic — both counts, the difference, and which
+   clause failed. On this host, step 2 is expected to fail on the first clause
+   with `PROD_DELTA = 14`; say so in the record rather than presenting it as a
+   discovery.
 5. Either way, record the final executed-versus-skipped backend table.
 
 Acceptance: a recorded decision with both counts and the difference; a
@@ -1771,8 +1776,9 @@ conformance basis reconciled.
 - `EP-M2` — Outcome: one generic kernel that matches the scalar oracle and the
   legacy AVX2 body, measured in isolation. Requirements: `REQ-F2`, `REQ-F3`,
   `REQ-T3`, `GAP-level1-bench`, `GAP-msrv-metadata`. Acceptance evidence:
-  differential suite green; mutation rejected; disassembly transcript; MSRV
-  transcript; packed gate table. Conformance check:
+  differential suite green; mutation rejected; MSRV transcript; level-1 A/A
+  study and packed gate table. Disassembly is deferred to `EP-M3`.
+  Conformance check:
   - `REQ-F2` and `REQ-F3` satisfied by named cases with an independent oracle.
   - Design followed: lane-per-candidate, separate multiply and add, scalar
     remainder.
