@@ -771,7 +771,7 @@ REQ-F5 -> EP-M3 -> chutoro_providers_dense::tests::provider::*
 REQ-T1 -> EP-M4 -> maintenance inventory in this plan
 REQ-T2 -> EP-M3 -> simd::tests::fearless::policy_* and Kani harness
 REQ-T3 -> EP-M3 -> Kani harness verify_dense_simd_fearless_partition
-REQ-T4 -> EP-M1, EP-M4 -> no-unsafe audit and dependency audit
+REQ-T4 -> EP-M2, EP-M3 -> no-unsafe audit, no-allocation audit, dependency audit
 REQ-T5 -> EP-M3 -> executed-versus-skipped table in this plan
 REQ-T6 -> EP-M1, EP-M3 -> MSRV command transcripts and gate tables
 GAP-level1-bench -> EP-M2 -> bench target dense_distance, group packed
