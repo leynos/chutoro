@@ -1340,6 +1340,19 @@ could report any one of several errors depending on Rayon's scheduling.
 `ChutoroError::CpuMstFailure` continues to carry the selected inner code and
 message unchanged.
 
+_Implementation update (2026-11-23)._ The mutual-reachability transform now
+reports a deterministic lookup error as well. `mutual_reachability_edges`
+collects its per-edge results into an ordered buffer and folds that buffer
+serially through the same `collect_ordered_results` helper that the core
+distance stage uses, so when several harvested endpoints have no core distance
+the reported error belongs to the lowest input index, and within one edge the
+source lookup is checked before the target lookup. The previous form collected
+straight into `Result<Vec<_>, _>`, whose error is whichever failure Rayon
+observed first; that was the same defect class as the 2026-11-12 validation
+fix. Accepted output is unchanged: successful runs produce the same weights in
+the same order, and only the identity of a reported failure is strengthened.
+The helper's doc comment now names both call sites.
+
 ##### 6.3.1. Fearless SIMD kernel boundary
 
 _Design intention (2026-11-22; implementation pending)._ Roadmap task 2.2.8
