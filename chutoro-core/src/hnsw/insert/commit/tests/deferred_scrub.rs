@@ -151,13 +151,15 @@ fn multiple_evictions_in_batch_update(
     assert_bidirectional_edge!(&graph, 5, 3, 1);
 }
 
-/// Tests that eviction respects furthest-first ordering.
+/// Tests that `ensure_reverse_edge` evicts the front entry, not the tail.
 ///
 /// Scenario: Node 1 has two neighbours (node 2 at front, node 3 at back).
-/// When a new edge is added, the front entry (node 2, furthest) should be
-/// evicted, not the back entry (node 3, closer).
+/// When a new edge is added, the front entry (node 2) is evicted and node 3
+/// stays. The front is a positional choice, not a distance judgement: trim
+/// emits ascending distance order, so the workspace fallback evicts the tail
+/// instead. Design §6.8 records both as local ordering choices.
 #[rstest]
-fn eviction_respects_furthest_first_ordering(
+fn eviction_keeps_the_tail_and_evicts_the_front_entry(
     #[from(params_two_connections)] params_res: Result<HnswParams, HnswError>,
 ) {
     // Use max_connections = 2 so level-1 capacity is 2
@@ -171,17 +173,16 @@ fn eviction_respects_furthest_first_ordering(
     insert_node(&mut graph, 3, 1, 3).expect("insert node 3");
     insert_node(&mut graph, 4, 1, 4).expect("insert node 4");
 
-    // Seed node 1 at capacity with nodes 2 (furthest, front) and 3 (closer, back)
-    // Order matters: push node 2 first (furthest), then node 3 (closer)
+    // Seed node 1 at capacity with nodes 2 (front) and 3 (back)
     let node1 = graph.node_mut(1).expect("node 1 should exist");
     node1
         .neighbours_mut(1)
         .expect("node 1 must expose level 1")
-        .push(2); // furthest (front)
+        .push(2); // front
     node1
         .neighbours_mut(1)
         .expect("node 1 must expose level 1")
-        .push(3); // closer (back)
+        .push(3); // back
 
     // Add reciprocal edges
     add_edge_if_missing(&mut graph, 2, 1, 1);
@@ -199,11 +200,11 @@ fn eviction_respects_furthest_first_ordering(
         .apply_new_node_neighbours(new_node.id, new_node.level, reciprocated)
         .expect("apply new-node neighbours");
 
-    // Node 2 (furthest, front) should be evicted
+    // Node 2 (front) should be evicted
     assert_no_edge(&graph, 1, 2, 1);
     assert_no_edge(&graph, 2, 1, 1);
 
-    // Node 3 (closer, back) should remain
+    // Node 3 (back) should remain
     assert_has_edge(&graph, 1, 3, 1);
 
     // New edge should be added
