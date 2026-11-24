@@ -2418,10 +2418,13 @@ The forked weekly lane also carries explicit per-case and shrink bounds. The
 dense parity configuration sets a 20-second per-case timeout and a 60-second
 shrink-time bound when forking; proptest's defaults leave both at zero, so the
 weekly lane previously had no in-case bound and the 300-second nextest
-allowance bounded the whole property. The unforked pull-request and local lanes
-keep proptest's disabled timeout, because a non-zero per-case timeout
-implicitly enables forking. Proptest's shrink iteration bound stays its default
-of four times the case count.
+allowance bounded the whole property. The shrink bound is measured per forked
+child: a shrink candidate that hangs restarts the child and begins a new
+minute, so the 300-second nextest allowance remains the outer bound across
+restarts, and an overrun there is a timeout rather than a counterexample. The
+unforked pull-request and local lanes keep proptest's disabled timeout, because
+a non-zero per-case timeout implicitly enables forking. Proptest's shrink
+iteration bound stays its default of four times the case count.
 
 The logs record each property's duration and the configured 25,000 cases; the
 nextest summary for the three measurement runs was

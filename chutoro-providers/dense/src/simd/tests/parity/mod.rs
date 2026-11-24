@@ -45,12 +45,15 @@ type QueryPointsEntry = fn(&[f32], &DensePointView<'_>, &mut [f32]);
 /// in the bound.
 pub(super) const FORKED_CASE_TIMEOUT_MS: u32 = 20_000;
 
-/// Bound on time spent shrinking a failing case, in milliseconds.
+/// Bound on one forked child's shrink phase, in milliseconds.
 ///
 /// Shrinking only runs on failure. A minute leaves room for the fixed seed's
-/// counterexample to shrink while keeping a pathological shrink from
-/// consuming the whole nextest allowance. proptest's iteration bound remains
-/// its default, four times the case count.
+/// counterexample to shrink. proptest measures this bound from the start of
+/// each `shrink()` call inside the child, so a candidate that hangs and
+/// restarts the child starts a new minute; the 300-second nextest allowance
+/// remains the outer bound across restarts, and an overrun is reported as a
+/// timeout rather than as a counterexample. proptest's iteration bound
+/// remains its default, four times the case count.
 pub(super) const FORKED_SHRINK_TIME_MS: u32 = 60_000;
 
 /// Builds a CI-tuned proptest configuration for parity properties.
