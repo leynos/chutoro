@@ -128,9 +128,6 @@ pub fn resolve_workspace_output_root(
 pub struct CargoMetadata {
     /// Directory Cargo writes build artefacts into.
     target_directory: PathBuf,
-    /// Packages resolved for the workspace.
-    #[serde(default)]
-    packages: Vec<MetadataPackage>,
 }
 
 impl CargoMetadata {
@@ -152,23 +149,6 @@ impl CargoMetadata {
     pub fn target_directory(&self) -> &Path {
         &self.target_directory
     }
-
-    /// Return the resolved version of the named package, if present.
-    fn package_version(&self, name: &str) -> Option<&str> {
-        self.packages
-            .iter()
-            .find(|package| package.name == name)
-            .map(|package| package.version.as_str())
-    }
-}
-
-/// One package entry from `cargo metadata`.
-#[derive(Debug, Deserialize)]
-struct MetadataPackage {
-    /// Package name.
-    name: String,
-    /// Resolved package version.
-    version: String,
 }
 
 /// Parse `cargo metadata` output.
@@ -211,24 +191,65 @@ pub fn metadata_target_directory(
     workspace: &Path,
     env: &dyn Env,
 ) -> Result<PathBuf, BaselineError> {
-    let metadata = run_metadata(workspace, env, false)?;
+    let metadata = run_metadata(workspace, env)?;
     Ok(metadata.target_directory)
 }
 
 /// Return the resolved Criterion version recorded by the workspace lockfile.
-fn criterion_version(workspace: &Path, env: &dyn Env) -> Result<String, BaselineError> {
-    let metadata = run_metadata(workspace, env, true)?;
-    metadata
-        .package_version("criterion")
-        .map(str::to_owned)
-        .ok_or_else(|| BaselineError::ToolVersion {
-            tool: "criterion",
-            message: format!(
-                "no criterion package is resolved for {}",
-                workspace.display()
-            ),
-            remedy: "add criterion to the benchmark crate and run `cargo update -p criterion`",
-        })
+///
+/// The version is read from `Cargo.lock` rather than from `cargo metadata`.
+/// Full metadata resolves the whole dependency graph, which needs the crate
+/// cache and can block behind other builds on a shared host; the lockfile is
+/// already the resolved answer for a `--locked` build and costs one file read.
+fn criterion_version(workspace: &Path) -> Result<String, BaselineError> {
+    let lock_path = workspace.join("Cargo.lock");
+    let text = std::fs::read_to_string(&lock_path).map_err(|source| BaselineError::Read {
+        path: lock_path.clone(),
+        source,
+        remedy: "run `cargo generate-lockfile` in the workspace before recording a baseline",
+    })?;
+    lockfile_package_version(&text, "criterion").ok_or_else(|| BaselineError::ToolVersion {
+        tool: "criterion",
+        message: format!(
+            "no criterion package is resolved in {}",
+            lock_path.display()
+        ),
+        remedy: "add criterion to the benchmark crate and run `cargo update -p criterion`",
+    })
+}
+
+/// Return the version a Cargo lockfile records for `package`.
+///
+/// # Examples
+///
+/// ```
+/// use chutoro_test_support::ci::benchmark_baseline::output_root::lockfile_package_version;
+///
+/// let lockfile = r#"
+/// [[package]]
+/// name = "criterion"
+/// version = "0.5.1"
+/// "#;
+/// assert_eq!(lockfile_package_version(lockfile, "criterion"), Some("0.5.1".to_owned()));
+/// assert_eq!(lockfile_package_version(lockfile, "tempfile"), None);
+/// ```
+#[must_use]
+pub fn lockfile_package_version(lockfile: &str, package: &str) -> Option<String> {
+    let name_line = format!("name = \"{package}\"");
+    let mut lines = lockfile.lines();
+    while let Some(line) = lines.next() {
+        if line.trim() != name_line {
+            continue;
+        }
+        let version_line = lines.next()?;
+        return version_line
+            .trim()
+            .strip_prefix("version = \"")
+            .and_then(|rest| rest.strip_suffix('"'))
+            .map(str::to_owned);
+    }
+
+    None
 }
 
 /// Tool versions recorded in every inventory manifest.
@@ -262,28 +283,22 @@ pub fn record_tool_versions(
     env: &dyn Env,
 ) -> Result<RecordedTools, BaselineError> {
     Ok(RecordedTools {
-        criterion: criterion_version(workspace, env)?,
+        criterion: criterion_version(workspace)?,
         cargo: run_tool_version(workspace, env, "cargo", &["--version"])?,
         rustc: run_tool_version(workspace, env, "rustc", &["-Vv"])?,
     })
 }
 
 /// Run `cargo metadata` in the workspace and parse its output.
-fn run_metadata(
-    workspace: &Path,
-    env: &dyn Env,
-    include_dependencies: bool,
-) -> Result<CargoMetadata, BaselineError> {
+///
+/// `--no-deps` is deliberate: only `target_directory` is needed, and full
+/// metadata resolution needs the crate cache and can block behind another
+/// build on a shared host.
+fn run_metadata(workspace: &Path, env: &dyn Env) -> Result<CargoMetadata, BaselineError> {
     let cargo = env.string("CARGO").unwrap_or_else(|| "cargo".to_owned());
-    let mut command = Command::new(cargo);
-    command
-        .args(["metadata", "--format-version", "1", "--locked"])
-        .current_dir(workspace);
-    if !include_dependencies {
-        command.arg("--no-deps");
-    }
-
-    let output = command
+    let output = Command::new(cargo)
+        .args(["metadata", "--format-version", "1", "--locked", "--no-deps"])
+        .current_dir(workspace)
         .output()
         .map_err(|error| BaselineError::MetadataCommand {
             workspace: workspace.to_path_buf(),

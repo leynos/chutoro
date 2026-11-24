@@ -74,8 +74,8 @@ fn temporary_root() -> TestResult<TempDir> {
 fn shared_target() -> TestResult<&'static Path> {
     static TARGET: OnceLock<Result<PathBuf, String>> = OnceLock::new();
     let built = TARGET.get_or_init(|| {
-        let target = workspace_target_directory().map_err(|error| error.to_string())?;
-        let target = target.join("benchmark-baseline-fixture");
+        let workspace_target = workspace_target_directory().map_err(|error| error.to_string())?;
+        let target = workspace_target.join("benchmark-baseline-fixture");
         fs::create_dir_all(&target).map_err(|error| error.to_string())?;
         let output = Command::new(env!("CARGO"))
             .args([
@@ -173,7 +173,16 @@ fn inventory_tree(
         .returning(move |key| (key == "CRITERION_HOME").then(|| home.display().to_string()));
     env.expect_all().returning(std::collections::HashMap::new);
     let root = output_root::resolve_workspace_output_root(criterion_home, &env)?;
-    assert_eq!(root, criterion_home);
+    if root != criterion_home {
+        return Err(BaselineError::OutputRoot {
+            reason: format!(
+                "the helper resolved {} instead of the supplied CRITERION_HOME {}",
+                root.display(),
+                criterion_home.display()
+            ),
+            remedy: "fix output-root precedence in the helper",
+        });
+    }
     let environment = BTreeMap::new();
     inventory(
         &InventoryRequest {
