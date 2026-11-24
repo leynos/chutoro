@@ -223,10 +223,10 @@ ______________________________________________________________________
 - [x] 1.4.2. Surface HNSW structural invariant checkers (layer
   consistency, degree bounds, reachability, bidirectional links) callable from
   properties. (See property-testing-design §2.2)
-  - [ ] Add a base-layer-only reachability check to the invariant oracle and
-    decide whether production enforces it. The layer-specific policy is
-    recorded in ADR 0010 and design §6.5.1; the remaining global-component gap
-    is tracked by issue #393.
+  - [ ] Add a base-layer-only reachability check to the invariant oracle.
+    Production must enforce base-layer reachability, which ADR 0010 and design
+    §6.5.1 make normative; only the enforcement mechanism is still open. The
+    remaining bridged-split gap is tracked by issue #393.
 - [x] 1.4.3. Add HNSW search correctness property comparing index
   results against a brute-force oracle with a configurable recall threshold and
   timing capture. (See property-testing-design §2.3.1)
