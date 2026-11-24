@@ -3484,6 +3484,22 @@ exposes `StagingLock`, `StagingLockGuard`, `LockPolicy`, and their outcome
 types; it enables `cap-std` and `rustix` but changes neither `default` nor
 `testing`.
 
+### Cleanup contract
+
+`PartialState` carries only `highest_completed_phase`; the `orphaned_cache_key`
+field was removed by issue #216 because the driver never populated it.
+`DatasetRecipe::cleanup` receives the last phase that completed successfully,
+which is a lower bound on the side effects already present: a fetch failure
+reports `None`, and a prepare failure reports `Some(Phase::Validate)`, even
+though the failing prepare may have written intermediates.
+
+The driver neither tracks `Storage` writes nor supplies cache keys, and the
+`Storage` port has no deletion operation. Recipes that need to remove partial
+output must record the `CacheKey` values they write, or derive them
+deterministically from their inputs, and remove them through their own
+mechanism. The [0.2.0 migration notes](migration-notes.md#020) record the
+removal for downstream callers.
+
 The design rationale is recorded in
 [`ADR-004`](adrs/adr-0004-bench-dataset-recipe-trait.md). The broader dataset
 pipeline is described in
