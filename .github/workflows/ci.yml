@@ -72,7 +72,7 @@ jobs:
       # workflow that has no pull request to find a merge base for.
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
       - name: Setup Rust
-        uses: leynos/shared-actions/.github/actions/setup-rust@ab489303d8b0f0175bd334335b696ca48e0e7586
+        uses: leynos/shared-actions/.github/actions/setup-rust@6d29e3a48219305d2b1d7e7416fc81f13a6dbbd8
         with:
           install-mold: 'true'
           # The action installs sccache through mozilla-actions/sccache-action,
@@ -144,7 +144,7 @@ jobs:
       - name: Install mdtablefix
         # `make check-fmt` runs `mdtablefix --check --git`; 0.6.0 is the
         # first release with `--check` and `--git`.
-        uses: leynos/shared-actions/.github/actions/install-mdtablefix@ab489303d8b0f0175bd334335b696ca48e0e7586
+        uses: leynos/shared-actions/.github/actions/install-mdtablefix@6d29e3a48219305d2b1d7e7416fc81f13a6dbbd8
         with:
           version: "0.6.1"
 
@@ -159,7 +159,7 @@ jobs:
       # crates.io source-build fallback. It owns the installer binary and
       # the ~/.local/share/whitaker suite cache.
       - name: Install Whitaker
-        uses: leynos/shared-actions/.github/actions/install-whitaker@ab489303d8b0f0175bd334335b696ca48e0e7586 # action default whitaker-installer 0.2.12
+        uses: leynos/shared-actions/.github/actions/install-whitaker@6d29e3a48219305d2b1d7e7416fc81f13a6dbbd8 # action default whitaker-installer 0.2.12
       - name: Install uv for the docstring-coverage gate
         # `make lint` runs interrogate through `uv tool run`.
         uses: astral-sh/setup-uv@68559e99cc807c1eb7e9238fd43a15bba460eec2
@@ -198,7 +198,7 @@ jobs:
         # They run with default features, independent of the coverage action.
         run: make test-scheduling-contract
       - name: Test and Measure Coverage
-        uses: leynos/shared-actions/.github/actions/generate-coverage@ab489303d8b0f0175bd334335b696ca48e0e7586
+        uses: leynos/shared-actions/.github/actions/generate-coverage@6d29e3a48219305d2b1d7e7416fc81f13a6dbbd8
         env:
           # The cargo watchdog, one of four tiers that can end a run. It must
           # stay above the 80 m nextest global-timeout in .config/nextest.toml
@@ -295,7 +295,7 @@ jobs:
       # which this older Verus does not use.
       - name: Install Verus
         id: verus-install
-        uses: leynos/shared-actions/.github/actions/install-prover-tools@ab489303d8b0f0175bd334335b696ca48e0e7586
+        uses: leynos/shared-actions/.github/actions/install-prover-tools@6d29e3a48219305d2b1d7e7416fc81f13a6dbbd8
         with:
           tools: verus
           runner-image: ubuntu2404
