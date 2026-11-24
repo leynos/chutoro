@@ -11,7 +11,14 @@ See "Dense SIMD parity suite" in ``docs/developers-guide.md``.
 """
 
 import pytest
+from hypothesis import given
+from hypothesis import strategies as st
+from nextest_durations import _seconds
 from profile_inheritance import ProfileInheritanceError, resolved_global_timeout
+
+#: Durations the generator may place on a profile. The values are arbitrary;
+#: the reading converts them with the same parser as the configuration file.
+_DURATIONS = st.sampled_from(["1m", "2m", "30m", "80m", "1h"])
 
 
 @pytest.mark.parametrize(
@@ -110,3 +117,61 @@ def test_an_unresolvable_chain_is_refused(config_text: str, profile: str) -> Non
     """
     with pytest.raises(ProfileInheritanceError):
         resolved_global_timeout(config_text, profile)
+
+
+@given(
+    budgets=st.lists(st.none() | _DURATIONS, min_size=1, max_size=6),
+    default_budget=st.none() | _DURATIONS,
+)
+def test_the_nearest_declared_budget_wins_on_any_chain(
+    budgets: list[str | None], default_budget: str | None
+) -> None:
+    """A generated chain resolves the first budget it reaches.
+
+    The chain is ``p0 -> p1 -> ... -> default``, with each profile's budget
+    independently present or absent. The expected value is the first present
+    budget in that order, so the property separates the nearest-declaration
+    rule from any particular chain the repository happens to contain.
+    """
+    names = [f"p{index}" for index in range(len(budgets))]
+    lines: list[str] = []
+    for index, name in enumerate(names):
+        parent = names[index + 1] if index + 1 < len(names) else "default"
+        lines.append(f"[profile.{name}]")
+        lines.append(f'inherits = "{parent}"')
+        if budgets[index] is not None:
+            lines.append(f'global-timeout = "{budgets[index]}"')
+    lines.append("[profile.default]")
+    if default_budget is not None:
+        lines.append(f'global-timeout = "{default_budget}"')
+    config_text = "\n".join(lines)
+
+    expected = next(
+        (budget for budget in [*budgets, default_budget] if budget is not None),
+        None,
+    )
+    if expected is None:
+        with pytest.raises(ProfileInheritanceError):
+            resolved_global_timeout(config_text, names[0])
+        return
+    assert resolved_global_timeout(config_text, names[0]) == pytest.approx(
+        _seconds(expected)
+    )
+
+
+@given(length=st.integers(min_value=1, max_value=6))
+def test_any_inheritance_cycle_is_refused(length: int) -> None:
+    """A generated cycle is refused rather than resolved through ``default``.
+
+    ``length == 1`` is the self-reference case, which the pinned nextest
+    rejects exactly as it rejects a longer cycle.
+    """
+    names = [f"p{index}" for index in range(length)]
+    lines: list[str] = []
+    for index, name in enumerate(names):
+        lines.append(f"[profile.{name}]")
+        lines.append(f'inherits = "{names[(index + 1) % length]}"')
+    lines.append('[profile.default]\nglobal-timeout = "80m"')
+
+    with pytest.raises(ProfileInheritanceError):
+        resolved_global_timeout("\n".join(lines), names[0])
