@@ -69,9 +69,12 @@ multiple-versions = "warn"
 multiple-versions-include-dev = true
 # A `*` requirement resolves to whatever the registry serves that day, so a
 # registry wildcard is denied. A path dependency cannot float that way: it is
-# this checkout, and cargo strips path-only dev-dependencies before publishing,
-# so the workspace's path entries are left alone rather than given versions
-# that nothing reads.
+# this checkout. The exemption is narrower than "path dependencies are fine":
+# cargo-deny exempts path dev-dependencies in any crate and path dependencies
+# in a `publish = false` crate, but a publishable crate's ordinary path
+# dependency still needs a version, because publishing would otherwise record
+# no requirement. `chutoro-cli` is the publishable member and carries those
+# versions; its path dev-dependencies are exempt.
 wildcards = "deny"
 allow-wildcard-paths = true
 
