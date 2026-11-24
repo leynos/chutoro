@@ -175,9 +175,9 @@ conventions.
   ExecPlan: stop and escalate.
 - **Interface.** Any change to an existing public signature, or any new public
   item outside an explicitly approved Decision: stop and escalate.
-- **Dependencies.** Any manifest entry other than the four named in Constraint
-  12, or `fearless_simd` added before EP-M1's pre-registration is committed:
-  stop and escalate.
+- **Dependencies.** Any manifest entry beyond those named in Constraint 12, or
+  `fearless_simd` added before EP-M1's pre-registration is committed: stop and
+  escalate.
 - **Evidence.** A pre-registered gate failing, or its measurement being
   inconclusive: **do not escalate**; record the null result and follow the
   regression path in EP-M4. This is an accepted outcome.
@@ -186,11 +186,15 @@ conventions.
 - **Verification cost.** A Kani harness that exceeds 15 minutes on this host, or
   any proof that exceeds 5 minutes: record the harness as out of budget rather
   than extending the gate.
-- **Time.** More than four hours on a single milestone: stop and escalate.
+- **Time.** More than four hours of *implementation* on a single milestone:
+  stop and escalate. Measurement wall clock is budgeted separately by
+  `Measurement budget`, because a benchmark run's duration is a property of the
+  matrix, not of progress; a milestone that exceeds its measurement budget stops
+  and records the reduced matrix actually measured.
 - **Ambiguity.** Any place where this plan and the code disagree about current
   behaviour: stop and reconcile before proceeding. Reconnaissance has already
-  found nine such drifts (see `Surprises & discoveries`), so this trigger is
-  live.
+  found thirteen such discrepancies (see `Surprises & discoveries`), so this
+  trigger is live rather than theoretical.
 
 Budget rationale. The survey below is recorded because the ExecPlan conventions
 require initial budgets to be derived from evidence rather than guessed. The
