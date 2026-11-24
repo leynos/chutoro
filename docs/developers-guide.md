@@ -2936,13 +2936,16 @@ step that uses the merge base argues for it.
 
 ## Kani CI policy
 
-`make kani` is the pull-request check, and `kani` is a required status for a
-merge to `main`. `.github/workflows/kani-pr.yml` therefore declares no `paths`
-filter: the job runs on every pull request to `main`, so the required context
-is always reported. A path filter would leave the check absent on a change that
-alters what the proof build compiles without matching a listed path, and an
-absent check is not a passing one. The job is bounded at 30 minutes and runs on
-the paid queue, which is what makes always running it affordable.
+`make kani` is the pull-request check. `.github/workflows/kani-pr.yml` declares
+no `paths` filter, so the job runs on every pull request to `main` and its
+context is always reported. That is what lets `kani` be a required status,
+which it is intended to become and is not yet; see
+[Choosing a verification tool](#choosing-a-verification-tool) for the current
+ruleset and the pending change. A path filter would leave the check absent on a
+change that alters what the proof build compiles without matching a listed
+path, and an absent check is not a passing one. The job is bounded at 30
+minutes and runs on the paid queue, which is what makes always running it
+affordable.
 
 `make kani-full` is the post-merge nightly tier.
 `.github/workflows/nightly-kani.yml` checks out `${{ github.sha }}`, records
@@ -3851,16 +3854,26 @@ time.*
 
 Required pull-request contexts on `main`: `build-test`, `verus-proofs`, `kani`.
 
-All three are enforced by the active `main-required-checks` ruleset. A job that
-runs but is not required cannot block a merge, and a required context that a
-workflow can skip cannot be relied on either, so each of the three is defined
-by a job that reports on every pull request to `main` with no path filter, no
-display-name override, no matrix and no job-level condition. The sections on
-each tool therefore describe what the repository enforces, not merely what it
-executes. A pull request retargeted to `main` from another base does not fire
+`build-test` and `verus-proofs` are required by the active
+`main-required-checks` ruleset today. `kani` is the intended third and is **not
+yet required**: the ruleset change is a repository-administration action
+requested after this policy's workflow change merges, and it is drafted in
+[the FV07 delivery notes](planning/issue-396-ruleset-change-request.md) with
+its preconditions and its verification. Until an administrator adds it and the
+effective-rules API reports it, `kani` runs on every pull request but does not
+block a merge.
+
+That distinction is the whole point of the rule. A job that runs but is not
+required cannot block a merge, and a required context that a workflow can skip
+cannot be relied on either. All three are therefore defined by a job that
+reports on every pull request to `main` with no path filter, no display-name
+override, no matrix and no job-level condition, and
+`tests/workflow_contracts/required_checks_test.py` holds that shape for the
+whole list. A pull request retargeted to `main` from another base does not fire
 `opened`, `synchronize` or `reopened`, so it can carry no result for the new
-base; that fails closed, because an absent required context blocks the merge
-until a push or a re-run produces one. Absence is never read as success.
+base; that fails closed once the context is required, because an absent
+required context blocks the merge until a push or a re-run produces one.
+Absence is never read as success.
 
 Verus runs on every pull request. The `verus-proofs` job in `ci.yml` has no
 path filter, so an opened, synchronized or reopened pull request pays its

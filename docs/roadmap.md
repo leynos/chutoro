@@ -279,13 +279,15 @@ ______________________________________________________________________
   - Superseded by item 1.5.3: the commit-age gate let a missed or
     infrastructure-failed night age out and be followed by a skipped green
     workflow. The nightly job now verifies its own checkout unconditionally.
-- [x] 1.5.3. Make Kani a required merge check with a reliable proof inventory:
-  classify every declaration in `tools/kani/harnesses.toml`, bind it to the
-  Rust sources and the Makefile in the workflow contracts, check each run's
-  exact result multiset with the `kani_suite` checker, run the pull-request
-  `kani` job on every change, and record the verified SHA in the nightly job
-  summary. The live ruleset change is requested separately after the workflow
-  change merges.
+- [ ] 1.5.3. Make Kani a required merge check with a reliable proof inventory.
+  Done: every declaration is classified in `tools/kani/harnesses.toml`, bound
+  to the Rust sources and the Makefile in the workflow contracts, each run's
+  exact result multiset is checked by `kani_suite`, the pull-request `kani` job
+  runs on every change, and the nightly job records the SHA it verified.
+  Outstanding: an administrator must add `kani` to the `main-required-checks`
+  ruleset; until then the job runs without blocking a merge. The change is
+  drafted in
+  [the FV07 delivery notes](planning/issue-396-ruleset-change-request.md).
 
 ### 1.6. Edge harvest and MST property testing
 

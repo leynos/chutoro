@@ -71,6 +71,11 @@ pub enum VerdictError {
         /// Failure names the blocks did not record.
         names: Vec<String>,
     },
+    /// The output carried no `Complete - ...` line at all.
+    #[error(
+        "Kani's output carries no manual harness summary; a complete run ends          with its totals, so a truncated or redirected record cannot be accepted"
+    )]
+    MissingSummary,
 }
 
 /// Require `report` to hold exactly the expected successful harness multiset.
@@ -141,10 +146,16 @@ pub fn evaluate(
     check_summary(report, &successful)
 }
 
-/// Cross-check the manual harness summary against the parsed blocks.
+/// Require the manual harness summary, then cross-check it against the blocks.
+///
+/// The summary is what distinguishes a complete run from a truncated one: the
+/// per-harness blocks arrive as they finish, so a record cut off after the
+/// last expected block would otherwise look complete. A run with no
+/// `Complete - ...` line is therefore rejected rather than accepted on its
+/// blocks alone.
 fn check_summary(report: &SuiteReport, successful: &[&str]) -> Result<(), VerdictError> {
     let Some(summary) = report.summary else {
-        return Ok(());
+        return Err(VerdictError::MissingSummary);
     };
     let parsed_total = report.results.len();
     let parsed_succeeded = successful.len();
@@ -205,8 +216,12 @@ mod tests {
     use crate::ci::kani_suite::output::HarnessResult;
 
     /// Build a report holding `names` with the supplied outcome.
+    ///
+    /// The summary matches the blocks, because a run without one is now a
+    /// rejection: every case that is about something else has to be a complete
+    /// record, or it would fail on the summary before reaching its own check.
     fn report_with(names: &[&str], outcome: Outcome) -> SuiteReport {
-        SuiteReport {
+        let mut report = SuiteReport {
             results: names
                 .iter()
                 .map(|name| HarnessResult {
@@ -216,7 +231,14 @@ mod tests {
                 .collect(),
             summary: None,
             reported_failures: Vec::new(),
-        }
+        };
+        let failed = names.iter().filter(|_| outcome != Outcome::Success).count();
+        report.summary = Some(Summary {
+            succeeded: names.len() - failed,
+            failed,
+            total: names.len(),
+        });
+        report
     }
 
     /// Build the expected set from string slices.
@@ -295,6 +317,16 @@ mod tests {
             evaluate(&expected(&["a::verify_one"]), &report),
             Err(VerdictError::SummaryMismatch { .. })
         ));
+    }
+
+    #[test]
+    fn rejects_a_record_with_no_summary() {
+        let mut report = report_with(&["a::verify_one"], Outcome::Success);
+        report.summary = None;
+        assert_eq!(
+            evaluate(&expected(&["a::verify_one"]), &report),
+            Err(VerdictError::MissingSummary)
+        );
     }
 
     #[test]

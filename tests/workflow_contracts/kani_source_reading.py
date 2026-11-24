@@ -209,6 +209,30 @@ def _module_chain(
     )
 
 
+def _attached_attributes(declarations: str, start: int) -> str:
+    """Return the attributes attached to the item declared at `start`.
+
+    `_attributes_before` returns every preceding line, so joining all of it
+    would let a `#[path]` on an earlier item be read as this one's: after
+    `#[path = "alternate.rs"] mod first;`, an ordinary `mod second;` would
+    inherit `alternate.rs`, its real file would be reported unreachable, and a
+    valid module tree would fail the manifest contract.
+
+    The walk therefore stops at the first preceding line that is not an
+    attribute or a blank line, which is the previous item's own code. Literals
+    are preserved in `declarations`, so the `#[path]` value survives.
+    """
+    attached: list[str] = []
+    for line in reversed(declarations[:start].splitlines()):
+        stripped = line.strip()
+        if not stripped:
+            continue
+        if not stripped.startswith("#["):
+            break
+        attached.insert(0, stripped)
+    return " ".join(attached)
+
+
 def _parse(path: Path) -> _Source | None:
     """Return `path` parsed for module and proof structure, or None.
 
@@ -240,8 +264,7 @@ def _parse(path: Path) -> _Source | None:
             end = closing + 1 if closing is not None else len(code)
         else:
             end = match.end()
-        attributes = " ".join(_attributes_before(declarations[: match.start()]))
-        found = _PATH_ATTRIBUTE.search(attributes)
+        found = _PATH_ATTRIBUTE.search(_attached_attributes(declarations, match.start()))
         items.append(
             _ModuleItem(
                 name=match["name"],

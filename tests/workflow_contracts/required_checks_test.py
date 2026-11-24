@@ -83,6 +83,35 @@ def jobs(documents: dict[str, dict[str, typ.Any]]) -> dict[str, list[tuple[str, 
     return _jobs(documents)
 
 
+def test_no_job_renames_itself_to_a_required_context(
+    documents: dict[str, dict[str, typ.Any]],
+) -> None:
+    """A display name may collide with a required context.
+
+    GitHub matches a required check on the *reported* name, and a job's `name`
+    may differ from its identifier. A second job called `kani` through `name:`
+    would therefore report the same required context, and whichever run
+    finished first would be the one the ruleset saw. Grouping by identifier
+    alone cannot see that collision, so every pull-request job's effective
+    reported name is checked here.
+    """
+    collisions: list[tuple[str, str, str]] = []
+    for workflow, document in documents.items():
+        jobs = document.get("jobs")
+        if not isinstance(jobs, dict):
+            continue
+        for job_id, job in jobs.items():
+            if not isinstance(job, dict):
+                continue
+            reported = job.get("name", job_id)
+            if reported in REQUIRED_CONTEXTS and reported != job_id:
+                collisions.append((workflow, job_id, str(reported)))
+    assert not collisions, (
+        "these jobs rename themselves to a required context, so the ruleset "
+        f"could match the wrong run: {collisions!r}"
+    )
+
+
 @pytest.mark.parametrize("context", REQUIRED_CONTEXTS)
 def test_each_required_context_is_exactly_one_job(
     context: str, jobs: dict[str, list[tuple[str, dict]]]
@@ -146,10 +175,14 @@ def test_the_owning_trigger_declares_no_path_filter(
     request to the branch the ruleset protects.
     """
     for workflow, _ in jobs.get(context, []):
+        pull_request = triggers(documents[workflow])["pull_request"]
+        # A bare `pull_request:` key parses as None, which GitHub reads as an
+        # unconfigured trigger: every pull request, with no filter. Treating
+        # the value as a mapping before normalising it would raise TypeError
+        # instead of accepting the unfiltered trigger.
+        configured = pull_request if isinstance(pull_request, dict) else {}
         filters = [
-            key
-            for key in ("paths", "paths-ignore")
-            if key in triggers(documents[workflow])["pull_request"]
+            key for key in ("paths", "paths-ignore") if key in configured
         ]
         assert not filters, (
             f"{workflow}:{context} is a required check, so its pull_request "

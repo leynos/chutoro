@@ -82,7 +82,7 @@ def test_fast_recipe_runs_only_executable_kani_commands(fast_recipe: str) -> Non
     assert selected, (
         "the kani: target must run at least one executable Kani command"
     )
-    assert all(name for _, names in selected for name in names), (
+    assert all(names for _, names in selected), (
         "every fast-tier command must name the harness it runs; an unselected "
         f"command runs a whole package in the pull-request tier: {selected!r}"
     )
@@ -152,16 +152,21 @@ def test_fast_selectors_are_exactly_the_manifest_fast_tier(
     matches under ``--harness``, but it would also match a future sibling in
     another module, which is what the manifest exists to prevent.
     """
+    # The package is part of the identity. Two packages may each declare a
+    # proof of the same module path, and comparing bare paths would report the
+    # legitimate pair as one duplication while letting a real drop hide.
     selected = collections.Counter(
-        name for _, names in selections(fast_recipe) for name in names
+        (package, name) for package, names in selections(fast_recipe) for name in names
     )
     expected = collections.Counter(
-        name for package in _manifest_packages() for name in _manifest_fast(package)
+        (package, name)
+        for package in _manifest_packages()
+        for name in _manifest_fast(package)
     )
     missing = sorted((expected - selected).elements())
     unexpected = sorted((selected - expected).elements())
     duplicated = sorted(
-        name for name, count in selected.items() if count > 1
+        identity for identity, count in selected.items() if count > 1
     )
     assert not missing, (
         "the kani: target must run every fast-tier harness the manifest "

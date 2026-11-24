@@ -142,7 +142,19 @@ issue text and the repository's documentation are the authority.
       `chutoro-core` and 2 in `chutoro-providers-dense`, each run ending
       `Complete - N successfully verified harnesses, 0 failures, N total.`
       and `kani_suite: verified N harness(es) ...`.
-- [ ] Run all commit gates and request CodeRabbit review.
+- [x] Run the commit gates: formatting, lint (interrogate, rustdoc, Clippy,
+      Whitaker), the 1587-test nextest suite, doctests, the workflow contracts,
+      Markdown lint, Mermaid, and both real Kani tiers.
+- [x] First CodeRabbit review, with all 13 findings actioned. Two were
+      substantive corrections to this work: the guide and the design document
+      claimed `kani` was already a required check when the ruleset change is
+      still pending, and the #215 draft claimed Kani cannot drift when the MST
+      and dense harnesses verify models rather than production paths. The rest
+      tightened the contracts: attached-attribute reading, repeated-source
+      identities, package-scoped duplicate detection, a non-vacuous per-command
+      assertion, a display-name collision check, a bare `pull_request:` trigger,
+      a required final summary, Result-returning fixtures, a Unix gate, and
+      `pipefail` in the documented commands.
 - [ ] Push the branch and create the draft pull request.
 
 ## Surprises & discoveries
@@ -378,9 +390,13 @@ the real Kani run covers six fast harnesses and two package-wide full sweeps.
 
 ## Validation commands
 
-Run sequentially from the repository root, capturing output under `/tmp`:
+Run sequentially from the repository root, capturing output under `/tmp`.
+`pipefail` is not decoration: a bare `make … | tee …` reports `tee`'s status,
+so a failing gate would leave the pipeline green and the evidence would say the
+opposite of what happened.
 
 ```sh
+set -euo pipefail
 make fmt 2>&1 | tee /tmp/fmt-issue-396.out
 make check-fmt 2>&1 | tee /tmp/check-fmt-issue-396.out
 make lint 2>&1 | tee /tmp/lint-issue-396.out
@@ -391,9 +407,9 @@ make nixie 2>&1 | tee /tmp/nixie-issue-396.out
 make kani 2>&1 | tee /tmp/kani-issue-396.out
 ```
 
-Expected evidence: every command exits zero; `make kani` ends with a checker
-line naming six successful harnesses; the workflow-contract suite reports its
-new tests passing.
+Expected evidence: every command exits zero, with `pipefail` making a gate's
+own failure the pipeline's; `make kani` ends with a checker line naming six
+successful harnesses; the workflow-contract suite reports its new tests passing.
 
 ## Outcomes & retrospective
 

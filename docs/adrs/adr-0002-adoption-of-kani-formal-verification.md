@@ -384,13 +384,15 @@ intended as future formal verification targets:
   and that scheduling beyond the insertion critical section needs a bounded
   scheduler or lock model plus production-path regressions.
 - 2026-11-23: recorded the merge-enforcement and inventory decision. The
-  `kani` job is a required status check on `main`, its pull-request workflow
-  declares no path filter, and each `cargo kani` invocation is checked by
-  `kani_suite` against `tools/kani/harnesses.toml`, which classifies every
-  declaration into a fast or full tier. The nightly suite verifies its own
-  checkout unconditionally and records the SHA, so commit age no longer decides
-  whether a head is eligible. The bounded-proof tractability rules above are
-  unchanged; what changed is when a proof is allowed to count as having run.
+  `kani` job is intended as a required status check on `main` and is not yet
+  one: adding it is a deferred administrator action on the live ruleset. Its
+  pull-request workflow declares no path filter, so the context is reported on
+  every change, and each `cargo kani` invocation is checked by `kani_suite`
+  against `tools/kani/harnesses.toml`, which classifies every declaration into
+  a fast or full tier. The nightly suite verifies its own checkout
+  unconditionally and records the SHA, so commit age no longer decides whether
+  a head is eligible. The bounded-proof tractability rules above are unchanged;
+  what changed is when a proof is allowed to count as having run.
 
 ## References
 

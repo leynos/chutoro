@@ -6,16 +6,18 @@ change a public conversation and a live repository setting.
 
 ## 1. Draft comment for issue #215
 
-> **Update (FV07, #396): Kani now gates merges**
+> **Update (FV07, #396): Kani runs on every pull request**
 >
-> The two claims below are now stale, and the model-drift warning is still
-> correct.
+> Two of the claims below are now stale and one is still correct. Read the
+> "Still correct" paragraph carefully: it is narrower than it first appears.
 >
 > **Stale: "No Kani harness gates anything."** `make kani` runs on every pull
 > request to `main` through `.github/workflows/kani-pr.yml`, which no longer
-> carries a path filter, and `kani` is a required status check on the
-> `main-required-checks` ruleset alongside `build-test` and `verus-proofs`. A
-> failing or missing proof run blocks a merge.
+> carries a path filter, so the `kani` context is reported on every change.
+> `kani` is being added to the `main-required-checks` ruleset alongside
+> `build-test` and `verus-proofs`; until an administrator applies that change
+> the job runs without blocking a merge, which is a narrower claim than "it
+> gates".
 >
 > **Stale: "`make kani-full` … does not currently complete."** The full
 > 17-harness suite completes on the audited baseline `56d6909`. The retired
@@ -29,14 +31,27 @@ change a public conversation and a live repository setting.
 >
 > - `make verus` is enforced, expensive per pull request, and not
 >   drift-sensitive at build time.
-> - `make kani` is enforced, bounded, and *does* compile the production code
->   under proof, so it cannot silently disagree with `src/`.
+> - `make kani` is enforced, bounded, and compiles the production code the
+>   harness reaches, so the harnesses that drive production paths cannot
+>   disagree with `src/` without failing to compile.
 >
-> The cost asymmetry the issue asked to document is now a difference in
-> *guarantee* rather than in enforcement: Kani proves properties of the code
-> that ships, within bounds; Verus proves properties of a model of it. The
-> guidance in the developer's guide, "Choosing a verification tool", reflects
-> that.
+> That last point is narrower than "Kani cannot drift", and the difference
+> matters. Several harnesses do not drive production paths: the MST proofs
+> verify a `#[cfg(kani)]` sequential model in place of the Rayon
+> implementation, and the dense SIMD harnesses model the selector and lane
+> arithmetic rather than executing intrinsics. Those harnesses can stay green
+> while production drifts, exactly as a transcribed Verus proof can. Their
+> refinement is carried by exhaustive equivalence tests over a bounded input
+> domain, not by the harness itself, and a domain boundary or a changed
+> production ordering is outside what those tests enumerate. FV05 is the
+> ledger that would make that obligation explicit; this work does not
+> implement it.
+>
+> The cost asymmetry the issue asked to document is therefore a difference in
+> *guarantee* rather than in enforcement: Kani proves properties of the code a
+> harness reaches, within bounds, and of a model where it does not; Verus
+> proves properties of a model throughout. The guidance in the developer's
+> guide, "Choosing a verification tool", reflects that.
 >
 > **Not implemented here: FV05.** The proof-to-production refinement ledger is
 > separate work.

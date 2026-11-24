@@ -182,6 +182,12 @@ override KANI_SUITE := $(KANI_SUITE_BINARY)
 KANI_SUITE_PREREQ := kani-suite-build
 endif
 
+# Declared before `build`, so the default goal is stated rather than inherited
+# from whichever target happens to appear first. GNU make takes the first
+# ordinary target as the default, and `build` is the one a bare `make` must
+# keep building.
+.DEFAULT_GOAL := build
+
 .PHONY: kani-suite-build
 kani-suite-build: ## Build the Kani suite checker
 	$(CARGO) build --package chutoro-test-support --bin kani_suite

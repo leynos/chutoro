@@ -193,7 +193,7 @@ class _Reader:
         """Start a sweep of one package under `repo_root`."""
         self._package = package
         self._repo_root = repo_root
-        self._visited: set[Path] = set()
+        self._visited: dict[Path, tuple[str, ...]] = {}
         self.proofs: list[ProofDeclaration] = []
         self.unresolved: list[UnresolvedDeclaration] = []
 
@@ -215,11 +215,28 @@ class _Reader:
         *,
         is_crate_root: bool = False,
     ) -> None:
-        """Read `file` as the module `module`, following its declarations."""
+        """Read `file` as the module `module`, following its declarations.
+
+        A file reached twice under the same module path is a revisited module
+        and is skipped. A file reached twice under *different* paths is not:
+        Rust admits it when two declarations share a ``#[path]`` target, and
+        each path yields its own harness identities. Dropping the second would
+        silently under-report the inventory, so it is reported instead.
+        """
         resolved = file.resolve()
         if resolved in self._visited:
+            if self._visited[resolved] != module:
+                self._report(
+                    "repeated-source",
+                    file.relative_to(self._repo_root).as_posix(),
+                    1,
+                    f"the same source is reached as both "
+                    f"{'::'.join(self._visited[resolved])} and "
+                    f"{'::'.join(module)}, so one harness identity would be "
+                    "dropped",
+                )
             return
-        self._visited.add(resolved)
+        self._visited[resolved] = module
         source = _parse(file)
         if source is None:
             return

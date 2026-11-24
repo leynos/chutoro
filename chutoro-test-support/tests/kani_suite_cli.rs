@@ -8,6 +8,14 @@
 //! The fixture's version banner is read from `tools/kani/VERSION` rather than
 //! restated, so a version bump moves the fixture with the pin instead of
 //! leaving a second copy to drift.
+//!
+//! The fake verifier is a POSIX shell script marked executable, so the whole
+//! integration test is gated on Unix. A non-Unix host gets no tests rather
+//! than a fixture that cannot start: an unconditional panic in a shared
+//! fixture would fail every case with a message about the harness instead of
+//! about the checker.
+
+#![cfg(unix)]
 
 use std::fs;
 use std::path::{Path, PathBuf};
@@ -89,16 +97,26 @@ esac
 exit "${FAKE_KANI_STATUS:-0}"
 "#;
 
-/// Return a fallible setup step's value, failing the test with `what` on error.
-///
-/// A trait-level helper rather than `.expect(...)`: the allow-expect-in-tests
-/// exemption covers `#[test]` bodies, not the fixture helpers that build a
-/// case, and the panic here is a setup failure the harness reports as such.
-fn required<T, E: std::fmt::Display>(result: Result<T, E>, what: &str) -> T {
-    match result {
-        Ok(value) => value,
-        Err(error) => panic!("{what}: {error}"),
+/// A reason a fixture could not be prepared.
+#[derive(Debug)]
+struct FixtureError(String);
+
+impl std::fmt::Display for FixtureError {
+    fn fmt(&self, formatter: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        formatter.write_str(&self.0)
     }
+}
+
+impl std::error::Error for FixtureError {}
+
+/// Return a fallible setup step's value, or a named fixture error.
+///
+/// The helpers return errors rather than panicking, as the repository's
+/// error-handling policy requires of shared fixtures. Each `#[rstest]` body
+/// consumes one with a reasoned `.expect(...)`, which the test-only exemption
+/// covers and which keeps the failure at the test boundary.
+fn required<T, E: std::fmt::Display>(result: Result<T, E>, what: &str) -> Result<T, FixtureError> {
+    result.map_err(|error| FixtureError(format!("{what}: {error}")))
 }
 
 /// One prepared checker case: the manifest path and the fake verifier.
@@ -113,7 +131,7 @@ struct Case {
 
 impl Case {
     /// Write the fixture into a directory named after the test.
-    fn create(name: &str) -> Self {
+    fn create(name: &str) -> Result<Self, FixtureError> {
         let sequence = NEXT_FIXTURE.fetch_add(1, Ordering::Relaxed);
         let directory = std::env::temp_dir().join(format!(
             "chutoro-kani-suite-cli-{}-{sequence}-{name}",
@@ -122,17 +140,17 @@ impl Case {
         required(
             fs::create_dir_all(&directory),
             "create the fixture directory",
-        );
+        )?;
         let manifest = directory.join("harnesses.toml");
-        required(fs::write(&manifest, MANIFEST), "write the fixture manifest");
+        required(fs::write(&manifest, MANIFEST), "write the fixture manifest")?;
         let verifier = directory.join("cargo-kani-fake");
-        required(fs::write(&verifier, FAKE), "write the fake verifier");
-        set_executable(&verifier);
-        Self {
+        required(fs::write(&verifier, FAKE), "write the fake verifier")?;
+        set_executable(&verifier)?;
+        Ok(Self {
             directory,
             manifest,
             verifier,
-        }
+        })
     }
 
     /// Run the checker with the supplied extra arguments and selectors.
@@ -141,7 +159,7 @@ impl Case {
         extra: &[&str],
         selectors: &[&str],
         environment: &[(&str, &str)],
-    ) -> std::process::Output {
+    ) -> Result<std::process::Output, FixtureError> {
         let mut command = Command::new(env!("CARGO_BIN_EXE_kani_suite"));
         command
             .arg("--manifest")
@@ -179,29 +197,26 @@ impl Drop for Case {
     }
 }
 
-/// Mark a script executable on a Unix host.
-#[cfg(unix)]
-fn set_executable(path: &Path) {
+/// Mark a script executable.
+///
+/// The whole test module is Unix-only, so a Unix permission change is the only
+/// shape this needs. A host without it gets no test run at all rather than a
+/// fixture that cannot start.
+fn set_executable(path: &Path) -> Result<(), FixtureError> {
     use std::os::unix::fs::PermissionsExt;
 
-    let mut permissions = required(fs::metadata(path), "stat the fake").permissions();
+    let mut permissions = required(fs::metadata(path), "stat the fake")?.permissions();
     permissions.set_mode(0o755);
     required(
         fs::set_permissions(path, permissions),
         "mark the fake executable",
-    );
-}
-
-/// Report that the checker cannot be exercised on this host.
-#[cfg(not(unix))]
-fn set_executable(_path: &Path) {
-    panic!("these tests need a Unix host to run the fake verifier");
+    )
 }
 
 /// A case with the default fixture.
 #[fixture]
 fn case() -> Case {
-    Case::create("default")
+    Case::create("default").expect("the checker fixture must be prepared")
 }
 
 /// Assert the checker failed and its diagnostics name `needle`.
@@ -220,7 +235,9 @@ fn assert_rejected(output: &std::process::Output, needle: &str) {
 
 #[rstest]
 fn accepts_an_exact_successful_run(case: Case) {
-    let output = case.run(&[], &["proofs::verify_one"], &[]);
+    let output = case
+        .run(&[], &["proofs::verify_one"], &[])
+        .expect("the checker must run");
     assert!(
         output.status.success(),
         "expected success, got {}",
@@ -239,72 +256,86 @@ fn accepts_an_exact_successful_run(case: Case) {
 
 #[rstest]
 fn rejects_a_missing_harness(case: Case) {
-    let output = case.run(
-        &[],
-        &["proofs::verify_one", "proofs::verify_two"],
-        &[("FAKE_KANI_MODE", "missing")],
-    );
+    let output = case
+        .run(
+            &[],
+            &["proofs::verify_one", "proofs::verify_two"],
+            &[("FAKE_KANI_MODE", "missing")],
+        )
+        .expect("the checker must run");
     assert_rejected(&output, "did not complete these expected harnesses");
 }
 
 #[rstest]
 fn rejects_an_unexpected_harness(case: Case) {
-    let output = case.run(
-        &[],
-        &["proofs::verify_one"],
-        &[("FAKE_KANI_MODE", "unexpected")],
-    );
+    let output = case
+        .run(
+            &[],
+            &["proofs::verify_one"],
+            &[("FAKE_KANI_MODE", "unexpected")],
+        )
+        .expect("the checker must run");
     assert_rejected(&output, "outside the requested scope");
 }
 
 #[rstest]
 fn rejects_a_duplicate_harness(case: Case) {
-    let output = case.run(
-        &[],
-        &["proofs::verify_one"],
-        &[("FAKE_KANI_MODE", "duplicate")],
-    );
+    let output = case
+        .run(
+            &[],
+            &["proofs::verify_one"],
+            &[("FAKE_KANI_MODE", "duplicate")],
+        )
+        .expect("the checker must run");
     assert_rejected(&output, "more than once");
 }
 
 #[rstest]
 fn rejects_a_failed_harness(case: Case) {
-    let output = case.run(
-        &[],
-        &["proofs::verify_one"],
-        &[("FAKE_KANI_MODE", "failed")],
-    );
+    let output = case
+        .run(
+            &[],
+            &["proofs::verify_one"],
+            &[("FAKE_KANI_MODE", "failed")],
+        )
+        .expect("the checker must run");
     assert_rejected(&output, "failed or undetermined outcome");
 }
 
 #[rstest]
 fn rejects_an_incomplete_block(case: Case) {
-    let output = case.run(
-        &[],
-        &["proofs::verify_one"],
-        &[("FAKE_KANI_MODE", "incomplete")],
-    );
+    let output = case
+        .run(
+            &[],
+            &["proofs::verify_one"],
+            &[("FAKE_KANI_MODE", "incomplete")],
+        )
+        .expect("the checker must run");
     assert_rejected(&output, "never reported an outcome");
 }
 
 #[rstest]
 fn propagates_a_nonzero_delegated_status(case: Case) {
-    let output = case.run(
-        &[],
-        &["proofs::verify_one"],
-        &[("FAKE_KANI_MODE", "silent"), ("FAKE_KANI_STATUS", "7")],
-    );
+    let output = case
+        .run(
+            &[],
+            &["proofs::verify_one"],
+            &[("FAKE_KANI_MODE", "silent"), ("FAKE_KANI_STATUS", "7")],
+        )
+        .expect("the checker must run");
     assert_rejected(&output, "failed with exit status: 7");
 }
 
 #[rstest]
 fn rejects_a_quiet_run_before_starting_it(case: Case) {
     let marker = case.directory.join("invoked");
-    let output = case.run(
-        &["--quiet"],
-        &["proofs::verify_one"],
-        &[("FAKE_KANI_MARKER", &marker.to_string_lossy())],
-    );
+    let output = case
+        .run(
+            &["--quiet"],
+            &["proofs::verify_one"],
+            &[("FAKE_KANI_MARKER", &marker.to_string_lossy())],
+        )
+        .expect("the checker must run");
     assert_rejected(&output, "--quiet");
     assert!(
         !marker.exists(),
@@ -314,17 +345,21 @@ fn rejects_a_quiet_run_before_starting_it(case: Case) {
 
 #[rstest]
 fn rejects_a_selector_outside_the_manifest_scope(case: Case) {
-    let output = case.run(&[], &["proofs::verify_unlisted"], &[]);
+    let output = case
+        .run(&[], &["proofs::verify_unlisted"], &[])
+        .expect("the checker must run");
     assert_rejected(&output, "outside the fast scope");
 }
 
 #[rstest]
 fn applies_a_leading_assignment_to_the_delegated_process(case: Case) {
-    let output = case.run(
-        &[],
-        &["proofs::verify_one", "proofs::verify_two"],
-        &[("FAKE_KANI_MODE", "two")],
-    );
+    let output = case
+        .run(
+            &[],
+            &["proofs::verify_one", "proofs::verify_two"],
+            &[("FAKE_KANI_MODE", "two")],
+        )
+        .expect("the checker must run");
     assert!(
         output.status.success(),
         "expected the delegated environment assignment to select the two-harness \
@@ -357,6 +392,6 @@ fn rejects_a_command_that_selects_another_package(case: Case) {
             "proofs::verify_one",
         ])
         .output();
-    let output = required(raw, "run the checker");
+    let output = raw.expect("the checker must run");
     assert_rejected(&output, "must select exactly package");
 }
