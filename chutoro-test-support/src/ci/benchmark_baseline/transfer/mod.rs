@@ -241,21 +241,24 @@ fn validate_files(directory: &Path, id: &str) -> Result<(), BaselineError> {
 }
 
 /// Rename the temporary directory into place, preserving any previous one.
+///
+/// The `TempDir` owner is held until the rename succeeds. Taking ownership
+/// with `keep()` first would leave a complete `.benchmark-baseline-stage-*`
+/// directory behind after a failed backup step, because the automatic
+/// cleanup would already be disabled.
 fn replace_destination(
     parent: &Path,
     temporary: TempDir,
     pair: &StagePair<'_>,
 ) -> Result<(), BaselineError> {
-    let temporary_path = temporary.keep();
     let backup = if pair.destination.exists() {
         Some(move_to_backup(parent, pair)?)
     } else {
         None
     };
 
-    if let Err(error) = fs::rename(&temporary_path, pair.destination) {
-        let _cleanup = fs::remove_dir_all(&temporary_path);
-        restore_backup(backup, pair.destination);
+    if let Err(error) = fs::rename(temporary.path(), pair.destination) {
+        restore_backup(backup, pair)?;
         return Err(BaselineError::StageCopy {
             id: pair.id.to_owned(),
             source_directory: pair.source.to_path_buf(),
@@ -264,6 +267,10 @@ fn replace_destination(
             remedy: "ensure the current Criterion output root is writable",
         });
     }
+
+    // The rename consumed the directory; `keep` only stops the now-stale
+    // cleanup path from targeting a path that no longer exists.
+    let _renamed = temporary.keep();
 
     Ok(())
 }
@@ -294,11 +301,30 @@ fn move_to_backup(parent: &Path, pair: &StagePair<'_>) -> Result<TempDir, Baseli
 }
 
 /// Restore a backed-up destination after a failed rename.
-fn restore_backup(backup: Option<TempDir>, destination: &Path) {
-    if let Some(previous_directory) = backup {
-        let previous = previous_directory.path().join("previous");
-        let _restore_result = fs::rename(previous, destination);
+///
+/// A restoration that itself fails must not delete the backup: the previous
+/// baseline is still the only copy of that data, so the directory is
+/// `keep`t and its path is reported in the returned error.
+fn restore_backup(backup: Option<TempDir>, pair: &StagePair<'_>) -> Result<(), BaselineError> {
+    let Some(previous_directory) = backup else {
+        return Ok(());
+    };
+    let previous = previous_directory.path().join("previous");
+    if let Err(error) = fs::rename(&previous, pair.destination) {
+        let retained = previous_directory.keep();
+        return Err(BaselineError::StageCopy {
+            id: pair.id.to_owned(),
+            source_directory: pair.source.to_path_buf(),
+            destination_directory: pair.destination.to_path_buf(),
+            message: format!(
+                "restoring the previous baseline failed ({error}); it is retained at {}",
+                retained.display()
+            ),
+            remedy: "restore the retained baseline by hand and rerun staging",
+        });
     }
+
+    Ok(())
 }
 
 /// Remove stale comparison output for identifiers about to be compared.

@@ -9,14 +9,18 @@ use crate::ci::benchmark_baseline::{
 };
 
 fn case(full_id: &str, complete: bool) -> BaselineCase {
+    case_with_files(full_id, complete, complete)
+}
+
+fn case_with_files(full_id: &str, estimates: bool, sample: bool) -> BaselineCase {
     BaselineCase {
         full_id: full_id.to_owned(),
         directory_name: full_id.to_owned(),
         relative_directory: full_id.into(),
         required_files: RequiredFiles {
             benchmark: true,
-            estimates: complete,
-            sample: complete,
+            estimates,
+            sample,
         },
     }
 }
@@ -209,17 +213,28 @@ fn empty_comparable_set_is_incomplete() {
 #[test]
 fn missing_reference_sample_is_incomplete_and_names_the_path() {
     let error = check(
-        &reference(vec![case("fixture/alpha", false)]),
+        &reference(vec![case_with_files("fixture/alpha", true, false)]),
         &current(vec![case("fixture/alpha", true)]),
     )
-    .expect_err("missing reference data cannot be compared");
+    .expect_err("missing reference sample cannot be compared");
 
     assert_eq!(error.outcome(), Some(Outcome::Incomplete));
     let message = error.to_string();
-    // `case(..., false)` marks both estimate files absent; the check reports
-    // the first one it finds missing, in Criterion's required-file order.
-    assert!(message.contains("estimates.json"), "{message}");
+    assert!(message.contains("sample.json"), "{message}");
     assert!(message.contains("ci-reference"), "{message}");
+}
+
+#[test]
+fn missing_reference_estimates_are_incomplete_and_name_the_path() {
+    let error = check(
+        &reference(vec![case_with_files("fixture/alpha", false, true)]),
+        &current(vec![case("fixture/alpha", true)]),
+    )
+    .expect_err("missing reference estimates cannot be compared");
+
+    assert_eq!(error.outcome(), Some(Outcome::Incomplete));
+    let message = error.to_string();
+    assert!(message.contains("estimates.json"), "{message}");
 }
 
 #[test]
@@ -235,6 +250,8 @@ fn duplicate_identifiers_are_incomplete_and_name_both_paths() {
 
     assert_eq!(error.outcome(), Some(Outcome::Incomplete));
     assert!(matches!(error, BaselineError::DuplicateId { .. }));
+    let message = error.to_string();
+    assert!(message.contains("benchmark.json"), "{message}");
 }
 
 #[test]

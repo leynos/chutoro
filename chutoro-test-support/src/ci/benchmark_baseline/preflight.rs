@@ -117,7 +117,11 @@ pub struct PreflightReport {
 }
 
 impl PreflightReport {
-    /// Build a passing report from a successful compatibility check.
+    /// Start an incomplete report that a later stage fills in.
+    ///
+    /// The constructor deliberately starts at `incomplete`: a report becomes
+    /// `Pass` only when staging has written every comparable baseline and the
+    /// filter, so no caller can publish success by forgetting a step.
     ///
     /// # Examples
     ///
@@ -190,8 +194,19 @@ impl PreflightReport {
     ///
     /// # Errors
     ///
-    /// Returns an error when the report cannot be read or parsed.
+    /// Returns an error when the report cannot be read or parsed, or when it
+    /// declares a schema version this helper does not understand.
     pub fn read(path: &Path) -> Result<Self, BaselineError> {
-        read_json(path)
+        let report: Self = read_json(path)?;
+        if report.schema_version != SCHEMA_VERSION {
+            return Err(BaselineError::Schema {
+                path: path.to_path_buf(),
+                found: report.schema_version,
+                expected: SCHEMA_VERSION,
+                remedy: "rerun staging with this helper version",
+            });
+        }
+
+        Ok(report)
     }
 }

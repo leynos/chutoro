@@ -2,13 +2,26 @@
 
 use std::fs;
 use std::path::{Path, PathBuf};
-use std::thread;
-use std::time::Duration;
+use std::time::{Duration, SystemTime};
 
 use tempfile::TempDir;
 
 use super::{BaselineManifest, ToolVersions, discover_cases, write_manifest};
 use crate::ci::benchmark_baseline::BaselineError;
+
+/// Set one file's modification time without sleeping.
+fn set_modified(path: &Path, time: SystemTime) {
+    let file = fs::OpenOptions::new()
+        .write(true)
+        .open(path)
+        .expect("file must be openable to set its timestamp");
+    file.set_modified(time).expect("timestamp must be settable");
+}
+
+/// A fixed instant used by the freshness tests.
+fn instant(seconds_after_epoch: u64) -> SystemTime {
+    SystemTime::UNIX_EPOCH + Duration::from_secs(seconds_after_epoch)
+}
 
 /// One case to stage for a discovery test.
 struct CaseSpec<'a> {
@@ -198,12 +211,14 @@ fn stale_baselines_are_rejected_against_the_marker() {
             required: true,
         },
     );
-    // Give the baseline file a timestamp strictly before the marker that is
-    // created afterwards. Filesystem timestamp granularity is coarse on some
-    // hosts, so make the gap unambiguous.
-    thread::sleep(Duration::from_millis(20));
+    // Explicit timestamps make the ordering unambiguous whatever the host's
+    // filesystem timestamp granularity is.
+    for file in ["benchmark.json", "estimates.json", "sample.json"] {
+        set_modified(&baseline_directory.join(file), instant(1_000));
+    }
     let marker = directory.path().join("verdict.json");
     fs::write(&marker, "{}").expect("marker must be written");
+    set_modified(&marker, instant(2_000));
 
     let error = discover_cases(directory.path(), "ci-reference", Some(&marker))
         .expect_err("stale baseline must fail");
@@ -215,12 +230,9 @@ fn stale_baselines_are_rejected_against_the_marker() {
 }
 
 #[test]
-fn fresh_baselines_pass_the_marker_check() {
+fn a_stale_sample_is_rejected_even_when_its_metadata_is_fresh() {
     let directory = TempDir::new().expect("temporary directory");
-    let marker = directory.path().join("verdict.json");
-    fs::write(&marker, "{}").expect("marker must be written");
-    thread::sleep(Duration::from_millis(20));
-    write_case(
+    let baseline_directory = write_case(
         directory.path(),
         "ci-reference",
         &CaseSpec {
@@ -229,6 +241,39 @@ fn fresh_baselines_pass_the_marker_check() {
             required: true,
         },
     );
+    let marker = directory.path().join("verdict.json");
+    fs::write(&marker, "{}").expect("marker must be written");
+    set_modified(&marker, instant(1_000));
+    for file in ["benchmark.json", "estimates.json"] {
+        set_modified(&baseline_directory.join(file), instant(2_000));
+    }
+    set_modified(&baseline_directory.join("sample.json"), instant(500));
+
+    let error = discover_cases(directory.path(), "ci-reference", Some(&marker))
+        .expect_err("a stale sample must fail");
+
+    assert!(matches!(error, BaselineError::StaleBaseline { .. }));
+    assert!(error.to_string().contains("sample.json"), "{error}");
+}
+
+#[test]
+fn fresh_baselines_pass_the_marker_check() {
+    let directory = TempDir::new().expect("temporary directory");
+    let marker = directory.path().join("verdict.json");
+    fs::write(&marker, "{}").expect("marker must be written");
+    set_modified(&marker, instant(1_000));
+    let baseline_directory = write_case(
+        directory.path(),
+        "ci-reference",
+        &CaseSpec {
+            full_id: "fixture/alpha/plain",
+            directory_name: "fixture/alpha/plain",
+            required: true,
+        },
+    );
+    for file in ["benchmark.json", "estimates.json", "sample.json"] {
+        set_modified(&baseline_directory.join(file), instant(2_000));
+    }
 
     let cases = discover_cases(directory.path(), "ci-reference", Some(&marker))
         .expect("fresh baseline must be accepted");

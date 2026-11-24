@@ -177,11 +177,17 @@ fn check_target(
     current: &BaselineManifest,
 ) -> Result<(), BaselineError> {
     require_equal("benchmark target", &reference.bench, &current.bench)?;
-    require_equal(
-        "benchmark arguments",
-        &reference.bench_arguments.join(" "),
-        &current.bench_arguments.join(" "),
-    )?;
+    // Compare the token vectors, not their space-joined text: `["a b", "c"]`
+    // and `["a", "b", "c"]` join identically but give Criterion a different
+    // filter and different options.
+    if reference.bench_arguments != current.bench_arguments {
+        return Err(BaselineError::Incompatible {
+            field: "benchmark arguments",
+            reference: reference.bench_arguments.join(" "),
+            current: current.bench_arguments.join(" "),
+            remedy: "measure both revisions with the same tokenised arguments",
+        });
+    }
     let (reference_environment, current_environment) =
         differing_environment(&reference.environment, &current.environment);
     if !reference_environment.is_empty() || !current_environment.is_empty() {

@@ -9,18 +9,16 @@
 use std::collections::BTreeMap;
 use std::path::Path;
 
-use mockable::{DefaultEnv, Env};
+use mockable::DefaultEnv;
 
-use super::args::{ClassifyArgs, InventoryArgs, NoReferenceReason, StageArgs};
-use super::classification::{Classification, read_case_change};
+use super::args::{InventoryArgs, StageArgs};
 use super::compatibility::{Compatibility, check};
 use super::manifest::{
     BaselineManifest, collect_bench_environment, inventory, read_manifest, write_manifest,
 };
 use super::output_root::resolve_workspace_output_root;
-use super::preflight::{ComparableCase, ManifestSummary, PreflightReport};
+use super::preflight::{ManifestSummary, PreflightReport};
 use super::transfer::{StageOutcome, StageRequest, stage};
-use super::verdict::{BaselineVerdict, CaseClass, CaseVerdict, NoComparison};
 use super::{BaselineError, Outcome};
 
 /// Name of the inventory manifest written into the evidence directory.
@@ -31,6 +29,10 @@ pub const CURRENT_MANIFEST_FILE: &str = "current-manifest.json";
 
 /// Name of the preflight report written by `stage`.
 pub const PREFLIGHT_FILE: &str = "preflight.json";
+
+mod classify;
+
+pub use classify::run_classify;
 
 /// Run `inventory` and write the manifest.
 ///
@@ -104,11 +106,20 @@ pub fn run_inventory(args: &InventoryArgs) -> Result<BaselineManifest, BaselineE
 /// assert!(!report.comparable.is_empty());
 /// ```
 pub fn run_stage(args: &StageArgs) -> Result<PreflightReport, BaselineError> {
-    let reference = read_manifest(&args.reference_manifest)?;
-    let current = read_manifest(&args.current_manifest)?;
     let report_path = args.evidence.join(PREFLIGHT_FILE);
-
+    // The report is published before either manifest is read, so a missing or
+    // malformed manifest still leaves a diagnosis rather than none.
     let mut report = PreflightReport::new("stage", &args.bench);
+    report.write(&report_path)?;
+
+    let reference = read_stage_manifest(
+        &args.reference_manifest,
+        "reference",
+        &mut report,
+        &report_path,
+    )?;
+    let current =
+        read_stage_manifest(&args.current_manifest, "current", &mut report, &report_path)?;
     report.reference = Some(ManifestSummary::from_manifest(&reference));
     report.current = Some(ManifestSummary::from_manifest(&current));
 
@@ -143,13 +154,58 @@ pub fn run_stage(args: &StageArgs) -> Result<PreflightReport, BaselineError> {
         }
     };
 
+    // Write the filter before publishing a passing report: classification
+    // treats `Pass` as permission to use the comparison, so a filter that
+    // could not be written must not leave that permission behind.
+    if let Some(error) = args
+        .filter_output
+        .as_deref()
+        .and_then(|path| write_filter(path, &outcome.filter).err())
+    {
+        return Err(record_stage_failure(
+            &mut report,
+            &report_path,
+            "stage",
+            error,
+        ));
+    }
     record_success(&mut report, &compatibility, &outcome);
     report.write(&report_path)?;
-    if let Some(path) = &args.filter_output {
-        write_filter(path, &outcome.filter)?;
-    }
 
     Ok(report)
+}
+
+/// Read one side's manifest, recording a failure in the preflight report.
+fn read_stage_manifest(
+    path: &Path,
+    side: &str,
+    report: &mut PreflightReport,
+    report_path: &Path,
+) -> Result<BaselineManifest, BaselineError> {
+    read_manifest(path).map_err(|error| record_stage_failure(report, report_path, side, error))
+}
+
+/// Record a staging failure in the preflight report and return the error.
+fn record_stage_failure(
+    report: &mut PreflightReport,
+    report_path: &Path,
+    stage: &str,
+    error: BaselineError,
+) -> BaselineError {
+    report.outcome = error.outcome().unwrap_or(Outcome::Incomplete);
+    report.reason = Some(error.to_string());
+    let diagnostic = error.diagnostic().with_stage(stage);
+    report.diagnostics.push(diagnostic);
+    // A failed evidence write must not mask the original failure, so the
+    // write error is logged rather than returned.
+    if let Err(write_error) = report.write(report_path) {
+        tracing::warn!(
+            path = %report_path.display(),
+            error = %write_error,
+            "could not write the preflight report for a failed stage",
+        );
+    }
+    error
 }
 
 /// Record a successful transfer in the preflight report.
@@ -204,269 +260,6 @@ fn write_filter(path: &Path, filter: &str) -> Result<(), BaselineError> {
         source,
         remedy: "ensure the evidence directory is writable",
     })
-}
-
-/// Run `classify` and write the verdict.
-///
-/// # Errors
-///
-/// Returns an error when the preflight report cannot be read or the verdict
-/// cannot be written. A regression is reported in the verdict, not as an
-/// error.
-///
-/// # Examples
-///
-/// ```no_run
-/// use chutoro_test_support::ci::benchmark_baseline::args::ClassifyArgs;
-/// use chutoro_test_support::ci::benchmark_baseline::runner::run_classify;
-///
-/// let verdict = run_classify(&ClassifyArgs {
-///     preflight: "/evidence/preflight.json".into(),
-///     bench: "hnsw".to_owned(),
-///     verdict: "/evidence/verdict.json".into(),
-///     threshold: 0.05,
-///     no_reference: None,
-/// })
-/// .expect("classification must succeed");
-/// assert!(verdict.comparable_count > 0);
-/// ```
-pub fn run_classify(args: &ClassifyArgs) -> Result<BaselineVerdict, BaselineError> {
-    // A lane defect may have happened before staging wrote a preflight
-    // report, so that path does not require one to exist.
-    let mut verdict = match &args.failed_stage {
-        Some(stage) => {
-            let mut verdict = BaselineVerdict::started(&args.bench, args.threshold);
-            verdict.stage = String::from("classify");
-            record_lane_defect(&mut verdict, stage, args.failure_reason.as_deref());
-            verdict
-        }
-        None => classify_by_state(args)?,
-    };
-    verdict.bench.clone_from(&args.bench);
-    verdict.write(&args.verdict)?;
-    write_step_summary(&verdict)?;
-
-    Ok(verdict)
-}
-
-/// Choose the classification path the supplied arguments ask for.
-fn classify_by_state(args: &ClassifyArgs) -> Result<BaselineVerdict, BaselineError> {
-    args.no_reference.map_or_else(
-        || classify_preflight(args),
-        |reason| Ok(no_reference_verdict(args, reason)),
-    )
-}
-
-/// Record a lane defect over whatever the preflight report said.
-///
-/// The workflow calls this from its failure handler so the evidence directory
-/// always names the stage that failed, even when the failure happened before
-/// any classification could run.
-fn record_lane_defect(verdict: &mut BaselineVerdict, stage: &str, reason: Option<&str>) {
-    verdict.outcome = Outcome::Incomplete;
-    verdict.stage = String::from("classify");
-    verdict.failed_stage = Some(stage.to_owned());
-    let message = reason.map_or_else(
-        || format!("stage {stage} failed before a comparison could run"),
-        str::to_owned,
-    );
-    verdict.reason = Some(message.clone());
-    verdict.diagnostics.push(super::BaselineDiagnostic {
-        stage: stage.to_owned(),
-        outcome: Outcome::Incomplete,
-        id: None,
-        path: None,
-        expected: None,
-        remedy: "read the stage log in the uploaded evidence directory".to_owned(),
-        message,
-    });
-}
-
-/// Append the verdict's Markdown table to `GITHUB_STEP_SUMMARY` when set.
-fn write_step_summary(verdict: &BaselineVerdict) -> Result<(), BaselineError> {
-    use std::io::Write as _;
-
-    let env = DefaultEnv;
-    let Some(path) = env.string("GITHUB_STEP_SUMMARY") else {
-        return Ok(());
-    };
-    let mut file = std::fs::OpenOptions::new()
-        .create(true)
-        .append(true)
-        .open(&path)
-        .map_err(|source| BaselineError::Write {
-            path: path.clone().into(),
-            source,
-            remedy: "ensure GITHUB_STEP_SUMMARY names a writable file",
-        })?;
-    file.write_all(verdict.to_markdown().as_bytes())
-        .map_err(|source| BaselineError::Write {
-            path: path.into(),
-            source,
-            remedy: "ensure GITHUB_STEP_SUMMARY names a writable file",
-        })
-}
-
-/// Build the verdict for a lane with no previous revision.
-fn no_reference_verdict(args: &ClassifyArgs, reason: NoReferenceReason) -> BaselineVerdict {
-    let remedy = match reason {
-        NoReferenceReason::Shallow => {
-            "check out with `fetch-depth: 2`, or fetch the previous commit before comparing"
-        }
-        NoReferenceReason::RootCommit => {
-            "the first commit has no parent; the lane starts comparing from the next revision"
-        }
-    };
-    let description = format!("no reference commit exists ({})", reason.as_str());
-    let mut verdict = BaselineVerdict::without_comparison(&NoComparison {
-        bench: &args.bench,
-        outcome: Outcome::NoReference,
-        stage: "classify",
-        reason: &description,
-        threshold: args.threshold,
-    });
-    if let Some(diagnostic) = verdict.diagnostics.first_mut() {
-        diagnostic.remedy = String::from(remedy);
-    }
-
-    verdict
-}
-
-/// Classify every comparable identifier named by the preflight report.
-fn classify_preflight(args: &ClassifyArgs) -> Result<BaselineVerdict, BaselineError> {
-    let report = PreflightReport::read(&args.preflight)?;
-    let mut verdict = BaselineVerdict::started(&args.bench, args.threshold);
-    verdict.stage = String::from("classify");
-    verdict.reference_revision = report
-        .reference
-        .as_ref()
-        .map(|summary| summary.revision.clone());
-    verdict.current_revision = report
-        .current
-        .as_ref()
-        .map(|summary| summary.revision.clone());
-    verdict.comparable_count = report.comparable.len();
-    verdict.diagnostics.clone_from(&report.diagnostics);
-
-    if report.outcome != Outcome::Pass {
-        verdict.outcome = report.outcome;
-        verdict.reason = report
-            .reason
-            .clone()
-            .or_else(|| Some("staging did not produce comparable evidence".to_owned()));
-        verdict.failed_stage = Some(report.stage.clone());
-        record_unverified(&mut verdict, &report);
-        verdict.cases.sort_by(|left, right| left.id.cmp(&right.id));
-        return Ok(verdict);
-    }
-
-    let Some(current_root) = report
-        .current
-        .as_ref()
-        .map(|summary| summary.output_root.clone())
-    else {
-        verdict.outcome = Outcome::Incomplete;
-        verdict.failed_stage = Some("classify".to_owned());
-        verdict.reason = Some("the preflight report recorded no current output root".to_owned());
-        return Ok(verdict);
-    };
-
-    let mut unreadable = 0;
-    for case in &report.comparable {
-        match classify_case(&current_root, case, args.threshold) {
-            Ok(case_verdict) => verdict.cases.push(case_verdict),
-            Err(error) => {
-                unreadable += 1;
-                verdict
-                    .diagnostics
-                    .push(error.diagnostic().with_stage("classify"));
-                verdict.cases.push(CaseVerdict::not_compared(
-                    &case.full_id,
-                    CaseClass::Unreadable,
-                    &error.to_string(),
-                ));
-            }
-        }
-    }
-    record_unverified(&mut verdict, &report);
-    verdict.cases.sort_by(|left, right| left.id.cmp(&right.id));
-    verdict.outcome = outcome_for(&verdict, unreadable);
-    verdict.reason = reason_for(&verdict, unreadable);
-
-    Ok(verdict)
-}
-
-/// Append identifiers the lane could not compare.
-fn record_unverified(verdict: &mut BaselineVerdict, report: &PreflightReport) {
-    for id in &report.new_unverified {
-        verdict.cases.push(CaseVerdict::not_compared(
-            id,
-            CaseClass::NewUnverified,
-            "no reference baseline for this identifier",
-        ));
-    }
-    for id in &report.removed {
-        verdict.cases.push(CaseVerdict::not_compared(
-            id,
-            CaseClass::Removed,
-            "no current measurement for this identifier",
-        ));
-    }
-}
-
-/// Classify one comparable identifier.
-fn classify_case(
-    current_root: &Path,
-    case: &ComparableCase,
-    threshold: f64,
-) -> Result<CaseVerdict, BaselineError> {
-    let change = read_case_change(
-        current_root,
-        &case.current_directory.display().to_string(),
-        &case.full_id,
-    )?;
-    let classification: Classification = change.classify(&case.full_id, threshold)?;
-
-    Ok(CaseVerdict::classified(
-        &case.full_id,
-        classification.class,
-        classification.lower_bound,
-        classification.upper_bound,
-    ))
-}
-
-/// Decide the lane outcome from the classified identifiers.
-fn outcome_for(verdict: &BaselineVerdict, unreadable: usize) -> Outcome {
-    if unreadable > 0 {
-        Outcome::Incomplete
-    } else if verdict
-        .cases
-        .iter()
-        .any(|case| case.class == CaseClass::Regressed)
-    {
-        Outcome::Regression
-    } else {
-        Outcome::Pass
-    }
-}
-
-/// Explain a non-passing outcome.
-fn reason_for(verdict: &BaselineVerdict, unreadable: usize) -> Option<String> {
-    if unreadable > 0 {
-        return Some(format!(
-            "{unreadable} comparable identifier(s) produced no readable change estimates"
-        ));
-    }
-    let regressed = verdict.regressed_ids();
-    if regressed.is_empty() {
-        return None;
-    }
-
-    Some(format!(
-        "{} benchmark id(s) regressed: {}",
-        regressed.len(),
-        regressed.join(", ")
-    ))
 }
 
 /// Resolve the output root for a workspace using the process environment.

@@ -107,8 +107,8 @@ pub fn resolve_workspace_output_root(
     workspace: &Path,
     env: &dyn Env,
 ) -> Result<PathBuf, BaselineError> {
-    let criterion_home = env.string(CRITERION_HOME_ENV).map(PathBuf::from);
-    let cargo_target_dir = env.string(CARGO_TARGET_DIR_ENV).map(PathBuf::from);
+    let criterion_home = path_override(env, CRITERION_HOME_ENV)?;
+    let cargo_target_dir = path_override(env, CARGO_TARGET_DIR_ENV)?;
     let metadata_target_dir = if criterion_home.is_none() && cargo_target_dir.is_none() {
         Some(metadata_target_directory(workspace, env)?)
     } else {
@@ -121,6 +121,23 @@ pub fn resolve_workspace_output_root(
         metadata_target_dir: metadata_target_dir.as_deref(),
         working_directory: workspace,
     }))
+}
+
+/// Read a path-valued environment override without discarding non-Unicode.
+///
+/// `Env::string` maps a non-Unicode value to `None`, which would silently
+/// fall through to a lower-priority directory; Criterion reads the value with
+/// `var_os` and would use it. Reporting the override as an error keeps the
+/// helper from inventorying a directory Criterion did not write.
+fn path_override(env: &dyn Env, key: &'static str) -> Result<Option<PathBuf>, BaselineError> {
+    match env.raw(key) {
+        Ok(value) => Ok(Some(PathBuf::from(value))),
+        Err(std::env::VarError::NotPresent) => Ok(None),
+        Err(std::env::VarError::NotUnicode(_)) => Err(BaselineError::OutputRoot {
+            reason: format!("{key} is set to a non-Unicode path"),
+            remedy: "set the override to a UTF-8 path, or unset it so metadata is consulted",
+        }),
+    }
 }
 
 /// Parsed subset of `cargo metadata` output.
@@ -202,7 +219,7 @@ pub fn metadata_target_directory(
 /// cache and can block behind other builds on a shared host; the lockfile is
 /// already the resolved answer for a `--locked` build and costs one file read.
 fn criterion_version(workspace: &Path) -> Result<String, BaselineError> {
-    let lock_path = workspace.join("Cargo.lock");
+    let lock_path = lockfile_path(workspace);
     let text = std::fs::read_to_string(&lock_path).map_err(|source| BaselineError::Read {
         path: lock_path.clone(),
         source,
@@ -216,6 +233,25 @@ fn criterion_version(workspace: &Path) -> Result<String, BaselineError> {
         ),
         remedy: "add criterion to the benchmark crate and run `cargo update -p criterion`",
     })
+}
+
+/// Find the lockfile that governs `workspace`.
+///
+/// A workspace member has no lockfile of its own, so the search walks up to
+/// the directory that owns one. This keeps `--workspace` usable for either a
+/// package directory or the workspace root.
+fn lockfile_path(workspace: &Path) -> PathBuf {
+    let mut candidate = workspace.to_path_buf();
+    loop {
+        let lockfile = candidate.join("Cargo.lock");
+        if lockfile.is_file() {
+            return lockfile;
+        }
+        let Some(parent) = candidate.parent() else {
+            return workspace.join("Cargo.lock");
+        };
+        candidate = parent.to_path_buf();
+    }
 }
 
 /// Return the version a Cargo lockfile records for `package`.
@@ -274,7 +310,8 @@ pub struct RecordedTools {
 /// ```
 /// # use mockable::DefaultEnv;
 /// # use chutoro_test_support::ci::benchmark_baseline::output_root::record_tool_versions;
-/// # let workspace = std::path::Path::new(env!("CARGO_MANIFEST_DIR"));
+/// # let crate_directory = std::path::Path::new(env!("CARGO_MANIFEST_DIR"));
+/// # let workspace = crate_directory.parent().expect("crate is in the workspace");
 /// let tools = record_tool_versions(workspace, &DefaultEnv).expect("tool versions must run");
 /// assert!(!tools.cargo.is_empty());
 /// ```
@@ -363,91 +400,4 @@ fn captured_stderr(stderr: &[u8]) -> String {
 }
 
 #[cfg(test)]
-mod tests {
-    //! Unit tests for output-root precedence and metadata parsing.
-
-    use std::path::{Path, PathBuf};
-
-    use super::{OutputRootInputs, parse_metadata, resolve_output_root};
-
-    fn resolve(
-        criterion_home: Option<&Path>,
-        cargo_target_dir: Option<&Path>,
-        metadata_target_dir: Option<&Path>,
-    ) -> PathBuf {
-        resolve_output_root(&OutputRootInputs {
-            criterion_home,
-            cargo_target_dir,
-            metadata_target_dir,
-            working_directory: Path::new("/work"),
-        })
-    }
-
-    #[test]
-    fn criterion_home_wins_over_every_other_source() {
-        let root = resolve(
-            Some(Path::new("/explicit")),
-            Some(Path::new("/target")),
-            Some(Path::new("/metadata")),
-        );
-
-        assert_eq!(root, Path::new("/explicit"));
-    }
-
-    #[test]
-    fn relative_criterion_home_is_resolved_against_the_working_directory() {
-        let root = resolve(Some(Path::new("custom/criterion")), None, None);
-
-        assert_eq!(root, Path::new("/work/custom/criterion"));
-    }
-
-    #[test]
-    fn cargo_target_directory_wins_over_metadata() {
-        let root = resolve(
-            None,
-            Some(Path::new("/cargo-target")),
-            Some(Path::new("/metadata")),
-        );
-
-        assert_eq!(root, Path::new("/cargo-target/criterion"));
-    }
-
-    #[test]
-    fn relative_cargo_target_directory_is_resolved_against_the_working_directory() {
-        let root = resolve(None, Some(Path::new("build")), None);
-
-        assert_eq!(root, Path::new("/work/build/criterion"));
-    }
-
-    #[test]
-    fn metadata_target_directory_is_used_when_no_override_exists() {
-        let root = resolve(None, None, Some(Path::new("/metadata")));
-
-        assert_eq!(root, Path::new("/metadata/criterion"));
-    }
-
-    #[test]
-    fn default_root_matches_criterion_last_resort() {
-        let root = resolve(None, None, None);
-
-        assert_eq!(root, Path::new("/work/target/criterion"));
-    }
-
-    #[test]
-    fn malformed_metadata_names_the_workspace() {
-        let error = parse_metadata(b"{not json", Path::new("/reference"))
-            .expect_err("malformed metadata must fail");
-
-        let message = error.to_string();
-        assert!(message.contains("/reference"), "{message}");
-        assert!(message.contains("cargo metadata"), "{message}");
-    }
-
-    #[test]
-    fn metadata_without_a_target_directory_is_rejected() {
-        let error = parse_metadata(br#"{"packages":[]}"#, Path::new("/reference"))
-            .expect_err("missing target directory must fail");
-
-        assert!(error.to_string().contains("target_directory"), "{error}");
-    }
-}
+mod tests;
