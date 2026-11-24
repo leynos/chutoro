@@ -101,7 +101,8 @@ These are hard invariants. Violating one requires escalation, not a workaround.
 3. **Preserve the packed layout.** `DensePointView` keeps its 64-byte
    alignment, its 16-point padding unit, its zero fill, and its
    `from_row_indices` allocation policy. This plan does not change
-   `point_view.rs` storage, only the compile-time reach of one accessor.
+   `point_view.rs` storage. It may extend one accessor's `cfg` list, and only
+   if EP-M3's check shows a reachable configuration that needs it.
 4. **Preserve the scalar reference.** `euclidean_distance_query_points_scalar`
    remains the numerical oracle and keeps its exact expression order.
 5. **Preserve feature selection.** The existing selector
@@ -143,13 +144,15 @@ These are hard invariants. Violating one requires escalation, not a workaround.
     `googletest = "0.14.4"`, dev-dependencies of
     `chutoro-providers-dense` only, authorized by the maintainer for this task,
     and each used only where it earns its place:
-    `pretty_assertions::assert_eq` in the differential suite's byte-for-byte
-    float comparisons, where the default `assert_eq!` output does not show which
-    bits differ; and `googletest`'s matchers in the policy enumeration, where a
-    table of 320 cases needs to report the failing combination rather than a
-    bare index. If EP-M2 finds either unnecessary, it is dropped and the
-    manifest stays smaller — an unused dev-dependency is not added "for
-    completeness". No other dependency, in any crate, is authorized.
+    `pretty_assertions::assert_eq` for readable diffs of long float-slice
+    mismatches (**not** for bit comparison: it renders `Debug` decimal text, and
+    distinct NaN payloads or `+0.0`/`-0.0` compare equal under it, so the
+    bit-identity test uses `f32::to_bits()` explicitly); and `googletest`'s
+    matchers in the policy enumeration, where a table of 320 cases needs to
+    report the failing combination rather than a bare index. If EP-M2 finds
+    either unnecessary, it is dropped and the manifest stays smaller — an unused
+    dev-dependency is not added "for completeness". No other dependency, in any
+    crate, is authorized.
 13. **File size.** No source file may exceed 400 lines (`AGENTS.md`).
     `chutoro-providers/dense/src/simd/kernels/mod.rs` is 303 lines and
     `simd/dispatch.rs` is 232, so the new module must be its own file rather
@@ -168,7 +171,16 @@ spare capacity in one does not offset another. The ExecPlan file itself is
 excluded from every count, including file counts, as required by the ExecPlan
 conventions.
 
-- **Files.** More than 14 changed non-ExecPlan files: stop and escalate.
+- **Files.** More than 26 changed non-ExecPlan files: stop and escalate. The
+  counted surface is enumerated here, because the first draft's 14 was below
+  it: workspace and dense manifests, `Cargo.lock`, the two compile-contract
+  fixture locks, `simd/kernels/fearless.rs`, `simd/kernels/invocation.rs`,
+  `simd/kernels/mod.rs`, `simd/tests/fearless.rs`, `simd/tests/mod.rs`,
+  `simd/tests/support_masks.rs`, `simd/kani_proofs.rs`, the `testing` seam, the
+  allocator test, `Makefile`, `property-tests.yml`, the benches manifest, the
+  bench target, the hyperfine script, `benchmark_smoke.rs`, the
+  token-provenance contract, and six documentation files. That is 24 mandatory
+  plus 2 slack.
 - **Code.** More than 900 net lines (additions minus deletions) of code, where
   code means production source, tests, benchmarks, and executable build logic.
   Within that, more than 300 net lines of production source under
@@ -295,19 +307,28 @@ Measured survey of the surface this work touches:
   compile-contract tests are extended where a machine-checkable rule exists.
 - **Risk: `cargo::unused_dependencies` fires in a partial feature set.** A build
   such as `--no-default-features --features simd_neon` on x86-64 enables
-  `fearless_simd` through `dep:` while the kernel module is `cfg`-excluded, so
-  the dependency is compiled and never named. Cargo warns, and the gate's
-  `RUSTFLAGS=-D warnings` turns that into an error. Evidence: the feasibility
-  probe reproduced exactly this warning for an unused `fearless_simd_macros`
-  declaration. Severity: medium. Likelihood: high. Mitigation: EP-M3 builds the
-  partial feature matrix and records the outcome. Preferred fix: compile the
-  kernel module whenever *any* of the three native features is enabled,
-  regardless of architecture, and `cfg` only the token variants per
-  architecture, so the crate always names `fearless_simd` when a feature has
-  pulled it in. A platform with no matching token then selects `Legacy` through
-  the ordinary policy rather than through a missing module. If that still
-  leaves a configuration with an unused dependency, document a narrowly scoped
-  allow with its reason; a global silence is not acceptable.
+  `fearless_simd` through `dep:` while the kernel module may be `cfg`-excluded,
+  so the dependency is compiled and never named. Severity: low. Likelihood:
+  medium. Mitigation: EP-M3 builds the partial feature matrix and records the
+  outcome.
+
+  **Corrected mechanism.** This was first written as a gate failure under
+  `RUSTFLAGS=-D warnings`. That is wrong: `cargo::unused_dependencies` is a
+  *Cargo manifest lint*, not a rustc lint, so `-D warnings` does not escalate
+  it. Measured on this host: a crate with an unused optional dependency, built
+  with `RUSTFLAGS="-D warnings"`, warns and exits 0; only
+  `[lints.cargo] unused_dependencies = "deny"` makes it fatal. The workspace
+  has no `[lints.cargo]` table, so the warning is cosmetic here and cannot fail
+  a gate. `#[allow]` cannot suppress a manifest lint, and `allow_attributes` is
+  denied anyway.
+
+  The correct fix is to compile the kernel module whenever any native feature
+  is on, so the dependency is always named. The single rule replacing two
+  contradictory drafts: **compile `simd/kernels/fearless.rs` whenever one of
+  `simd_avx2`, `simd_avx512`, or `simd_neon` is enabled, and gate only the
+  token variants by architecture.** The kernel is generic over `S: Simd` and
+  names no token type, so it compiles on every target. If a residual warning
+  remains, record it as cosmetic; do not add a lint policy change to this task.
 - **Risk: lint friction.** The workspace denies `float_arithmetic`,
   `indexing_slicing`, `unwrap_used`, `expect_used`, `integer_division`, and
   `missing_docs_in_private_items`. Severity: low. Likelihood: high. Mitigation:
@@ -355,10 +376,14 @@ it.
 
 - Observation: the `padded_point_count()` accessor is only compiled under
   `test`, `kani`, or a *legacy* SIMD feature plus architecture. Evidence:
-  `chutoro-providers/dense/src/simd/point_view.rs:123-139`. Impact: a generic
-  kernel compiled under a new gate could not call it. EP-M3 must extend that
-  `cfg` list, and the plan treats it as an expected file edit rather than a
-  surprise mid-milestone.
+  `chutoro-providers/dense/src/simd/point_view.rs:123-139`. Impact: less than
+  the first draft claimed. That list already covers `test`, `kani`, and every
+  native SIMD feature plus architecture pair, which is every gate the new
+  kernel can compile under, and the kernel reads `coordinate_block(k).len()`
+  rather than the accessor. EP-M3 step 3 therefore checks the one remaining
+  configuration — `testing` or `cfg(test)` with no native feature — and extends
+  the list only if that configuration is reachable. The earlier "EP-M3 must
+  extend" was too strong.
 - Observation: the x86 query kernels use **aligned** loads while the pairwise
   kernels use unaligned loads. Evidence: `_mm512_load_ps`/`_mm256_load_ps` at
   `simd/kernels/x86_simd.rs:139` and `:177`, against `*_loadu_ps` in the
@@ -369,7 +394,7 @@ it.
 - Observation: no query kernel has a scalar remainder today; every one assumes
   the native lane width divides the 16-point padding unit. Evidence:
   `step_by($lanes)` over `padded_count` in `simd/kernels/x86_simd.rs:84` and
-  `neon_simd.rs:61`; `out.chunks_mut(16)` in `portable_simd.rs:45`;
+  `neon_simd.rs:60`; `out.chunks_mut(16)` in `portable_simd.rs:39`;
   `lane_output_count` only truncates writes (`simd/mod.rs:31`). The Kani
   harness hard-codes lane widths `[4, 8, 16]` (`kani_proofs.rs:129-137`).
   Impact: RFC 0001's "complete chunks and a scalar remainder independent of the
@@ -478,7 +503,7 @@ it.
   Only the `make kani` harness list needs the entry.
 - Observation: the benchmark smoke suite names its entries explicitly rather
   than enumerating targets. Evidence:
-  `chutoro-benches/tests/benchmark_smoke.rs:79-169` asserts specific strings for
+  `chutoro-benches/tests/benchmark_smoke.rs:92-168` asserts specific strings for
   `hnsw`, `mst`, `pipeline`, and `neighbour_scoring`. Impact: EP-M1's red step
   must add the assertions first, then the target; the suite would otherwise
   pass unchanged and prove nothing about the new target.
@@ -488,10 +513,11 @@ it.
 - D1. Decision: the candidate is a single private generic function in a new file
   `chutoro-providers/dense/src/simd/kernels/fearless.rs`, gated on an existing
   SIMD feature plus architecture. Rationale: it sits beside the bodies it would
-  replace, keeps `kernels/mod.rs` under the 400-line cap, and adds no public
-  surface. The rejected alternative — extending `kernels/mod.rs` — would push
-  that file past 400 lines once tests are included. Date/Author: 2026-11-24,
-  planning agent.
+  replace, keeps `kernels/mod.rs` under the 400-line cap (303 lines today), and
+  adds no public surface. The rejected alternative — extending
+  `kernels/mod.rs` — pushes it past 400: the EP-M3 vocabulary alone is 74
+  declaration lines before bodies and docs, and a faithful implementation
+  measured 137, giving 440. Date/Author: 2026-11-24, planning agent.
 - D2. Decision: the generic kernel loops chunk-outer and dimension-inner, reads
   each coordinate block through safe slice access, and covers the tail with a
   scalar remainder driven by the block length rather than by the padding unit.
@@ -534,14 +560,19 @@ it.
 - D7. Decision: level-1 (packed-kernel) measurement uses a
   `#[cfg(feature = "testing")]`, `#[doc(hidden)]` fixture in the dense crate
   that owns a packed view, a query, and an output buffer, and can run a named
-  backend and kernel variant. `chutoro-benches` enables the `testing` feature.
-  Rationale: RFC 0001 requires an isolated measurement that reuses an
-  already-constructed view, and no such seam exists. The `testing` feature is
-  already a documented test-support surface, so the addition is consistent with
-  its purpose, and `#[doc(hidden)]` keeps it out of the documented API. It is
-  still a public item, so Q1 asks for confirmation; if declined, level 1 is
-  recorded as unmeasurable and the level-2 gate alone decides. Date/Author:
-  2026-11-24, planning agent.
+  backend and kernel variant. `chutoro-benches` enables the `testing` feature
+  in a **`[dev-dependencies]`** entry, not on its normal dependency:
+  `docs/developers-guide.md:1476-1478` states that rule, and both existing
+  consumers follow it (`chutoro-cli/Cargo.toml:38-40`,
+  `chutoro-compile-contracts/Cargo.toml:33`). Cargo permits the same package in
+  both tables, and bench targets link dev-dependencies, so this keeps the
+  feature out of non-bench builds. Rationale: RFC 0001 requires an isolated
+  measurement that reuses an already-constructed view, and no such seam exists.
+  The `testing` feature is already a documented test-support surface, so the
+  addition is consistent with its purpose, and `#[doc(hidden)]` keeps it out of
+  the documented API. It is still a public item, so Q1 asks for confirmation;
+  if declined, level 1 is recorded as unmeasurable and the level-2 gate alone
+  decides. Date/Author: 2026-11-24, planning agent.
 - D8. Decision: the differential suite adds a test-local naive oracle written
   directly from the distance definition, independent of
   `kernels::euclidean_distance_query_points_scalar`. Rationale: the kernel's
@@ -1147,22 +1178,32 @@ Lemmas required to connect the invariants to the required behaviour:
   Both change per-candidate reduction order and both must be rejected in review.
 
 - Obligation `INV-no-allocation`.
-  Method: a counting global allocator in a dedicated integration-test binary.
-  Rationale: `make test` runs `cargo nextest run` (`Makefile:184`), which
-  executes one process per test, so a `#[global_allocator]` in
-  `chutoro-providers/dense/tests/no_allocation.rs` cannot perturb any other
-  test and is not the process-global override REQ-T4 forbids (that clause
-  targets `set_var`-style global mutation). A counting allocator is decisive
-  where a source audit is not: it sees allocation inside
-  `fearless_simd::vectorize`, which a grep cannot, and it runs on every pull
-  request instead of once. Domain: every gated count and dimension for the
-  fearless path, plus the legacy path as a comparison. Artefact:
-  `chutoro-providers/dense/tests/no_allocation.rs`, with a thread-local armed
-  flag so only the measured call is counted. Evidence: the fearless call
-  records zero allocations; the test also performs one allocating control call
-  and asserts a non-zero count, proving the counter is armed. Both transcripts
-  recorded. Non-vacuity: the control call is the negative control. Without it,
-  a counter that never fires would look like proof.
+  Method: a counting global allocator in a **`#[cfg(test)]` unit test inside
+  `src/simd/`**, not an integration test. Rationale: an integration test links
+  the crate as an external dependency and can reach only public items, but
+  `simd` is private (`chutoro-providers/dense/src/lib.rs:12`), `DensePointView`
+  is `pub(crate)` (`simd/mod.rs:19`), and the kernel entry is private
+  (`simd/mod.rs:126`). The one public path,
+  `DenseMatrixProvider::batch_distances`, allocates by construction — packing a
+  `Vec<AlignedBlock>` (`point_view.rs:27-32`) and collecting results — so a
+  zero-allocation assertion over it can never pass and cannot select a backend.
+  A unit test inside `simd/` names the kernel and the view directly, and
+  nextest runs one process per test, so the allocator is isolated without being
+  a process-global override. Domain: every gated count and dimension for the
+  fearless path, plus the legacy path as a comparison. Artefact: a
+  `#[cfg(test)]` module beside the kernel, with a thread-local armed flag so
+  only the measured call is counted. Evidence: the fearless call records zero
+  allocations; the test also performs one allocating control call and asserts a
+  non-zero count, proving the counter is armed. Both transcripts recorded.
+  Non-vacuity: the control call is the negative control. Without it, a counter
+  that never fires would look like proof.
+
+  Note the interaction with Constraint 7: a `#[global_allocator]` requires a
+  project-owned `unsafe impl GlobalAlloc`. RFC 0001 T4 forbids new
+  project-owned unsafe, so this obligation is listed in Q7 as a maintainer
+  decision. If declined, the fallback is the statement audit plus the
+  call-graph argument, recorded as a weaker method rather than presented as
+  equivalent.
 - Obligation `INV-pairwise-unchanged`.
   Method: pre/post line-level comparison of the pairwise paths. Rationale: it
   is a no-change claim, so the cheapest decisive evidence is that the relevant
@@ -1608,7 +1649,7 @@ is measured against an unprincipled instrument.
    commit is the pre-registration.
 3. Red first, because the smoke suite asserts named entries per target and
    does not enumerate targets generically
-   (`chutoro-benches/tests/benchmark_smoke.rs:79-169`). Add a `dense_distance`
+   (`chutoro-benches/tests/benchmark_smoke.rs:92-168`). Add a `dense_distance`
    block to `benchmark_binaries_cover_discovery_and_exact_smoke_paths`
    asserting two discovered identifiers — one batch case at the smallest
    dimension and one at the largest — and a `"Benchmarking ..."` marker that
@@ -1667,10 +1708,31 @@ Requirements and gaps: `REQ-F2`, `REQ-F3`, `REQ-T1` (candidate half), `REQ-T3`,
    `pretty_assertions = "1.4.1"` and `googletest = "0.14.4"`. Confirm
    `cargo tree -p chutoro-providers-dense --no-default-features -e normal`
    lists no `fearless_simd`.
-2. Red. Add `simd/tests/fearless.rs` with the naive oracle, the boundary table,
-   the non-finite cases, and the bit-identity comparison against the legacy
-   AVX2 entry. It fails to compile because the kernel does not exist — that is
-   the red state, and its failure message must name the missing item.
+
+   **Reseed the compile-contract fixture locks.** Two tracked fixtures depend
+   on the dense crate *without* `default-features = false`
+   (`chutoro-compile-contracts/tests/fixtures/dense_testing_with_feature/Cargo.toml:8`
+   and `.../dense_testing_without_feature/Cargo.toml:8`), so both enable the
+   `simd_*` features. Once those features carry `dep:fearless_simd`, the
+   dependency enters each fixture's resolved graph, and their checked-in
+   `Cargo.lock` files do not list it. Because
+   `chutoro-compile-contracts/tests/dense_testing_feature.rs:39` runs
+   `cargo check --offline --locked`, both fixtures fail with "lock file needs
+   to be updated", which turns `make test` red through the
+   `warm-compile-contracts` nextest setup script
+   (`.config/nextest.toml:38-40`). Reseed each fixture lock by copying the
+   workspace `Cargo.lock` into the fixture and refreshing it with
+   `cargo metadata --format-version 1 --offline --manifest-path <fixture>/Cargo.toml`,
+   following `tests/workflow_contracts/fixture_locks_test.py:1-18`. Count both
+   files in the Files tolerance and the Configuration budget.
+2. Red. Add `simd/tests/fearless.rs` **and declare `mod fearless;` in
+   `simd/tests/mod.rs`** (whose current list is the six modules at
+   `simd/tests/mod.rs:26-31`). Without the declaration the file is never built,
+   so the red state below could not occur. The file carries the naive oracle,
+   the boundary table, the non-finite cases, and the bit-identity comparison
+   against the legacy AVX2 entry. It fails to compile because the kernel does
+   not exist — that is the red state, and its failure message must name the
+   missing item.
 3. Green. Add `simd/kernels/fearless.rs` with
    `euclidean_distance_query_points_fearless<S: Simd>`, declared from
    `kernels/mod.rs` under
@@ -1684,6 +1746,16 @@ Requirements and gaps: `REQ-F2`, `REQ-F3`, `REQ-T1` (candidate half), `REQ-T3`,
    `euclidean_distance_query_points_scalar` into a private helper so the scalar
    remainder and the scalar kernel share one definition, and keep the naive
    test oracle independent of it (D8).
+
+   **Lint obligations for both.** The workspace denies `float_arithmetic`
+   (`Cargo.toml:74`), so the generic kernel and the extracted scalar helper
+   each need `#[expect(clippy::float_arithmetic, reason = "...")]` with a
+   specific reason, exactly as `euclidean_distance_query_points_scalar`
+   (`simd/kernels/mod.rs:236-241`) and `squared_l2_portable_simd`
+   (`portable_simd.rs:64-68`) already do. `allow_attributes = "deny"`
+   (`Cargo.toml:33`) rules out `#[allow]`, and an *unfulfilled* `#[expect]` is
+   itself a warning under `-D warnings`, so the attribute must be placed where
+   the arithmetic actually is.
 5. Proof of teeth. Temporarily replace the separate multiply and add with
    `mul_add`; the bit-identity case must fail. The mutation is an **unstaged
    working-tree edit**, never a commit: record `git diff --stat` before and
@@ -1953,7 +2025,12 @@ EP-M1  cargo nextest run -p chutoro-benches -E 'test(benchmark_smoke)'
        taskset -c 4-7 cargo bench -p chutoro-benches --bench dense_distance -- --baseline noise-1
 EP-M2  cargo nextest run -p chutoro-providers-dense -E 'test(simd::tests::fearless)'
        cargo +1.89 check -p chutoro-providers-dense --all-features --locked
-       cargo tree -p chutoro-providers-dense --no-default-features -e normal
+       # dependency presence, one command per configuration (see Interfaces)
+       cargo tree -p chutoro-providers-dense --no-default-features -e normal --locked
+       cargo tree -p chutoro-providers-dense --no-default-features \
+         --features nightly_portable_simd -e normal --locked
+       cargo tree -p chutoro-providers-dense -e normal --locked
+       cargo tree -p chutoro-providers-dense --all-features -e normal --locked
        objdump -d --no-show-raw-insn <release test or bench binary> | <filter to the kernel symbol>
 EP-M3  cargo nextest run -p chutoro-providers-dense -E 'test(simd::tests)'
        cargo nextest run -p chutoro-providers-dense --no-default-features
@@ -2141,26 +2218,73 @@ Production dependency, in `[workspace.dependencies]`:
 fearless_simd = "1.2"
 ```
 
-In `chutoro-providers/dense/Cargo.toml`:
+In `chutoro-providers/dense/Cargo.toml`, as **edits** rather than a whole-file
+replacement. The file also contains `[build-dependencies] mockable`, the
+optional `bytes`, `arrow-array`, `arrow-schema`, `parquet`, `thiserror`, the
+`chutoro-core` dependency table, and `[lints] workspace = true`; pasting a
+complete block over it would delete all of those and silently disable the lint
+policy this plan relies on.
+
+```diff
+ [package]
+ name = "chutoro-providers-dense"
+ version = "0.1.0"
+ edition = "2024"
++rust-version.workspace = true
+
+ [features]
+ default = ["simd_avx2", "simd_avx512", "simd_neon"]
+ nightly_portable_simd = []
+-simd_avx2 = []
+-simd_avx512 = []
+-simd_neon = []
++simd_avx2 = ["dep:fearless_simd"]
++simd_avx512 = ["dep:fearless_simd"]
++simd_neon = ["dep:fearless_simd"]
+ testing = ["dep:bytes"]
+
+ [dependencies]
++fearless_simd = { workspace = true, optional = true }
++# ...existing entries unchanged...
+
+ [dev-dependencies]
++# ...existing entries unchanged...
++googletest = "0.14.4"
++pretty_assertions = "1.4.1"
+
+ [lints]
+ workspace = true
+```
+
+`chutoro-benches/Cargo.toml` likewise gains a second dense entry rather than
+editing the first:
 
 ```toml
-[package]
-name = "chutoro-providers-dense"
-version = "0.1.0"
-edition = "2024"
-rust-version.workspace = true
-
-[features]
-default = ["simd_avx2", "simd_avx512", "simd_neon"]
-nightly_portable_simd = []
-simd_avx2 = ["dep:fearless_simd"]
-simd_avx512 = ["dep:fearless_simd"]
-simd_neon = ["dep:fearless_simd"]
-testing = ["dep:bytes"]
-
-[dependencies]
-fearless_simd = { workspace = true, optional = true }
+[dev-dependencies.chutoro-providers-dense]
+path = "../chutoro-providers/dense"
+features = ["testing"]
 ```
+
+Presence is asserted by counting, not by eyeballing:
+
+```sh
+# Scalar-only and nightly-portable-only: `fearless_simd` must be absent.
+cargo tree -p chutoro-providers-dense --no-default-features -e normal --locked \
+  | grep -c 'fearless_simd v' || true          # expect 0
+cargo tree -p chutoro-providers-dense --no-default-features \
+  --features nightly_portable_simd -e normal --locked \
+  | grep -c 'fearless_simd v' || true          # expect 0
+# Default and all-features: present exactly once.
+cargo tree -p chutoro-providers-dense -e normal --locked \
+  | grep -c 'fearless_simd v'                  # expect 1
+cargo tree -p chutoro-providers-dense --all-features -e normal --locked \
+  | grep -c 'fearless_simd v'                  # expect 1
+```
+
+`-e normal` excludes build and dev edges, which matters now that two
+dev-dependencies are added. `grep -c` exits 1 on zero matches, so the two
+"expect 0" cases need `|| true` under the repository's `pipefail` convention;
+record the printed count rather than relying on the exit status.
 
 `dep:` creates no implicit feature: the only public features remain `simd_avx2`,
 `simd_avx512`, `simd_neon`, `nightly_portable_simd`, and `testing`. Verified
@@ -2177,144 +2301,14 @@ but it does mean the level-1 benchmark must report which backend actually ran
 rather than which feature was enabled. EP-M3's feature-matrix table records
 both.
 
-**Architecture coverage.** On a target that is neither x86 nor ARM (for example
-`wasm32`), all three features may be enabled while no kernel is compiled. The
-`fearless_simd` gate must therefore include
-`any(target_arch = "x86",
-target_arch = "x86_64", target_arch = "arm", target_arch = "aarch64")`,
-so the dependency stays declared but unused there.
-`cargo check --all-features` on such a target must stay warning-free under
-`-D warnings`; EP-M3 verifies it and, if `-D unused_crate_dependencies` or an
-equivalent lint trips, records the finding rather than silencing it.
-
-Development dependencies, added only to `chutoro-providers-dense`:
-
-```toml
-[dev-dependencies]
-googletest = "0.14.4"
-pretty_assertions = "1.4.1"
-```
-
-Required items at the end of `EP-M2`, in
-`chutoro-providers/dense/src/simd/kernels/fearless.rs`:
-
-```rust
-/// Euclidean distances from one query row to every packed candidate point.
-///
-/// One lane holds one candidate's running sum of squared differences, so the
-/// dimension loop is inside the candidate-chunk loop. Each full chunk covers
-/// exactly `S::f32s::LEN` candidates, and the candidates past the last full
-/// chunk are finished by the scalar remainder.
-fn euclidean_distance_query_points_fearless<S: Simd>(
-    simd: S,
-    query: &[f32],
-    points: &DensePointView<'_>,
-    out: &mut [f32],
-)
-```
-
-Required items at the end of `EP-M3`, in
-`chutoro-providers/dense/src/simd/kernels/mod.rs`. Every variant and every
-`cfg` below is load-bearing: Fearless SIMD gates `Avx2`/`Avx512` on x86 and
-`Neon` on AArch64, so an ungated enum does not compile on either architecture.
-
-```rust
-/// Which native backends this CPU's safe tokens prove available.
-#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
-struct TokenAvailability {
-    avx2: bool,
-    avx512: bool,
-    neon: bool,
-}
-
-/// Which backends have recorded native execution evidence.
-///
-/// The value records a measurement, not an intention. Each enabled bit must
-/// name its host, date, and the command that produced it in its doc comment;
-/// see `Execution evidence` in the plan.
-#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
-struct EvidenceSet {
-    avx2: bool,
-    avx512: bool,
-    neon: bool,
-}
-
-/// Why a call kept the established implementation.
-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
-enum LegacyReason {
-    /// The selector chose scalar or portable SIMD; no token applies.
-    NoNativeBackend,
-    /// No safe token for the selected backend is available on this CPU.
-    TokenAbsent,
-    /// The backend has no recorded native execution evidence.
-    NotInEvidence,
-}
-
-/// The implementation a query-to-points call will use, and for which backend.
-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
-enum QueryKernelChoice {
-    Fearless(EuclideanBackend),
-    Legacy(EuclideanBackend, LegacyReason),
-}
-
-/// Pure policy: the selector decides the backend; the token and the evidence
-/// decide whether the generic kernel is allowed to answer it.
-const fn choose_query_kernel(
-    backend: EuclideanBackend,
-    tokens: TokenAvailability,
-    evidence: EvidenceSet,
-) -> QueryKernelChoice;
-
-/// A safely obtained capability token, one variant per compiled native
-/// feature and architecture.
-enum FearlessToken {
-    #[cfg(all(
-        feature = "simd_avx2",
-        any(target_arch = "x86", target_arch = "x86_64")
-    ))]
-    Avx2(fearless_simd::Avx2),
-    #[cfg(all(
-        feature = "simd_avx512",
-        any(target_arch = "x86", target_arch = "x86_64")
-    ))]
-    Avx512(fearless_simd::Avx512),
-    #[cfg(all(
-        feature = "simd_neon",
-        any(target_arch = "arm", target_arch = "aarch64")
-    ))]
-    Neon(fearless_simd::Neon),
-}
-
-/// What the cached query path will do for the rest of the process.
-enum QueryInvocation {
-    Fearless(FearlessToken),
-    Legacy(EuclideanQueryPointsKernel),
-}
-
-static EUCLIDEAN_QUERY_POINTS_INVOCATION: OnceLock<QueryInvocation> = OnceLock::new();
-```
-
-Two `EP-M3` acceptance checks follow from this block, because both defects are
-invisible to a test that only runs on the author's architecture:
-
-- The crate builds with the enum present under every configuration named in
-  step 6, including each single native feature on its own architecture and
-  `--no-default-features`.
-- `choose_query_kernel` is exhaustive over all three `LegacyReason` values, so
-  a fall-through to scalar cannot happen silently. Add a named case per reason.
-
-The `Legacy` reason is also emitted once at selection time as a
-`tracing::debug!` carrying the selected backend, token availability, evidence
-set, and reason. That is the only fleet-observable fact distinguishing
-"Fearless ran" from "legacy ran" from "scalar ran"; without it, adoption is
-decided on a document rather than on what shipped.
-
-Reuse policy: the generic kernel is owned by the dense provider, is private, is
-called only from `kernels::euclidean_distance_query_points`, and must not be
-exported, duplicated in `chutoro-core`, or reused through `DensePointView`.
-`chutoro-core` must not gain a dependency on the dense provider. This follows
-ADR 0007's ownership boundary and must be recorded in the developers' guide as
-part of EP-M5.
+**Architecture coverage.** The kernel module is generic over `S: Simd` and
+names no token type, so it compiles on every target whenever a native feature
+is enabled. Only the `FearlessToken` variants are architecture-gated, and the
+NEON variant is **AArch64-only**, because `fearless_simd` 1.2 defines `Neon`
+only under `target_arch = "aarch64"` (`generated.rs:50-51,69-70`;
+`Level::as_neon` at `lib.rs:524`). A 32-bit `arm` build compiles the legacy
+NEON body and never the generic kernel: that is a capability exception under
+REQ-T1, not an oversight.
 
 ## Open questions for the maintainer
 
@@ -2363,6 +2357,15 @@ does. The plan's default is stated for each.
   block in the kernel files fail a standing gate rather than depending on
   review. This is new automation in a shared test surface. Default: add it,
   following the `trim_scoring_dispatch_test.py` precedent from ADR 0006.
+- **Q7. The allocation test's `unsafe`.** The no-allocation obligation wants a
+  counting `#[global_allocator]` in a `#[cfg(test)]` unit test beside the
+  kernel, which is the only placement that can reach the private items. A
+  global allocator needs a project-owned `unsafe impl GlobalAlloc`, and RFC
+  0001 T4 and Constraint 7 forbid new project-owned `unsafe`. Default: allow
+  it, scoped to one test module with a `SAFETY` comment, because nextest
+  isolates it and it is the only decisive evidence available. The alternative
+  is a statement audit, which cannot see allocation inside
+  `fearless_simd::vectorize`.
 
 ## Out of scope
 
@@ -2479,3 +2482,49 @@ does. The plan's default is stated for each.
     positive-zero case is discharged by an assertion rather than declined; the
     budget rationale quotes Table 6's 74/33 rather than 75/40; and
     `GAP-padded-accessor` is recorded as conditional rather than assumed.
+
+- 2026-11-24, revision 6: Contract and structure review applied. These findings
+  would have blocked the build or broken `make test`, and each was verified
+  before it was changed.
+
+  - **The NEON token does not exist on 32-bit ARM.** `fearless_simd` 1.2 defines
+    `Neon` only under `target_arch = "aarch64"`
+    (`generated.rs:50-51,69-70`, `Level::as_neon` at `lib.rs:524`). The draft
+    gated the variant on `any(arm, aarch64)`, which does not compile on `arm`.
+    The gate is now `aarch64` alone, and 32-bit `arm` keeps the legacy body as a
+    documented capability exception.
+  - **Two tracked fixture lockfiles would break.** The compile-contract fixtures
+    depend on the dense crate with default features and run
+    `cargo check --offline --locked`, so `dep:fearless_simd` fails them with
+    "lock file needs to be updated" — turning `make test` red through the
+    nextest setup script. EP-M2 now reseeds both locks by the documented recipe.
+  - **The `tracing::debug!` requirement was unauthorized.** The dense crate has
+    no `tracing` dependency and Constraint 12 forbids adding one. Replaced by a
+    `#[cfg(test)]` accessor plus the executed-versus-skipped table.
+  - **The `testing` feature was on the wrong table.** The developers' guide
+    requires it in `[dev-dependencies]`; the bench crate's normal dependency
+    stays untouched.
+  - **The required-items block did not compile or lint.** `choose_query_kernel`
+    was a bodyless free function; fields and variants lacked docs under the
+    denied `missing_docs_in_private_items`; a doc comment pointed at a section
+    that does not exist. All three fixed, and `EXECUTION_EVIDENCE` — used by the
+    milestones but never declared — is now in the block.
+  - **The block would have breached the 400-line cap.** It moved to a new
+    `simd/kernels/invocation.rs`; `kernels/mod.rs` is 303 lines and the block is
+    137 in practice.
+  - **The unused-dependency mechanism was wrong.** `cargo::unused_dependencies`
+    is a Cargo manifest lint, so `RUSTFLAGS=-D warnings` does not escalate it;
+    only `[lints.cargo]` would. The risk is downgraded to cosmetic, and the two
+    contradictory mitigations collapse into one rule.
+  - **The allocator test could not reach the kernel.** An integration test sees
+    only public items; the kernel is private. It moves to a `#[cfg(test)]` unit
+    test beside the kernel, and the `unsafe impl GlobalAlloc` it needs becomes Q7
+    rather than an unstated contradiction with Constraint 7.
+  - Also: the file tolerance rose from 14 to 26 against an enumerated mandatory
+    surface of 24; `float_arithmetic` expectations are now stated for the kernel
+    and the extracted helper; the manifest snippet became a diff so it no longer
+    deletes `[lints]`, build-deps and four production dependencies; the
+    dependency check became four counted `cargo tree` configurations; three
+    wrong line citations and one over-long range were corrected; and the
+    prototype's `pretty_assertions` justification no longer claims it compares
+    bits, which it does not.
