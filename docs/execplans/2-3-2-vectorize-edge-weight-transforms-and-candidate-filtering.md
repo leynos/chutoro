@@ -7,8 +7,8 @@ and `Outcomes & retrospective` must be kept up to date as work proceeds.
 Status: COMPLETE (revision 8, 2026-11-23). The maintainer approved the plan and
 authorized production work for Milestones 0 to 2. Gate A was measured and
 fails: the decision-size ratio is 0.16% to 0.69%, far below the pre-registered
-5%, so Milestones 3 to 6 are declined and the roadmap item closes as a
-measured null result. Milestones 0 to 2 and 7 are delivered.
+5%, so Milestones 3 to 6 are declined and the roadmap item closes as a measured
+null result. Milestones 0 to 2 and 7 are delivered.
 
 Roadmap item: 2.3.2 (Phase 2, "Hot-path optimizations"), `docs/roadmap.md`
 lines 400-402. Design: `docs/chutoro-design.md` §6.3 "SIMD utilization".
@@ -623,17 +623,37 @@ n = 10 000. That is an expectation for Milestone 1, not its outcome.
 
 ## Decision log
 
+- Decision (2026-11-24): the milestone CodeRabbit CLI review raised three
+  minor findings and all three were repaired.
+
+  1. The reproduction block still prescribed `RUSTFLAGS="--emit=asm"`, the
+     method the same plan records as broken. Valid: rewritten to the
+     `cargo rustc --profile bench --lib` form that produced the evidence, along
+     with the `target/asm-*` references in "Idempotence and recovery".
+  2. The new BDD test target lacked `required-features = ["cpu"]`. Valid, and
+     confirmed by measurement: `cargo check -p chutoro-core
+     --no-default-features --tests` failed to resolve its imports and added a
+     third broken target to the two that `origin/main` already has
+     (`functional_ari_nmi`, `session_append_bdd`). A `[[test]]` block with
+     `required-features = ["cpu"]` now skips it instead; the same command
+     afterwards fails on exactly the two pre-existing targets and no other,
+     and the target still builds under default features. The two pre-existing
+     breakages are out of scope here and are not claimed as fixed.
+  3. The ticked roadmap item read as an instruction that was implemented. Valid:
+     reworded as an evaluation with a pre-registered gate, so the checkbox and
+     the null-result note agree.
+
 - Decision (2026-11-23): **dedup-before-sort is declined.** The three
   Milestone 2 conditions do not all hold. The dedup key the milestone names is
   `(weight bits, source, target)`, but production dedup uses
-  `partial_cmp == Equal` on the weight, which treats `-0.0` and `+0.0` as
-  equal while a bit-keyed dedup would keep both; adopting the bit key would
-  therefore change which duplicate survives and could change accepted output,
-  violating Constraint 1. The code would also be more complex: today the
-  dedup is one linear pass over the sorted list with no allocation, and the
-  sort cannot be removed because Kruskal consumes the list in total order.
-  Pre-sort dedup would need an auxiliary index to choose the lowest `sequence`
-  per key, then still pay for the sort. No performance win is claimed.
+  `partial_cmp == Equal` on the weight, which treats `-0.0` and `+0.0` as equal
+  while a bit-keyed dedup would keep both; adopting the bit key would therefore
+  change which duplicate survives and could change accepted output, violating
+  Constraint 1. The code would also be more complex: today the dedup is one
+  linear pass over the sorted list with no allocation, and the sort cannot be
+  removed because Kruskal consumes the list in total order. Pre-sort dedup
+  would need an auxiliary index to choose the lowest `sequence` per key, then
+  still pay for the sort. No performance win is claimed.
 
 - Decision (2026-11-23): **Gate A fails, so Milestones 3 to 6 are declined.**
   The measured decision-size ratios are 0.1640%, 0.1812%, 0.2345%, 0.5458% and
@@ -866,13 +886,19 @@ tests is stale. Under compile-slot contention, a nextest global-timeout
 
    ```sh
    set -o pipefail
-   RUSTFLAGS="--emit=asm -C debuginfo=0" \
-     cargo build --release -p chutoro-core --target-dir target/asm-default \
+   cargo rustc -p chutoro-core --profile bench --lib -- \
+     --emit=asm -C debuginfo=0 \
      2>&1 | tee /tmp/asm-default-2-3-2.out
-   RUSTFLAGS="--emit=asm -C debuginfo=0 -C target-cpu=x86-64-v3" \
-     cargo build --release -p chutoro-core --target-dir target/asm-v3 \
+   cargo rustc -p chutoro-core --profile bench --lib -- \
+     --emit=asm -C debuginfo=0 -C target-cpu=x86-64-v3 \
      2>&1 | tee /tmp/asm-v3-2-3-2.out
    ```
+
+   `cargo rustc` passes the flags to the crate under inspection only, whereas
+   an assigned `RUSTFLAGS` would apply to every crate in the graph and suppress
+   the dependency rlibs the build needs. Both builds reuse the bench-profile
+   cache; the emitted `.s` files land in `target/release/deps/`, the newer file
+   being the `x86-64-v3` one.
 
    Search the emitted `.s` files for the mangled closure symbols. Record
    whether the loop bodies contain packed instructions (`maxps`, `vmaxps`,
@@ -1263,10 +1289,13 @@ result.
 
 ## Idempotence and recovery
 
-Every step can be re-run. `target/criterion/`, `target/benchmarks/`,
-`target/asm-default/` and `target/asm-v3/` may be deleted freely. A failed
-gated milestone is reverted in its own commits, dependency entries included. On
-a gate failure, read the `tee`d log rather than re-running the gate.
+Every step can be re-run. `target/criterion/`, `target/benchmarks/` and the
+emitted `target/release/deps/*.s` assembly files may be deleted freely. Note
+that a stale `target/criterion/` baseline makes Criterion plot a change against
+an unrelated measurement, which can panic in plotters on a degenerate near-zero
+timing; deleting the directory is the fix. A failed gated milestone is reverted
+in its own commits, dependency entries included. On a gate failure, read the
+`tee`d log rather than re-running the gate.
 
 ## Artefacts and notes
 
@@ -1349,11 +1378,10 @@ Close (2026-11-23). **Roadmap item 2.3.2 closes as a measured null result.**
   `maxps`, `vmaxps`, `cmpps` or `vpcmpgtq` float form anywhere in the crate.
 - **Shipped** (`chutoro-core`, no issue of its own; the plan's Milestone 2):
   the exact-edge-list oracle property, six BDD edge-preparation scenarios, and
-  deterministic lowest-index lookup errors in the mutual-reachability
-  transform.
+  deterministic lowest-index lookup errors in the mutual-reachability transform.
 - **Declined on the Gate A number:** the Gate B instrument, the packed sort
-  record, Filter-Kruskal and the Fearless SIMD kernel. No dependency was
-  added, so `fearless_simd` and `fearless_simd_macros` remain absent from the
+  record, Filter-Kruskal and the Fearless SIMD kernel. No dependency was added,
+  so `fearless_simd` and `fearless_simd_macros` remain absent from the
   manifests and the lockfile.
 - **Dedup-before-sort:** declined separately, because its bit-keyed dedup
   would have changed which duplicate survives for `±0.0` and the code would

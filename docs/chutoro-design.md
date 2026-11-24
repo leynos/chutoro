@@ -1384,8 +1384,8 @@ any run. The harvest carries 340,465 edges at `n = 10 000` and 32,966 at
 The emitted assembly explains why a portable-vector kernel had no headroom to
 recover: the transform's per-edge loop compiles to two scalar `maxss`
 instructions in the default (SSE2-baseline) build and two `vmaxss` in an
-`x86-64-v3` build, and neither build contains a packed float maximum (`maxps`
-or `vmaxps`) or a packed compare (`cmpps`) anywhere in the crate. The
+`x86-64-v3` build, and neither build contains a packed float maximum (`maxps` or
+`vmaxps`) or a packed compare (`cmpps`) anywhere in the crate. The
 array-of-structures `CandidateEdge` layout defeats autovectorization, but the
 stage is too small for closing that gap to matter.
 
