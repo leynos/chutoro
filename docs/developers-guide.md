@@ -2094,9 +2094,10 @@ invoking the shared coverage action to set the watchdog explicitly, since a
 step without it inherits the 1,800 s default, which is where this repository
 started. Both workflow extensions are scanned because a coverage lane in a
 `.yaml` file would otherwise inherit that default without failing anything. The
-readings it rests on live in `timeout_budgets.py`, `nextest_durations.py` and
-`coverage_lanes.py`, and are driven past this repository's own numbers in
-`timeout_derivation_test.py` and `duration_reading_test.py`.
+readings it rests on live in `timeout_budgets.py`, `profile_inheritance.py`,
+`nextest_durations.py` and `coverage_lanes.py`, and are driven past this
+repository's own numbers in `timeout_derivation_test.py`,
+`profile_inheritance_test.py` and `duration_reading_test.py`.
 
 Durations are read the way nextest reads them, with `humantime`'s grammar: a
 sequence of values each followed by a unit, summed, so `2h 37min` and `1m30s`
@@ -2249,8 +2250,11 @@ The PR job has a `timeout-minutes: 20` budget, sized to exceed the longest
 property phases do not consume the full budget. The weekly job retains a
 `timeout-minutes: 120` budget for deeper test runs.
 
-All test runs use the `nextest` CI profile (`--profile ci`). Benchmark targets
-require `threads-required = 8`; see `.config/nextest.toml`.
+Pull-request property runs use the `nextest` CI profile (`--profile ci`). The
+weekly and manual lane keeps `ci` for its HNSW, edge-harvest and MST legs and
+selects `property-heavy` for the dense SIMD leg only; see
+[Dense parity timeouts](#dense-parity-timeouts). Benchmark targets require
+`threads-required = 8`; see `.config/nextest.toml`.
 
 Compile-contract tests belong in the `chutoro-compile-contracts` package. Its
 package-level `nextest` override shares the `nested-cargo` serial group with
@@ -2460,12 +2464,114 @@ When adding a new dense SIMD backend or Euclidean kernel:
    layout, lane width, or input hazard that the existing generators do not
    cover.
 4. Run `cargo nextest run -p chutoro-providers-dense simd::tests::parity::`
+   for the fast suite, then the weekly-sized workload with:
+
+   ```sh
+   PROPTEST_CASES=25000 CHUTORO_PBT_FORK=true \
+     cargo nextest run --profile property-heavy \
+     -p chutoro-providers-dense simd::tests::parity::
+   ```
+
    before the full `make check-fmt`, `make lint`, `make typecheck`, and
    `make test` gates.
 
 If proptest records a regression, keep the generated file under the relevant
 `proptest-regressions/` directory. That file is the shrunk counterexample and
 should be treated as a regression guard, not as disposable local output.
+
+### Dense parity timeouts
+
+The suite runs under two workloads: 250 cases in the pull-request property
+workflow, and 25,000 forked cases in the weekly and manual workflow. All three
+overrides in `.config/nextest.toml` use the filter
+`package(chutoro-providers-dense) & test(/simd::tests::parity::/)`.
+
+Table: the dense parity allowances and the lane each one serves.
+
+| Profile          | Allowance | Selected by                     |
+| ---------------- | --------- | ------------------------------- |
+| `default`        | 180 s     | local runs                      |
+| `ci`             | 180 s     | the pull-request property lane  |
+| `property-heavy` | 300 s     | the weekly and manual dense leg |
+
+`property-heavy` inherits `ci`, and its own override is consulted before an
+inherited one, which is `nextest`'s selected-profile-first rule.
+
+Only the `dense_simd` matrix leg selects `property-heavy`. The repository pins
+cargo-nextest 0.9.143, and until 0.9.145 only the selected profile's own
+overrides and `profile.default`'s were consulted; overrides in an intermediate
+profile were silently skipped. Selecting the heavy profile for the whole weekly
+job would therefore replace the HNSW leg's 1500-second allowance and the
+edge-harvest leg's 600-second one with the default profile's. The other legs
+stay on `ci` and keep the budgets they had.
+
+The 300-second allowance was measured, not guessed. Three forced
+`workflow_dispatch` runs of `property-tests.yml` (runs 44915040254, 44915045535
+and 44915050995) ran the suite on the x64 `ubuntu-latest` pool with
+`PROPTEST_CASES=25000`, `CHUTORO_PBT_FORK=true` and the fixed seed
+`0x600D_5EED_C047_0207`. Every run completed all four properties. Table: the
+slowest completed duration per property and the mean per-case cost, which
+includes fork overhead.
+
+| Property                                                          | Slowest | Per case |
+| ----------------------------------------------------------------- | ------- | -------- |
+| `pairwise::pairwise_backends_match_scalar_oracle`                 | 14.6 s  | 0.58 ms  |
+| `non_finite::pairwise_backends_canonicalize_non_finite_to_nan`    | 18.9 s  | 0.75 ms  |
+| `query_points::query_point_backends_match_scalar_oracle`          | 37.3 s  | 1.49 ms  |
+| `non_finite::query_point_backends_canonicalize_non_finite_to_nan` | 81.1 s  | 3.24 ms  |
+
+Three times the slowest completed duration is 243.4 s, rounded up to a whole
+minute is 300 s, about 3.7 times the slowest observed run and far below the
+4,800-second global timeout the heavy profile inherits. The properties declare
+no `prop_assume!` or `prop_filter`; the run-wide reject budget is 100,000
+(`max_global_rejects_for(25_000)`), and a passing run performs no shrinking.
+
+The forked weekly lane also carries explicit per-case and shrink bounds. The
+dense parity configuration sets a 20-second per-case timeout and a 60-second
+shrink-time bound when forking; proptest's defaults leave both at zero, so the
+weekly lane previously had no in-case bound and the 300-second nextest
+allowance bounded the whole property. The shrink bound is measured per forked
+child: a shrink candidate that hangs restarts the child and begins a new
+minute, so the 300-second nextest allowance remains the outer bound across
+restarts, and an overrun there is a timeout rather than a counterexample. The
+unforked pull-request and local lanes keep proptest's disabled timeout, because
+a non-zero per-case timeout implicitly enables forking. Proptest's shrink
+iteration bound stays its default of four times the case count.
+
+The logs record each property's duration and the configured 25,000 cases; the
+nextest summary for the three measurement runs was
+`4 tests run: 4 passed, 125 skipped` in 45.7 s, 81.3 s and 54.7 s. A passing
+forked run implies 25,000 successes per property, but proptest 1.12.0 prints
+the parent's success and reject counters only when a case fails, so the logs do
+not state those counts. The three measurement runs predate `PROPTEST_VERBOSE`
+and did not enable it. The weekly lane now sets `PROPTEST_VERBOSE=1`, which
+prints a line for each test-case rejection or failure; a strategy-local
+rejection uses a separate counter and does not print per case. Nextest displays
+a failed test's output but hides a passing test's by default, so this helps
+diagnose a failure rather than establishing a passing run's reject count. The
+repaired-head confirmation dispatch's dense job set `PROPTEST_VERBOSE=1` and
+passed in 46.2 s with its output hidden; the dispatch as a whole failed on the
+separate HNSW mutation timeout tracked in #332. Actual reject counts therefore
+remain unavailable, and structured inventory and progress reporting stays
+tracked in shared-actions#592. The per-case cost in the table includes fork
+overhead; a separate fork cost and in-test progress are not exposed by proptest
+1.12.0 in forked mode.
+
+A timeout is unresolved work. It says an allowance was too small or a runner
+too slow; it does not prove the suite passed, and it is not a numerical failure
+in a kernel. Timeouts are excluded from the table above and recorded as
+outstanding in the comment above the heavy override, alongside the run IDs and
+the sizing rule. The backend set each run exercised is whatever
+`dispatch::enabled_backends` detected at runtime; on the hosted x64 pool that
+is the scalar backend plus whichever of AVX2 and AVX-512 the runner exposes,
+and the measurement does not assume AVX-512.
+
+The declarations, the per-suite routing, the parent/child allowance ordering
+and the weekly job ceiling are pinned by
+`chutoro-core/tests/nextest_config/dense_parity_overrides.rs` and
+`tests/workflow_contracts/property_lane_profile_test.py`. Structured inventory,
+progress and budget reporting across the property suites is tracked in
+[shared-actions#592](https://github.com/leynos/shared-actions/issues/592).
 
 ## Dense SIMD Kani harnesses
 

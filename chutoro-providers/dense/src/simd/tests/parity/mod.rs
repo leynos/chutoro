@@ -28,13 +28,33 @@ mod pairwise;
 mod query_points;
 mod strategies;
 
-use chutoro_test_support::ci::property_test_profile::PROPTEST_RNG_SEED;
+use chutoro_test_support::ci::property_test_profile::{PROPTEST_RNG_SEED, max_global_rejects_for};
 use proptest::test_runner::{Config as ProptestConfig, RngSeed};
 
 use crate::simd::{DensePointView, dispatch, kernels};
 
 type PairwiseEntry = fn(&[f32], &[f32]) -> f32;
 type QueryPointsEntry = fn(&[f32], &DensePointView<'_>, &mut [f32]);
+
+/// Per-case execution bound for the forked weekly lane, in milliseconds.
+///
+/// proptest's default is zero, which disables the per-case timeout. The
+/// measured mean per-case cost is 3.24 ms for the slowest property, so 20
+/// seconds bounds a hung case with more than three orders of magnitude of
+/// headroom. It also exceeds forked process startup, which proptest includes
+/// in the bound.
+pub(super) const FORKED_CASE_TIMEOUT_MS: u32 = 20_000;
+
+/// Bound on one forked child's shrink phase, in milliseconds.
+///
+/// Shrinking only runs on failure. A minute leaves room for the fixed seed's
+/// counterexample to shrink. proptest measures this bound from the start of
+/// each `shrink()` call inside the child, so a candidate that hangs and
+/// restarts the child starts a new minute; the 300-second nextest allowance
+/// remains the outer bound across restarts, and an overrun is reported as a
+/// timeout rather than as a counterexample. proptest's iteration bound
+/// remains its default, four times the case count.
+pub(super) const FORKED_SHRINK_TIME_MS: u32 = 60_000;
 
 /// Builds a CI-tuned proptest configuration for parity properties.
 ///
@@ -49,12 +69,23 @@ pub(super) fn proptest_config(default_cases: u32) -> ProptestConfig {
         default_cases,
         DEFAULT_FORK,
     );
+    parity_config(profile.cases(), profile.fork())
+}
+
+/// Builds the parity suite's configuration for a case count and run mode.
+///
+/// A non-zero per-case timeout implicitly enables forking, so the bound is
+/// set only when the lane already forks. The pull-request and local lanes
+/// stay unforked and keep proptest's disabled per-case timeout.
+pub(super) fn parity_config(cases: u32, fork: bool) -> ProptestConfig {
     ProptestConfig {
-        cases: profile.cases(),
-        fork: profile.fork(),
+        cases,
+        fork,
         // Rejects are a budget for the whole run, so a deep run needs one in
         // proportion to the cases it asks for. See #260.
-        max_global_rejects: profile.max_global_rejects(),
+        max_global_rejects: max_global_rejects_for(cases),
+        timeout: if fork { FORKED_CASE_TIMEOUT_MS } else { 0 },
+        max_shrink_time: if fork { FORKED_SHRINK_TIME_MS } else { 0 },
         rng_seed: RngSeed::Fixed(PROPTEST_RNG_SEED),
         ..ProptestConfig::default()
     }
