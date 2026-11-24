@@ -112,9 +112,15 @@ These are hard invariants. Violating one requires escalation, not a workaround.
 6. **Preserve the pairwise kernels.** `euclidean_distance`,
    `euclidean_distance_batch_pairs`' pairwise path, `EUCLIDEAN_KERNEL`, and
    `squared_l2_tail` are out of scope and must not change behaviour.
-7. **No project-owned `unsafe` in new code.** No `assume_supported`, no
-   `kernel!` intrinsic wrapper, no `core::arch` intrinsics, no `unsafe` block
-   in the new module or in the new dispatch code.
+7. **No project-owned `unsafe` in new code, and no fused arithmetic.** No
+   `assume_supported`, no `kernel!` intrinsic wrapper, no `core::arch`
+   intrinsics, no `unsafe` block in the new module or in the new dispatch code.
+   Separately, the kernel must not call `f32::mul_add`, `SimdFloat::mul_add`,
+   or any other fused or relaxed operation: the contract is one separate
+   multiply and one separate add per dimension, and `INV-no-contraction` is not
+   satisfied by a hand-written fused call just because the compiler did not
+   introduce one. Both prohibitions are enforced by the same source contract as
+   the token rules (see `Verification plan`).
 8. **No unrestricted dispatch.** `fearless_simd::dispatch!` must not be used: it
    can select an instruction set that a Cargo feature has excluded. Tokens come
    only from `Level::new()` or `Level::try_detect()` and the safe
@@ -207,8 +213,8 @@ inventing one. The 900-line code budget is that 600-line analogue plus 50%
 headroom for the benchmark target and differential suite, which the 2.3.2
 milestone did not need because it reused an existing pipeline benchmark. The
 300-line production sub-budget is generous against the measured surface it
-replaces: the two x86 query instantiations plus their macro body are 75 lines
-and the NEON query body is 40.
+replaces: the two x86 query instantiations plus their macro body are 74
+non-blank non-comment lines and the NEON query body is 33, as Table 6 measures.
 
 Measured survey of the surface this work touches:
 
@@ -367,9 +373,15 @@ it.
   `lane_output_count` only truncates writes (`simd/mod.rs:31`). The Kani
   harness hard-codes lane widths `[4, 8, 16]` (`kani_proofs.rs:129-137`).
   Impact: RFC 0001's "complete chunks and a scalar remainder independent of the
-  padding width" is new behaviour, not a restatement. It needs its own
-  invariant, test, and proof, and it is the one place the new kernel is
-  *stronger* than every existing one.
+  padding width" is new behaviour, not a restatement, and it needs its own
+  invariant and proof. **But it is unreachable on every backend this plan can
+  enable.** `P` is always a multiple of 16, so for any lane width `L` that
+  divides 16 — which is all of them: NEON 4, AVX2 8, AVX-512 16 — the loop
+  leaves `start == P >= n` and the remainder is empty for every `n`. I
+  enumerated `n` in `0..4096` for each width: zero non-empty remainders. Only a
+  width that does not divide 16 (for example 32) can produce one. The remainder
+  is therefore future-proofing, not shipped behaviour of this change, and the
+  plan must not claim otherwise.
 - Observation: the plan's own first-draft remainder lemma was wrong, and the
   error is a real implementation hazard. Evidence: with `n = 17`, `P = 32`, and
   `L = 16`, the first full chunk covers `0..16` and the loop advances `start`
@@ -380,8 +392,10 @@ it.
   (`simd/mod.rs:31`, `x86_simd.rs:97`). Impact: `L-chunk-partition` now states
   `start = L * floor(P / L)` and requires the remainder to be
   `min(start, n)..n`. The kernel must guard on `start < n` before iterating,
-  and the Kani harness must include a case where `start > n`, which the
-  `n = 17`, `L = 16` pair supplies.
+  which the `n = 17`, `L = 16` pair demonstrates. Because that guard makes the
+  remainder empty for every shipping width, the remainder body is unexecuted by
+  any integration test; it is exercised only by a direct unit test of the
+  helper with a synthetic `start < n`, and by the Kani harness at `L = 32`.
 - Observation: `Level` does not implement `Simd`, so the kernel cannot be called
   through a `Level` value at all. Evidence: compiler diagnostics on 2026-11-24
   from a scratch crate that called a `<S: Simd>` function with `Level::new()`;
@@ -393,13 +407,17 @@ it.
   `Level`-shaped cache would not compile, which the plan's `QueryInvocation`
   already avoids.
 - Observation: RFC 0001's claim that the contract "requires zero distances for
-  identical zero vectors" is stronger than the code. Evidence:
+  identical zero vectors" is stronger than what the code *asserts*. Evidence:
   `ZeroVectorPolicy::ReturnZero` is a declarative variant;
   `debug_assert_contract` only asserts the variant is still `ReturnZero`
   (`simd/semantics.rs:182-191`), and every zero-row fixture is compared through
-  the same `1.0e-5` epsilon. Impact: the plan does not add an exact-zero
-  assertion; it preserves the measured contract. REQ-F3 is restated precisely
-  below.
+  the same `1.0e-5` epsilon. The *property* nevertheless holds exactly:
+  `0.0 - 0.0 = +0.0`, `(+0.0)² = +0.0`, `+0.0 + +0.0 = +0.0`, and
+  `sqrt(+0.0) = +0.0`, which `finalize_distance` passes through unchanged.
+  Impact: RFC 0001 F3 names this and one assertion discharges it, so EP-M2 adds
+  a positive-zero check (`value == 0.0 && value.is_sign_positive()`) to the
+  existing identical-zero-vector fixture rather than declining it. REQ-F3 is
+  restated precisely below.
 - Observation: `chutoro-providers/dense/Cargo.toml` declares no `rust-version`,
   and only `chutoro-core` declares one. Evidence:
   `chutoro-providers/dense/Cargo.toml:1-4`; `chutoro-core/Cargo.toml:5`;
@@ -824,8 +842,15 @@ Observed gaps this plan must close:
   (Constraint 11).
 - `GAP-execution-hosts` — no AVX-512 and no AArch64 execution available
   (D6, Q2).
-- `GAP-padded-accessor` — `padded_point_count()` is gated on legacy backends
-  only (EP-M3).
+- `GAP-padded-accessor` — `padded_point_count()` is gated on the legacy
+  backend plus architecture pairs (`point_view.rs:123-139`). Under D1 the new
+  kernel is gated on an existing SIMD feature plus architecture, so the
+  accessor is already available wherever a token can exist; the gap is
+  **conditional**. It bites only for a build that enables `testing` or
+  `cfg(test)` *without* any native SIMD feature, which is the configuration the
+  level-1 fixture would need if it were ever built standalone. EP-M3 confirms
+  whether that configuration is reachable and extends the `cfg` list only if it
+  is.
 - `GAP-status-drift` — RFC 0001 and ADR 0007 still read "Proposed" after merge
   (EP-M5).
 - `GAP-design-path` — `docs/chutoro-design.md` names `simd/kernels.rs`
@@ -900,14 +925,22 @@ Invariants:
 - `INV-full-chunk-in-bounds` — every full-width read covers exactly
   `L = S::f32s::LEN` contiguous elements starting at a multiple of `L`, and
   `start + L <= P`. Covers REQ-T3.
-- `INV-partition` — the set of indices handled by full chunks and the set
-  handled by the scalar remainder are disjoint, and their union is exactly
-  `0..n` whenever every full chunk lies inside `0..n`, which holds because
-  `start + L <= P` and `P` may exceed `n`. When `P > n`, a full chunk may
-  straddle the logical end; such a chunk's lanes at or above `n` are padding
-  and are discarded, so the union is `0..n` for the *bytes written*, not for
-  the indices read. This distinction must be stated in the kernel's
-  documentation. Covers REQ-T3.
+- `INV-partition` — fix `L` and `P = n.next_multiple_of(16)`. Let
+  `S = {0, L, 2L, ...}` be the chunk starts admitted by `start + L <= P`, and
+  `start = L * floor(P / L)` the value at loop exit. Then:
+  1. the chunk ranges `[s, s + L)` for `s` in `S` are pairwise disjoint and
+     their union is `[0, start)`;
+  2. the remainder range is `[min(start, n), n)`, empty exactly when
+     `start >= n`;
+  3. every index in `0..n` is **written exactly once**: by the chunk containing
+     it when `i < start`, otherwise by the remainder;
+  4. indices in `[n, start)` are *read* by chunks and must never be written.
+
+  `start + L <= P` bounds a read against the *padded* block, not against the
+  logical range, so a chunk may legitimately straddle `n`; clause 3 is what
+  keeps that safe. Corollary: when `L` divides 16, `start = P >= n`, so the
+  remainder is empty for every `n` and clause 2's non-empty branch is
+  unreachable on every backend this plan enables. Covers REQ-T3.
 - `INV-dimension-order` — per lane, the operations are, in order for each `k`:
   one subtraction `q_k - p[k]`, one multiplication of the delta by itself, one
   addition into the accumulator; no horizontal reduction inside the loop and no
@@ -991,16 +1024,31 @@ Lemmas required to connect the invariants to the required behaviour:
   `0, 1, 2, 3, 4, 7, 8, 9, 15, 16, 17, 31, 32, 33, 64, 128`; dimensions
   `0, 1, 3, 8, 16, 33, 128, 768`; values covering `+0.0`, `-0.0`, duplicates,
   subnormals, `f32::MAX`, `f32::MIN`, `±inf`, quiet NaN, and the signalling NaN
-  bit pattern `0x7F80_0001`. Property tests use `proptest` with at least 256
-  cases in the pull-request tier. Artefact:
-  `chutoro-providers/dense/src/simd/tests/fearless.rs`, new module. Evidence:
+  bit pattern `0x7F80_0001`. Property tests run at proptest's default of 64
+  cases, at 250 in the pull-request property lane
+  (`.github/workflows/property-tests.yml:54`), and at 25,000 in the weekly lane
+  (`:150`). Artefact: `chutoro-providers/dense/src/simd/tests/fearless.rs`, new
+  module. Evidence:
   `cargo nextest run -p chutoro-providers-dense -E 'test(simd::tests::fearless)'`.
   A deliberately wrong reference (for example, accumulating with `mul_add`)
   must make the bit-identity case fail. Non-vacuity: every count and dimension
-  class has at least one named witness; the padding classes (15, 17, 31, 33)
-  actually exercise both a full chunk and a remainder on the AVX2 width; the
-  property generator's classifier records how many cases had a non-empty
-  remainder, and a run with zero such cases is a failure.
+  class has at least one named witness, so the boundary table alone proves the
+  domain is inhabited. **The remainder is not among them**: for every shipping
+  lane width it is empty, so the suite cannot witness it. The remainder helper
+  is instead exercised directly by a unit test that calls it with a synthetic
+  `start < n`, and its non-vacuity there is that the helper is shown to write
+  the exact scalar reference values for those indices.
+
+  Note for the implementer: proptest exposes no `classify`/`cover` API in the
+  resolved 1.12, so the earlier draft's "property generator's classifier"
+  requirement is removed rather than approximated. If case-distribution
+  evidence is wanted, count in the test body and assert on the counter; do not
+  invent a proptest feature that does not exist.
+
+  The new module is also **not** selected by the existing property workflow: the
+  `dense_simd` leg filters on `simd::tests::parity::`
+  (`.github/workflows/property-tests.yml:113-116`). EP-M2 extends that filter to
+  `simd::tests::fearless::` so the suite actually runs in CI.
 - Obligation `INV-padding-inert`, `INV-full-chunk-in-bounds`, `INV-partition`,
   `L-pad-multiple`, `L-block-length`, `L-chunk-partition`, `L-visible-count`
   (index half). Method: bounded model checking with Kani, plus `rstest`
@@ -1010,17 +1058,28 @@ Lemmas required to connect the invariants to the required behaviour:
   harnesses do. Domain: `n` symbolic in `0..=33`, `d` symbolic in `0..=2`, `L`
   symbolic in `{1, 2, 4, 8, 16, 32}` with `P = n.next_multiple_of(16)`. The
   domain must contain an `n` where `start > n` at `L = 16` (`n = 17` gives
-  `start = 32`) and an `n` where the remainder is non-empty (`n = 17` at
-  `L = 8` leaves one index), so both the clamp and the non-empty remainder
-  branches are reachable. Artefact: a new harness
-  `verify_dense_simd_fearless_partition` in
+  `start = 32`) so the clamp is reachable, **and** an `L` that does not divide
+  16 so a non-empty remainder is reachable at all: `L = 32` supplies it, for
+  example `n = 1, P = 16, start = 0`, where the whole batch is remainder.
+  Artefact: a new harness `verify_dense_simd_fearless_partition` in
   `chutoro-providers/dense/src/simd/kani_proofs.rs`, registered in `make kani`
-  if it completes within the verification-cost tolerance. Evidence:
-  `make kani`; the harness must fail when the loop bound is mutated from `L` to
-  `L - 1`. Non-vacuity: the bound set includes `L` values that divide 16, one
-  that does not (32 when `n mod 32 != 0`), and one larger than `P` for small
-  `n`, so each remainder branch is reachable; the harness records a failure if
-  no `L` and `n` combination produces a non-empty remainder.
+  if it completes within the verification-cost tolerance. Evidence: `make kani`.
+
+  **The mutation must be observable.** Mutating the loop bound from `L` to
+  `L - 1` does *not* change the chunk set for any `L` that divides 16, because
+  `start` is always a multiple of `L` while `P - L + 1` is not; for `L = 1` the
+  mutated bound never terminates. Verified over `n` in `0..130`: zero
+  differences at `L` in `{2, 4, 8, 16}`. Use a mutation that changes the
+  partition: `start + L <= P` → `start + L < P` (differs for 129 of 130 `n` at
+  those widths), or `min(start, n)` → `start` (underflows), or
+  `min(L, n.saturating_sub(start))` → `L`. Any of those must fail the harness.
+
+  Non-vacuity: `L = 32` against `n <= 16` puts the entire batch in the
+  remainder, so the remainder branch is genuinely reachable even though no
+  shipping backend takes it; the clamp is reachable at `L = 16`, `n = 17`; and
+  the harness' bound set includes widths on both sides of 16. Record which
+  branch each witness hits, so a future reader can tell a genuine proof from a
+  vacuous one.
 - Obligation `INV-token-provenance`, `INV-selector-authority`.
   Method: three complementary artefacts — exhaustive enumeration of the pure
   policy function, a named real-host integration test, and a standing source
@@ -1056,19 +1115,37 @@ Lemmas required to connect the invariants to the required behaviour:
   policy could conflate, so naming them separately is what proves the
   distinction survives.
 - Obligation `INV-no-contraction`, `REQ-F2` bit identity.
-  Method: disassembly inspection plus a bit-identity test against the legacy
-  same-backend kernel. Rationale: the property is about generated code, so it
-  needs code evidence; the test supplies the numerical guard. Domain: AVX2 only
-  on this host, every dimension and count class above. Artefact: an
-  `objdump -d` transcript in `Artefacts and notes` showing
-  `vsubps`/`vmulps`/`vaddps` and no `vfmadd*` in the kernel body; the
-  bit-identity test lives in `simd/tests/fearless.rs`. Evidence:
-  `objdump -d --no-show-raw-insn target/release/deps/<bench or test binary>`
-  filtered to the kernel symbol; and
-  `cargo nextest run -p chutoro-providers-dense -E 'test(legacy_bit_identity)'`.
-  Non-vacuity: the test compares against the *legacy* body, not against the
-  scalar oracle, so it would catch a change that the >1e-5 tolerance hides; the
-  disassembly is quoted, not summarized.
+  Method: three artefacts — a source contract, disassembly, and a **permanent
+  golden-bit test**. Rationale: the property is about generated code and about
+  written code, so it needs both. A source contract is the only thing that
+  stops a future contributor reintroducing `mul_add`; disassembly is the only
+  evidence that the compiler did not; and the golden test is the only
+  arithmetic guard that survives adoption. Domain: AVX2 only on this host,
+  every dimension and count class above. Artefacts:
+  - `tests/workflow_contracts/fearless_token_provenance_test.py` extended to
+    reject `mul_add` and any fused/relaxed operation in the kernel module, on
+    the same mechanism as `trim_scoring_dispatch_test.py`;
+  - an `objdump -d --no-show-raw-insn` transcript in `Artefacts and notes`
+    showing `vsubps`/`vmulps`/`vaddps` and no `vfmadd*`, quoting the symbol
+    inspected (or the enclosing symbol when inlining removes it);
+  - a golden-bit fixture: frozen expected `f32` bit patterns captured from the
+    pre-change scalar reference for a fixed set of query/candidate tuples,
+    asserted with `to_bits()`. This must exist **because EP-M4 deletes the
+    legacy AVX2 body on adoption**, after which the only remaining comparison
+    would be the `1.0e-5` scalar check, which cannot pin exact arithmetic.
+  Evidence: `make test-workflow-contracts` fails when `mul_add` is added and
+  passes when removed; `make kani` unaffected; the golden test passes.
+  Non-vacuity: adding `mul_add` to the kernel must make both the source
+  contract and the golden test fail. The 1e-5 tolerance is explicitly *not*
+  relied on, because both sides accumulate in the same order and the epsilon
+  would never bite.
+
+  Two further order hazards this obligation must forbid, and the earlier draft
+  did not: a **vector** square root instead of the existing scalar `f32::sqrt`
+  on each stored lane (which would round differently), and accumulating the
+  remainder into a vector accumulator or reducing a whole chunk via `.sum()`.
+  Both change per-candidate reduction order and both must be rejected in review.
+
 - Obligation `INV-no-allocation`.
   Method: a counting global allocator in a dedicated integration-test binary.
   Rationale: `make test` runs `cargo nextest run` (`Makefile:184`), which
@@ -1143,11 +1220,12 @@ Feature: Dense query-to-points distance is unchanged by the kernel substitution
     When the provider scores it against a finite candidate
     Then the returned distance is NaN
 
-  Scenario: Padding never becomes a result
+  Scenario: Padding lanes are computed but never become results
     Given 17 candidates, so the packed block holds 32 lanes
+    And a query containing positive infinity
     When the provider scores them
-    Then exactly 17 distances are written
-    And the caller's buffer has no nineteenth element written
+    Then the 17 visible distances are all NaN
+    And no result is produced for lanes 17 to 31
 ```
 
 Mapping: the first scenario is
@@ -1659,9 +1737,12 @@ Requirements and gaps: `REQ-F1`, `REQ-F4`, `REQ-F5`, `REQ-T2`, `REQ-T4`,
    `select_query_invocation()`. `EXECUTION_EVIDENCE` starts as the empty set;
    EP-M3 sets it to the AVX2 bit only after all of EP-M3's other evidence is
    recorded.
-3. Extend `DensePointView::padded_point_count`'s `cfg` list
-   (`point_view.rs:123-139`) with the new gate (D1), so the kernel can read the
-   padded length in a Fearless-only build.
+3. `DensePointView::padded_point_count`'s `cfg` list (`point_view.rs:123-139`)
+   already covers every native feature plus architecture pair, so it is
+   available wherever a token can exist. Check the one configuration that could
+   still miss it — `testing` or `cfg(test)` with no native SIMD feature — and
+   extend the list only if that configuration is reachable. Record the finding
+   either way; do not edit the list on the assumption that the gap is real.
 4. Update `backend_kernels`/`query_points_entry` (`kernels/mod.rs:104`, `:225`)
    so the parity suite exercises the new invocation for each backend.
 5. Property parity. Run the existing parity suite with the new wiring and
@@ -2365,3 +2446,36 @@ does. The plan's default is stated for each.
   No requirement, milestone order, or acceptance criterion changed. The plan's
   quoted dense manifest already matched the post-`main` file, because it never
   included the removed line.
+
+- 2026-11-24, revision 5: Numerical-semantics review applied. The most
+  consequential finding is arithmetic, and it was mine to have got wrong.
+
+  - **The scalar remainder is unreachable on every shipping backend.**
+    `P` is always a multiple of 16, so for any lane width `L` dividing 16 — 4,
+    8, and 16 are all of them — the loop leaves `start = P >= n` and the
+    remainder is empty for every `n`. I enumerated `n` in `0..4096` per width:
+    zero non-empty remainders. The plan had claimed the padding classes
+    "actually exercise both a full chunk and a remainder" and had prescribed a
+    "zero such cases is a failure" rule that would have failed the suite
+    unconditionally. Both claims are removed; the remainder is now stated as
+    future-proofing, exercised only by a direct helper unit test and by the
+    Kani harness at `L = 32`.
+  - **The Kani teeth mutation could not fail.** Mutating the loop bound from
+    `L` to `L - 1` changes nothing for any `L` dividing 16 (verified over
+    `n` in `0..130`), and never terminates at `L = 1`. Replaced with mutations
+    that do change the partition.
+  - **`INV-partition` restated** as four precise clauses, replacing a sentence
+    that asserted what it then retracted.
+  - **Hand-written `mul_add` is now forbidden**, not merely compiler
+    contraction. The earlier draft's "proof of teeth" was itself the defect it
+    needed to prohibit.
+  - **A permanent golden-bit test replaces the deleted comparison.** EP-M4
+    removes the legacy AVX2 body, after which a `1.0e-5` scalar check could not
+    pin exact arithmetic.
+  - Smaller corrections: the proptest case counts now match the repository
+    (64/250/25,000, not a made-up 256); the non-existent proptest `classify` API
+    is dropped; the CI property filter is extended so the new suite actually
+    runs; the vacuous padding scenario now uses a non-finite query; RFC F3's
+    positive-zero case is discharged by an assertion rather than declined; the
+    budget rationale quotes Table 6's 74/33 rather than 75/40; and
+    `GAP-padded-accessor` is recorded as conditional rather than assumed.
