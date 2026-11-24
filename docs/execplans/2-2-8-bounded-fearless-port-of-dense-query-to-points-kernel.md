@@ -568,8 +568,12 @@ Not yet applicable. This section is completed at each milestone and at close
 with the two gate results, the maintained-surface arithmetic, what shipped, and
 what was declined on which number.
 
-Interim note (2026-11-24): reconnaissance is complete and the plan is a draft.
-No production code, manifest, or lockfile change has been made.
+Interim note (2026-11-24): reconnaissance, the feasibility probe, and the
+expert review are complete, and the plan is a draft. No production code,
+manifest, or lockfile change has been made. The review's most consequential
+finding was that the maintenance gate could not pass as first written; that is
+now a bounded production rule with the expected null result stated in advance
+rather than discovered after the measurement work.
 
 ## Context and orientation
 
