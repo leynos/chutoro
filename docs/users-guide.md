@@ -844,6 +844,24 @@ assert_eq!(published.manifest_uri().as_str(), "manifests/example.json");
 For the design rationale behind the four-phase trait and port split, see
 [ADR-004: Benchmark dataset recipe trait](adrs/adr-0004-bench-dataset-recipe-trait.md).
 
+### Cleaning up partial recipe state
+
+`DatasetRecipe::cleanup` receives a `PartialState` that reports only the last
+phase that completed before the failure. A fetch failure reports `None`, and a
+prepare failure reports `Some(Phase::Validate)`. The failed phase may already
+have written output, so treat the reported phase as a lower bound on the side
+effects to remove.
+
+The driver does not track writes made through `Storage`, and it supplies no
+cache keys. `Storage` also has no deletion operation. A recipe that must remove
+partial output records the `CacheKey` values it writes, or derives them
+deterministically from its inputs, and removes them through its own mechanism.
+
+The `PartialState::orphaned_cache_key` field is removed. Code that branched on
+it never took the populated branch under `run_recipe`, so delete that branch.
+See the [0.2.0 migration notes](migration-notes.md#020) for the compatibility
+note.
+
 ### Identifying cache and object keys
 
 `CacheKey` and `ObjectKey` are opaque identifiers in the recipe model. Recipes

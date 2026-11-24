@@ -62,6 +62,37 @@ backend-specific address resolve it inside their own boundary, for example
 signatures are unchanged, so recipe code needs no migration beyond replacing
 path accessor calls.
 
+### `PartialState::orphaned_cache_key` is removed
+
+`PartialState` no longer carries an `orphaned_cache_key` field. The driver
+could never populate it: a recipe writes to the cache through
+`RecipeContext::storage`, so `run_recipe` has no record of the keys it created,
+and the field was always `None` under the driver.
+
+A `cleanup` implementation that branched on `partial.orphaned_cache_key` never
+took the populated branch, so delete that branch. Recipes that must remove
+partial output should record the `CacheKey` values they write, or derive them
+deterministically from their inputs, and remove them through their own
+mechanism. `Storage` has no deletion operation, and the driver still reports
+only the last completed phase, so a failing phase can leave writes behind even
+when its phase is not named in the state.
+
+```rust
+// Before: this branch never ran under run_recipe.
+if partial.orphaned_cache_key.is_some() {
+    remove_written_entries()?;
+}
+
+// After: the recipe removes the keys it recorded when it wrote them.
+for key in &self.written_keys {
+    remove_cache_entry(key)?;
+}
+```
+
+`PartialState::new`, `PartialState::highest_completed_phase`, and the
+`DatasetRecipe::cleanup` signature are unchanged. Code that assigned the field
+on a `PartialState` it owned should drop the assignment.
+
 ### Memory guard models the multi-layer harvest
 
 The pre-flight memory guard behind `ChutoroBuilder::with_max_bytes` now

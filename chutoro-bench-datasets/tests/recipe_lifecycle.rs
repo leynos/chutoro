@@ -129,12 +129,11 @@ fn failure_invokes_cleanup_with_partial_state(
     );
 
     assert!(error.to_string().contains(failing_phase.message()));
-    assert_eq!(
-        recipe
-            .cleanup_state()
-            .expect("cleanup state lock should not be poisoned"),
-        Some(PartialState::new(expected_completed_phase)),
-    );
+    let recorded = recipe
+        .cleanup_state()
+        .expect("cleanup state lock should not be poisoned")
+        .expect("cleanup should receive partial state");
+    assert_eq!(recorded.highest_completed_phase, expected_completed_phase);
 }
 
 #[rstest]
@@ -162,13 +161,13 @@ fn cleanup_failure_reports_failed_phase_and_cleanup_source(
     };
     assert_eq!(phase, chutoro_bench_datasets::Phase::Validate);
     assert!(cleanup_source.to_string().contains("cleanup failed"));
+    let recorded = recipe
+        .cleanup_state()
+        .expect("cleanup state lock should not be poisoned")
+        .expect("cleanup should receive partial state");
     assert_eq!(
-        recipe
-            .cleanup_state()
-            .expect("cleanup state lock should not be poisoned"),
-        Some(PartialState::new(Some(
-            chutoro_bench_datasets::Phase::Fetch
-        ))),
+        recorded.highest_completed_phase,
+        Some(chutoro_bench_datasets::Phase::Fetch)
     );
 }
 

@@ -1,0 +1,7 @@
+error[E0609]: no field `orphaned_cache_key` on type `PartialState`
+ --> tests/trybuild/partial_state_orphaned_cache_key_removed.rs:7:19
+  |
+7 |     let _ = state.orphaned_cache_key;
+  |                   ^^^^^^^^^^^^^^^^^^ unknown field
+  |
+  = note: available field is: `highest_completed_phase`
