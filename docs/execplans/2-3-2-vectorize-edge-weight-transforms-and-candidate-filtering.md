@@ -4,11 +4,11 @@ This ExecPlan (execution plan) is a living document. The sections `Constraints`,
 `Tolerances`, `Risks`, `Progress`, `Surprises & discoveries`, `Decision log`,
 and `Outcomes & retrospective` must be kept up to date as work proceeds.
 
-Status: IN PROGRESS (revision 7, 2026-11-23). The maintainer approved the plan
-and authorized production work for Milestones 0 to 2. Gate A has now been
-measured and fails: the decision-size ratio is 0.16% to 0.69%, far below the
-pre-registered 5%. Milestones 3 to 6 are therefore declined, and the remaining
-work is Milestone 2 and Milestone 7.
+Status: COMPLETE (revision 8, 2026-11-23). The maintainer approved the plan and
+authorized production work for Milestones 0 to 2. Gate A was measured and
+fails: the decision-size ratio is 0.16% to 0.69%, far below the pre-registered
+5%, so Milestones 3 to 6 are declined and the roadmap item closes as a
+measured null result. Milestones 0 to 2 and 7 are delivered.
 
 Roadmap item: 2.3.2 (Phase 2, "Hot-path optimizations"), `docs/roadmap.md`
 lines 400-402. Design: `docs/chutoro-design.md` §6.3 "SIMD utilization".
@@ -415,17 +415,35 @@ Timestamps are mandatory (Tolerance 8).
       ratio is below 5%, so Gate A fails. Assembly inspection finds no packed
       float max at the default or `x86-64-v3` codegen; the transform loop is
       scalar `maxss`/`vmaxss`.
-- [ ] Milestone 2: remaining guards.
-  - [ ] Exact-edge-list oracle property.
-  - [ ] BDD feature and step glue, with pinned fixtures.
-  - [ ] Lowest-index lookup errors in the transform.
-  - [ ] Dedup-before-sort, or a recorded reason for declining it.
+- [x] (2026-11-23) Milestone 2: remaining guards.
+  - [x] Exact-edge-list oracle property. `run_oracle_equivalence_property`
+        now compares the exact edge list, with `weight.to_bits()` identity,
+        after the aggregate checks. Deliberate mutation evidence: reversing
+        the source tie-break in `MstEdge::Ord` made the property fail with
+        `edge list mismatch` on a 34-node `ManyIdentical` fixture while the
+        aggregate checks still agreed; reverting the mutation restored the
+        pass.
+  - [x] BDD feature and step glue, with pinned fixtures.
+        `chutoro-core/tests/features/mst_edge_preparation.feature` holds six
+        scenarios and `chutoro-core/tests/mst_edge_preparation_bdd.rs` drives
+        them through the public `parallel_kruskal` API. All six pass.
+  - [x] Lowest-index lookup errors in the transform.
+        `mutual_reachability_edges` now folds through `collect_ordered_results`.
+        The new test was observed red at eight threads before the fix, naming
+        the higher-index target instead of the lower-index source, and passes
+        in both pinned pools afterwards. Recorded in
+        `docs/chutoro-design.md` §6.3.
+  - [x] Dedup-before-sort declined; the reason is in the decision log.
 - [x] (2026-11-23) Milestone 3 (gated on A): declined, Gate A failed.
 - [x] (2026-11-23) Milestone 4 (gated on A): declined, Gate A failed.
 - [x] (2026-11-23) Milestone 5 (gated on A and its own case): declined, Gate A
       failed.
 - [x] (2026-11-23) Milestone 6 (gated on A and B): declined, Gate A failed.
-- [ ] Milestone 7: design-document update, roadmap and final gates.
+- [x] (2026-11-23) Milestone 7: design-document update, roadmap and final
+      gates. `docs/chutoro-design.md` §6.3 carries the 2026-11-23
+      implementation update with the measurement table; `docs/roadmap.md`
+      ticks 2.3.2 with a one-line null result; `docs/users-guide.md` is
+      untouched because no `stage` label shipped and no error wording changed.
 
 ## Surprises & discoveries
 
@@ -604,6 +622,18 @@ On those numbers the Gate A ratio would be about 1.25% at n = 1000 and 0.16% at
 n = 10 000. That is an expectation for Milestone 1, not its outcome.
 
 ## Decision log
+
+- Decision (2026-11-23): **dedup-before-sort is declined.** The three
+  Milestone 2 conditions do not all hold. The dedup key the milestone names is
+  `(weight bits, source, target)`, but production dedup uses
+  `partial_cmp == Equal` on the weight, which treats `-0.0` and `+0.0` as
+  equal while a bit-keyed dedup would keep both; adopting the bit key would
+  therefore change which duplicate survives and could change accepted output,
+  violating Constraint 1. The code would also be more complex: today the
+  dedup is one linear pass over the sorted list with no allocation, and the
+  sort cannot be removed because Kruskal consumes the list in total order.
+  Pre-sort dedup would need an auxiliary index to choose the lowest `sequence`
+  per key, then still pay for the sort. No performance win is claimed.
 
 - Decision (2026-11-23): **Gate A fails, so Milestones 3 to 6 are declined.**
   The measured decision-size ratios are 0.1640%, 0.1812%, 0.2345%, 0.5458% and
@@ -1305,7 +1335,40 @@ or `vmaxss` (`x86-64-v3`) instructions, and no packed float max appears
 anywhere in the crate. What remains is the Milestone 2 guards and the Milestone
 7 record.
 
+Close (2026-11-23). **Roadmap item 2.3.2 closes as a measured null result.**
+
+- **Gate A:** failed. Decision-size ratios across five four-thread runs were
+  0.2345%, 0.5458%, 0.1640%, 0.1812% and 0.6895% — minimum 0.1640%, median
+  0.2345%, maximum 0.6895%. At `n = 1000` the same ratio ran 0.7130% to
+  2.4731%. Supplementary runs gave 0.2706% at one thread and 0.1499% at eight.
+  The Criterion `pipeline/n=10000` intervals spanning 43 s to 80 s set the
+  noise band; it cannot close a four-point gap.
+- **Gate B:** not measured. It is gated on Gate A, which failed.
+- **Assembly:** the transform's per-edge loop is scalar. Two `maxss` per edge
+  at the SSE2 baseline, two `vmaxss` under `-C target-cpu=x86-64-v3`, and no
+  `maxps`, `vmaxps`, `cmpps` or `vpcmpgtq` float form anywhere in the crate.
+- **Shipped** (`chutoro-core`, no issue of its own; the plan's Milestone 2):
+  the exact-edge-list oracle property, six BDD edge-preparation scenarios, and
+  deterministic lowest-index lookup errors in the mutual-reachability
+  transform.
+- **Declined on the Gate A number:** the Gate B instrument, the packed sort
+  record, Filter-Kruskal and the Fearless SIMD kernel. No dependency was
+  added, so `fearless_simd` and `fearless_simd_macros` remain absent from the
+  manifests and the lockfile.
+- **Dedup-before-sort:** declined separately, because its bit-keyed dedup
+  would have changed which duplicate survives for `±0.0` and the code would
+  have been more complex, not less.
+- **Consequences for the open questions:** Q1 and Q2 close as moot, as the
+  2026-11-23 authorization decision provided.
+- **Where to look next:** the pipeline spends its time in the HNSW build and
+  the core-distance searches, not between harvesting and the union-find. The
+  §6.3 entry records the same conclusion for future readers.
+
 ## Revision note
+
+**Revision 8 (2026-11-23).** Recorded the Milestone 2 delivery with its
+mutation and red/green evidence, the Milestone 7 documentation and roadmap
+updates, and the closure of the plan as a measured null result.
 
 **Revision 7 (2026-11-23).** Recorded the Gate A measurement and its failure,
 the assembly inspection, and the decision to decline Milestones 3 to 6.

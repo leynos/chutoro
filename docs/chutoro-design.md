@@ -1353,6 +1353,60 @@ fix. Accepted output is unchanged: successful runs produce the same weights in
 the same order, and only the identity of a reported failure is strengthened.
 The helper's doc comment now names both call sites.
 
+_Implementation update (2026-11-23)._ Roadmap item `2.3.2` is resolved as a
+measured null result. The item asked for vectorized edge-weight transforms and
+candidate filtering before the union-find, with a cache-friendly union-find.
+The pre-registered gate defined the target as
+`(T_mutual_reachability + T_kruskal) / T_whole_run` on a fixed workload
+(`n = 10 000` and `n = 1000`, 16 dimensions, seed 42, `M = 16`,
+`ef_construction = 32`, `min_cluster_size = 5`, `CpuOnly`, bench profile).
+
+Five profiled runs on four pinned cores measured:
+
+| Run | n = 1000 | n = 10 000 |
+| --- | -------- | ---------- |
+| 1   | 2.4731%  | 0.2345%    |
+| 2   | 0.7130%  | 0.5458%    |
+| 3   | 1.8668%  | 0.1640%    |
+| 4   | 1.3785%  | 0.1812%    |
+| 5   | 1.0050%  | 0.6895%    |
+
+_Table: Gate A ratios, minimum 0.1640% and maximum 0.6895% at the decision
+size._
+
+Single supplementary runs give 0.2706% at one thread and 0.1499% at eight
+threads, both at `n = 10 000`. The host was under heavy unrelated compile load
+throughout, so the absolute times are noisy — `pipeline/n=10000` Criterion
+intervals span 43 s to 80 s — but the ratio cannot reach the 5% threshold from
+any run. The harvest carries 340,465 edges at `n = 10 000` and 32,966 at
+`n = 1000`, roughly 34 per point.
+
+The emitted assembly explains why a portable-vector kernel had no headroom to
+recover: the transform's per-edge loop compiles to two scalar `maxss`
+instructions in the default (SSE2-baseline) build and two `vmaxss` in an
+`x86-64-v3` build, and neither build contains a packed float maximum (`maxps`
+or `vmaxps`) or a packed compare (`cmpps`) anywhere in the crate. The
+array-of-structures `CandidateEdge` layout defeats autovectorization, but the
+stage is too small for closing that gap to matter.
+
+Declined on that number, with no dependency or manifest change: the Gate B
+sub-stage instrument, the packed sort record, the Filter-Kruskal pre-filter and
+the Fearless SIMD kernel. What shipped instead is the correctness work the same
+plan identified:
+
+- the oracle-equivalence property now compares the exact edge list, including
+  weight bits, instead of aggregates alone, which is the guard a reordering or
+  duplicate-selection regression needs;
+- six `rstest-bdd` scenarios pin edge-preparation behaviour through the public
+  API;
+- the mutual-reachability transform reports its lowest-index lookup error at
+  any thread count, matching the validation fix above.
+
+`try_union` still takes no lock on the cycle-rejection path, so a pre-filter
+could not have been justified by lock contention either. The union-find's
+parent and rank arrays were already separate, satisfying §6.3's
+structure-of-arrays wording without change.
+
 ##### 6.3.1. Fearless SIMD kernel boundary
 
 _Design intention (2026-11-22; implementation pending)._ Roadmap task 2.2.8

@@ -447,13 +447,17 @@ ______________________________________________________________________
   adapter path and write-lock-free scoring invariant; keep SoA layout and
   prefetch policy private to dense adapters, with structural follow-ups
   deferred to 2.3.3-2.3.5. (See §6.3 and ADR-003)
-- [ ] 2.3.2. Vectorize edge-weight transforms and candidate filtering
-  before union-find in parallel Kruskal; keep union-find cache-friendly. (See
-  §6.3.) Prefer Fearless SIMD only after the existing measurement gates pass;
+- [x] 2.3.2. Evaluate vectorizing edge-weight transforms and candidate
+  filtering before union-find in parallel Kruskal, and keeping union-find
+  cache-friendly, against a pre-registered 5% pipeline-share gate. (See §6.3.)
+  Prefer Fearless SIMD only after the existing measurement gates pass;
   preserve numerical, validation, and ordering contracts under
   [ADR-0007](adrs/adr-0007-fearless-simd-kernel-boundary.md). Reconcile the
   plan with current source using the
   [planning-agent prompt](planning/2-3-2-fearless-simd-agent-prompt.md).
+  Null result: the transform and Kruskal together are 0.16%-0.69% of a whole
+  run at n = 10 000, so the vectorization, pre-filter and packed-record
+  milestones were declined and the correctness guards landed instead.
 - [ ] 2.3.3. Prototype cross-node HNSW beam scoring that aggregates candidate
   evaluations across insertion or search jobs only if a dedicated benchmark
   shows a clear cycle-count win without changing deterministic neighbour
