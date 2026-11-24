@@ -2430,15 +2430,17 @@ forked run implies 25,000 successes per property, but proptest 1.12.0 prints
 the parent's success and reject counters only when a case fails, so the logs do
 not state those counts. The three measurement runs predate `PROPTEST_VERBOSE`
 and did not enable it. The weekly lane now sets `PROPTEST_VERBOSE=1`, which
-prints a line for every rejected or failed case; nextest displays a failed
-test's output but hides a passing test's by default, so this helps diagnose a
-failure rather than establishing a passing run's reject count. The
-repaired-head confirmation run set `PROPTEST_VERBOSE=1` and passed in 46.2 s
-with its output hidden. Actual reject counts therefore remain unavailable, and
-structured inventory and progress reporting stays tracked in
-shared-actions#592. The per-case cost in the table includes fork overhead; a
-separate fork cost and in-test progress are not exposed by proptest 1.12.0 in
-forked mode.
+prints a line for each test-case rejection or failure; a strategy-local
+rejection uses a separate counter and does not print per case. Nextest displays
+a failed test's output but hides a passing test's by default, so this helps
+diagnose a failure rather than establishing a passing run's reject count. The
+repaired-head confirmation dispatch's dense job set `PROPTEST_VERBOSE=1` and
+passed in 46.2 s with its output hidden; the dispatch as a whole failed on the
+separate HNSW mutation timeout tracked in #332. Actual reject counts therefore
+remain unavailable, and structured inventory and progress reporting stays
+tracked in shared-actions#592. The per-case cost in the table includes fork
+overhead; a separate fork cost and in-test progress are not exposed by proptest
+1.12.0 in forked mode.
 
 A timeout is unresolved work. It says an allowance was too small or a runner
 too slow; it does not prove the suite passed, and it is not a numerical failure

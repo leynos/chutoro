@@ -169,12 +169,13 @@ jobs:
       PROPTEST_FORK: "true"
       CHUTORO_HNSW_PBT_MIN_RECALL: "0.60"
       CHUTORO_HNSW_PBT_MIN_MAX_CONNECTIONS: "12"
-      # Level 1 prints a line for any rejected or failed case. nextest
-      # displays a failed test's output but hides a passing test's by
-      # default, so this helps diagnose a failure; it does not establish a
-      # passing run's reject count. The dense per-case bound is set in code
-      # when forking; a shared PROPTEST_TIMEOUT would implicitly fork the
-      # unforked pull-request lane.
+      # Level 1 prints a line for a test-case rejection or failure. A
+      # strategy-local rejection uses a separate counter and does not print
+      # per case. nextest displays a failed test's output but hides a passing
+      # test's by default, so this helps diagnose a failure; it does not
+      # establish a passing run's reject count. The dense per-case bound is
+      # set in code when forking; a shared PROPTEST_TIMEOUT would implicitly
+      # fork the unforked pull-request lane.
       PROPTEST_VERBOSE: "1"
     steps:
       - *checkout_step
