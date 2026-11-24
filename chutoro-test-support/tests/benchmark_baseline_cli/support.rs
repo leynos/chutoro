@@ -187,12 +187,10 @@ pub fn run_stage(
     workspace: &Sandbox,
     reference: (&str, RequiredFiles),
     current_version: &str,
-) -> Output {
+) -> std::io::Result<Output> {
     let reference_root = workspace.evidence.join("reference-criterion");
-    Sandbox::write_baseline(&reference_root, "fixture/alpha", "ci-reference")
-        .expect("reference tree must be written");
-    Sandbox::write_baseline(&workspace.current_root, "fixture/alpha", "ci-current")
-        .expect("current tree must be written");
+    Sandbox::write_baseline(&reference_root, "fixture/alpha", "ci-reference")?;
+    Sandbox::write_baseline(&workspace.current_root, "fixture/alpha", "ci-current")?;
     let (version, files) = reference;
     let reference_manifest = manifest(&reference_root, "ci-reference", version, files);
     let current_manifest = manifest(
@@ -201,12 +199,9 @@ pub fn run_stage(
         current_version,
         complete(),
     );
-    let reference_path = workspace
-        .write_manifest("reference-manifest.json", &reference_manifest)
-        .expect("reference manifest must be written");
-    let current_path = workspace
-        .write_manifest("current-manifest.json", &current_manifest)
-        .expect("current manifest must be written");
+    let reference_path =
+        workspace.write_manifest("reference-manifest.json", &reference_manifest)?;
+    let current_path = workspace.write_manifest("current-manifest.json", &current_manifest)?;
 
     run(
         binary,
@@ -223,7 +218,6 @@ pub fn run_stage(
         ],
         &[],
     )
-    .expect("helper binary must run")
 }
 
 /// Return the process exit code, failing when the process was signalled.

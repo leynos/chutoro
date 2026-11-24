@@ -50,7 +50,8 @@ fn missing_reference_sample_exits_incomplete_and_names_the_path(
         sample: false,
         ..complete()
     };
-    let output = run_stage(&binary, &workspace, ("0.5.1", incomplete), "0.5.1");
+    let output =
+        run_stage(&binary, &workspace, ("0.5.1", incomplete), "0.5.1").expect("staging must run");
 
     assert_eq!(exit_code(&output), 2);
     let message = stderr(&output);
@@ -65,7 +66,8 @@ fn version_mismatch_exits_incompatible_and_names_both_versions(
     sandbox: Result<Sandbox, std::io::Error>,
 ) {
     let workspace = sandbox.expect("sandbox must be created");
-    let output = run_stage(&binary, &workspace, ("0.4.0", complete()), "0.5.1");
+    let output =
+        run_stage(&binary, &workspace, ("0.4.0", complete()), "0.5.1").expect("staging must run");
 
     assert_eq!(exit_code(&output), 3);
     let message = stderr(&output);
