@@ -390,6 +390,29 @@ general boundary for symbolic widening; the widened harness was not retained.
 The `-D warnings` assignment compiled cleanly; the pre-existing `dead_code`
 concern recorded for the nightly workflow did not reappear on this tree.
 
+### Deviations from this retry's plan
+
+- The earlier timed-out harness was not reconstructed, so the unchanged
+  warning-denied baselines were never measured before the new harness was
+  added. The baselines reported above are the tree that includes it.
+- The three-node probe changed node count, symbolic choice, and unwind bound
+  together, and it was stopped past 600 s rather than at the planned 20-minute
+  limit. It measures a cost, not a cause.
+- Hosted `kani-pr.yml` validates a merge of the head with the current base, so
+  its result is bound to that merge revision. The standalone harness runs above
+  are bound to this branch head.
+
+### Revision-bound confirmation
+
+Both required warning-denied commands were rerun on the rebased branch head
+`85205b1` after the review strengthened the entry-point assertion:
+
+- `RUSTFLAGS="-D warnings" make kani`: 7 of 7 harnesses, exit 0.
+- `RUSTFLAGS="-D warnings" make kani-full`: 18 of 18 `chutoro-core` harnesses
+  and both `chutoro-providers-dense` harnesses, exit 0. The healing harness
+  reported `0 of 1281 failed (23 unreachable)` with 2 of 2 covers satisfied in
+  27.16 s.
+
 ### Conclusion
 
 The all-concrete two-node healing path is tractable and proved. The harness

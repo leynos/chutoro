@@ -590,6 +590,14 @@ permitted.
   both negative controls fail for the intended reason. The harness is in the
   fast-tier `kani:` recipe and the documentation is updated. Remaining work is
   the final gate run, the commit, and the draft pull request.
+- 2026-11-24 review qualification: three deviations from this plan are
+  recorded rather than left implicit. The earlier timed-out harness was not
+  reconstructed, so the plan's unchanged warning-denied baselines were not
+  measured before the harness was added. The widening probe changed three
+  factors together and was stopped before the planned 20-minute limit, so it
+  measures cost without isolating a cause. The harness also now asserts the
+  complete entry point, node identifier and level, rather than the node
+  identifier alone. None of these changes the retained proof or its bounds.
 - 2026-11-21: A first `make lint` run was stopped by its own background task
   limit while Whitaker was still compiling behind the host's compile-admission
   queue; rustdoc and Clippy had both already finished cleanly. The gate was

@@ -17,6 +17,7 @@ use crate::hnsw::{
     graph::{Graph, NodeContext},
     insert::ensure_base_connectivity_for_kani,
     params::HnswParams,
+    types::EntryPoint,
 };
 
 /// Reports whether a node exposes level 0 with an empty base list.
@@ -33,13 +34,22 @@ fn base_list_is(graph: &Graph, node: usize, expected: &[usize]) -> bool {
         .is_some_and(|node| node.neighbours(0) == expected)
 }
 
+/// Reports whether the entry point is exactly the expected node and level.
+///
+/// Compares every entry-point field so the proof states whole-value
+/// preservation, not only that the node identifier survived.
+fn entry_is(graph: &Graph, expected: EntryPoint) -> bool {
+    graph.entry() == Some(expected)
+}
+
 /// Verifies that base-layer healing links an isolated node to the entry node.
 ///
 /// The graph is two level-0 nodes with empty adjacency lists. Node 0 is the
 /// entry point and node 1 is isolated. The production healer is asked to heal
 /// node 1 with a base-layer connection limit of two, which has spare capacity
 /// on both lists, so no eviction can occur. The exact postconditions are that
-/// node 0 lists `[1]` and node 1 lists `[0]`; the entry point is unchanged.
+/// node 0 lists `[1]` and node 1 lists `[0]`; the complete entry point, node
+/// and level, is unchanged.
 ///
 /// # Verification Bounds
 ///
@@ -80,9 +90,10 @@ fn verify_base_layer_healing_links_isolated_node_2_nodes() {
         has_empty_base_list(&graph, 0) && has_empty_base_list(&graph, 1),
         "healing precondition: both base lists must start empty",
     );
+    let original_entry = EntryPoint { node: 0, level: 0 };
     kani::assert(
-        graph.entry().is_some_and(|entry| entry.node == 0),
-        "healing precondition: node 0 must be the entry",
+        entry_is(&graph, original_entry),
+        "healing precondition: node 0 at level 0 must be the entry",
     );
     kani::cover!(
         has_empty_base_list(&graph, 0) && has_empty_base_list(&graph, 1),
@@ -100,8 +111,8 @@ fn verify_base_layer_healing_links_isolated_node_2_nodes() {
         "healing must link the isolated node back to the entry node",
     );
     kani::assert(
-        graph.entry().is_some_and(|entry| entry.node == 0),
-        "healing must preserve the entry point",
+        entry_is(&graph, original_entry),
+        "healing must preserve the complete entry point",
     );
     kani::cover!(
         base_list_is(&graph, 0, &[1]) && base_list_is(&graph, 1, &[0]),

@@ -253,7 +253,7 @@ demonstrates:
   `verify_base_layer_healing_links_isolated_node_2_nodes` builds two level-0
   nodes with fresh lists, heals node 1 with a base-layer limit of two, and
   asserts the exact post-state: node 0 lists `[1]`, node 1 lists `[0]`, and the
-  entry point is unchanged.
+  complete entry point, both node identifier and level, is unchanged.
 - The harness verifies in 9.57 s on Kani 0.67.0 with rustc 1.99.1 (24 CPUs,
   125 GiB RAM): 0 of 1240 checks failed, both `kani::cover!` properties were
   satisfied, and the trace contains zero aborted paths. The only unwind failure
@@ -275,6 +275,14 @@ demonstrates:
 - The normal healing tests and the `LinearVisitedSet` equivalence tests remain.
   The proof covers link creation on fresh lists only; eviction cascades,
   re-healing of evicted nodes, and global connectivity remain test-covered.
+- Deviations from the investigation plan, recorded rather than left implicit:
+  the earlier timed-out harness was not reconstructed, so the unchanged
+  warning-denied `kani-full` baseline was not measured separately; the
+  warning-denied baselines were taken after the harness was added, not before.
+  The three-node probe changed node count, symbolic choice, and unwind bound
+  together and stopped past 600 s rather than at the planned 20-minute limit,
+  so it measures cost without isolating a cause. None of these affect the
+  retained concrete proof.
 - Final gate results on the branch: `RUSTFLAGS="-D warnings" make kani`
   verified 7 of 7 harnesses (2262.5 s wall, exit 0), and
   `RUSTFLAGS="-D warnings" make kani-full` verified 18 of 18 `chutoro-core`
