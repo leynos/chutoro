@@ -9,7 +9,9 @@ disallowed-methods = [
     { path = "std::env::set_current_dir", reason = "process-wide working directory; pass the directory in or use Command::current_dir" },
 ]
 
-cognitive-complexity-threshold = 9     # default is 25 
+# Cognitive complexity is not gated by Clippy: it scores code after macro
+# expansion, so it counts branching a macro generated. Whitaker's
+# `macro_aware_cognitive_complexity` gates it at 9 (see `dylint.toml`).
 too-many-arguments-threshold = 4       # default is 7
 too-many-lines-threshold = 70          # default is 100
 excessive-nesting-threshold = 4        # default is off

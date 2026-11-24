@@ -1,5 +1,14 @@
 # Configuration for the Whitaker Dylint suite (see `make lint-whitaker`).
 
+# `macro_aware_cognitive_complexity` replaces Clippy's `cognitive_complexity`.
+# It skips branching a macro generated and holds CodeScene's ceiling of 9. It
+# is experimental, so the suite loads it only on request.
+[whitaker]
+experimental = ["macro_aware_cognitive_complexity"]
+
+[macro_aware_cognitive_complexity]
+max_complexity = 9
+
 [bumpy_road_function]
 # The suite charges compiler desugarings as authored structure, so the
 # two-arm `ControlFlow` match that rustc lowers `?` to is scored in full: each
