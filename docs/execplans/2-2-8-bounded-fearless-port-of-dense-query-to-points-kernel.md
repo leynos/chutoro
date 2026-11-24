@@ -319,6 +319,16 @@ Measured survey of the surface this work touches:
   (`Simd`, `SimdBase`, `Level`) and crates.io metadata (MSRV 1.89).
 - [x] (2026-11-24 02:00Z) Host capability evidence recorded: AVX2 and FMA
   present, `avx512f` absent, no AArch64 target runner.
+- [x] (2026-11-24 02:15Z) Feasibility probe: the lane-per-candidate shape
+  compiles against Fearless SIMD 1.2, `Level::new()` yields AVX2 here with 8
+  lanes, and the vector expression is bit-identical to a naive scalar reference
+  across 48 count/dimension cases.
+- [x] (2026-11-24 02:45Z) Expert-panel review applied: the maintenance gate was
+  restructured because it was arithmetically unsatisfiable; the measurement
+  protocol was corrected (fixed-duration `--profile-time`, non-interleaving
+  `hyperfine`, per-worktree Criterion baselines, level-1 id comparability); the
+  build-breaking type block and the `cfg(test)`/`testing` contradiction were
+  fixed; the token-provenance and no-allocation obligations changed method.
 - [ ] Plan approved by the maintainer.
 - [ ] `EP-M1` Benchmark target, pre-registration, and noise study.
 - [ ] `EP-M2` Candidate generic kernel, differential parity, and the
@@ -2184,15 +2194,38 @@ does. The plan's default is stated for each.
   backend is substituted, and this host has neither AVX-512 nor AArch64.
   Default: AVX2-only substitution, with AVX-512 and NEON reported as compiled,
   selected, and not executed. If an Ice Lake-class and an AArch64 host can be
-  provided, the plan gains two more substitution candidates and the maintenance
-  gate becomes reachable.
+  provided, the plan gains two more substitution candidates and `RULE-PROD`
+  changes from unsatisfiable to plausible. It does not become easy: with all
+  three substituted the deletable total is 107 lines against an estimated
+  `PROD_ADD` of 60 to 120, so the outcome is genuinely open rather than
+  certain.
 - **Q3. Retaining the AVX2 legacy body.** RFC 0001 requires a missing token to
   fall back to the legacy body the selector chose, so the AVX2 body stays and
-  the maintenance gate probably fails. Would the maintainer accept amending
-  that rule to allow falling back to the *scalar* oracle when the v3 token is
-  absent? Default: no — the RFC rule stands and a null result is recorded.
-- **Q4. The 10% maintenance rule (D11).** Is 10% the intended reading of "a
-  useful net reduction", or should the threshold be different? Default: 10%.
+  `RULE-PROD` fails on this host. Would the maintainer accept amending that rule
+  to allow falling back to the *scalar* oracle when the v3 token is absent?
+  Default: no — the RFC rule stands and a null result is recorded. Note that
+  this is the single decision that most changes the plan's outcome, so it is
+  worth answering explicitly rather than by default.
+- **Q4. The `RULE-PROD` thresholds (D11).** `RULE-PROD` requires
+  `PROD_DELTA >= PROD_ADD` plus a 10% reduction in the arithmetic-body subset.
+  Is that the intended reading of "a useful net reduction", which RFC 0001 also
+  qualifies as counting "test, and proof code"? Default: as written, with test
+  and proof cost reported separately under `REPORT-COST`.
+- **Q5. Whether to run EP-M2 onward at all.** Given Q3's default and the
+  14-line deletable surface, `RULE-PROD` cannot pass on this host, so EP-M2 and
+  EP-M3 will end in a recorded null result. D13 argues to proceed anyway,
+  because a measured null result with parity evidence is a stronger artefact
+  than an argument from line counts, and because the differential suite and
+  level-2 benchmark are retained either way. The maintainer may instead decline
+  EP-M2 onward at approval and treat EP-M1's baseline measurement as the whole
+  deliverable. Default: proceed, since the roadmap asks for an evaluation, not
+  for an adoption.
+- **Q6. The token-provenance contract.** The verification plan adds a
+  `tests/workflow_contracts/fearless_token_provenance_test.py` source contract
+  so that `assume_supported`, `dispatch!`, `Level::baseline`, and any `unsafe`
+  block in the kernel files fail a standing gate rather than depending on
+  review. This is new automation in a shared test surface. Default: add it,
+  following the `trim_scoring_dispatch_test.py` precedent from ADR 0006.
 
 ## Out of scope
 
@@ -2218,3 +2251,42 @@ does. The plan's default is stated for each.
   exact-zero claim in RFC 0001. It pre-registers the measurement matrix, the
   noise requirement, the per-size-class tolerances, and the maintenance
   accounting rule, and it states that a null result is a successful completion.
+
+- 2026-11-24, revision 2: Feasibility probe recorded. `Level` was found not to
+  implement `Simd`, so the token enum is structurally required rather than
+  stylistic. The remainder lemma was corrected: with 17 points and 16 lanes the
+  loop leaves `start = 32 > n`, so the remainder must be clamped. A `dep:`-gated
+  unused dependency hazard was identified and a preferred fix recorded.
+
+- 2026-11-24, revision 3: Expert-panel review applied. The substantive changes:
+
+  - **Maintenance gate restructured.** The single net-reduction rule could not
+    pass in any configuration — 14 deletable lines against 300-plus necessary
+    additions — so it decided the outcome before any work. `RULE-PROD` now
+    compares production additions against production deletions with a 10%
+    arithmetic-body reduction, and reports test and proof cost separately.
+  - **Measurement protocol corrected.** `--profile-time` is a fixed duration and
+    cannot corroborate a direction; `hyperfine` does not interleave; Criterion
+    baselines are per worktree and `--baseline` panics when absent; the level-1
+    packed group cannot use a differently named id as its baseline. Each is now
+    specified, with the repository's own CI copy step as the model.
+  - **Noise rule single-sourced and bounded by the gate it protects.** The
+    escape clause previously permitted a half-width larger than the tolerance it
+    was protecting, and no passage checked point estimates, which is the
+    statistic that detects drift.
+  - **Gated set made explicit.** One table defines which cells are gated;
+    dimensions 1, 8, and 16 and the bypass controls are reported, not scored,
+    because gating them would decide the experiment on instrument error.
+  - **Build defects fixed.** `FearlessToken`'s variants are now architecture
+    gated, the `OnceLock` has an initializer, and the kernel's own gate is
+    `any(test, feature = "testing")` so the level-1 fixture can reach it.
+  - **Enforcement added.** `INV-token-provenance` gains a standing
+    `tests/workflow_contracts/` source contract; the no-allocation obligation
+    returns to a nextest-safe allocator test; mutation rounds must record a
+    clean `git status`.
+  - **Triage made specific.** Timeout handling now names the markers that
+    distinguish admission queueing from a real per-test hang, and separates Kani
+    solver time from compile admission.
+
+  No production code, manifest, or lockfile change has been made in any
+  revision. The status remains DRAFT pending maintainer approval.
