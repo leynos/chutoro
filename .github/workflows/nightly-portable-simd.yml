@@ -57,6 +57,17 @@ jobs:
         run: |
           rustup toolchain install nightly --profile minimal \
             --component clippy --component rustfmt
+      # Every step below assigns RUSTFLAGS with the build standard's mold link
+      # argument, and an assigned RUSTFLAGS replaces .cargo/config.toml's
+      # rustflags. The runner image does not ship mold, so without this the
+      # first link fails with "cannot find 'ld'" before any test or lint runs.
+      # The pinned installer verifies the archive and writes both `mold` and
+      # `ld.mold` under ~/.local/bin, which the step adds to PATH.
+      - name: Install mold
+        if: ${{ steps.gate.outputs.should_run == 'true' }}
+        run: |
+          scripts/install-mold.sh
+          printf '%s\n' "${HOME}/.local/bin" >> "${GITHUB_PATH}"
       - name: Test dense portable SIMD backend
         if: ${{ steps.gate.outputs.should_run == 'true' }}
         # An assigned RUSTFLAGS replaces .cargo/config.toml's rustflags, so
