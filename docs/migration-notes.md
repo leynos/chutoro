@@ -281,29 +281,33 @@ error is the payload's source; the cleanup error is read through
 `cleanup_error()`:
 
 ```rust
+use std::error::Error;
+
 use chutoro_bench_datasets::{Phase, PortName, RecipeError};
 
-let error = RecipeError::cleanup_with_phase_error(
-    Phase::Prepare,
-    RecipeError::prepare("archive corrupt"),
-    RecipeError::port(PortName::Storage, "cache locked"),
-);
-let cleanup = error
-    .cleanup_failure()
-    .ok_or_else(|| std::io::Error::other("cleanup failure should be retained"))?;
-assert!(matches!(cleanup.phase_error(), RecipeError::Prepare(_)));
-assert_eq!(
-    cleanup.cleanup_error().to_string(),
-    "port Storage failed: cache locked",
-);
-# Ok::<(), Box<dyn std::error::Error>>(())
+fn main() -> Result<(), Box<dyn Error>> {
+    let error = RecipeError::cleanup_with_phase_error(
+        Phase::Prepare,
+        RecipeError::prepare("archive corrupt"),
+        RecipeError::port(PortName::Storage, "cache locked"),
+    );
+    let cleanup = error
+        .cleanup_failure()
+        .ok_or_else(|| std::io::Error::other("cleanup failure should be retained"))?;
+    assert!(matches!(cleanup.phase_error(), RecipeError::Prepare(_)));
+    assert_eq!(
+        cleanup.cleanup_error().to_string(),
+        "port Storage failed: cache locked",
+    );
+    Ok(())
+}
 ```
 
-`RecipeError::cleanup(phase, source)` is unchanged and still stores only the
-cleanup failure. `cleanup_failure()` returns `None` when the `Cleanup` source
-is not a `CleanupFailure`, so ordinary cleanup errors keep their previous
-behaviour, and existing matches on `RecipeError::Cleanup { phase, .. }` need no
-change.
+`RecipeError::cleanup(phase, source)` stores the supplied source without adding
+a phase error. If that source is a `CleanupFailure`, it retains both errors and
+`cleanup_failure()` returns `Some`; an ordinary cleanup error is stored on its
+own and `cleanup_failure()` returns `None`. Existing matches on
+`RecipeError::Cleanup { phase, .. }` need no change.
 
 ## 0.1.0
 
