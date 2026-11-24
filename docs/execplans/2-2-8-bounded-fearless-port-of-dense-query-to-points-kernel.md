@@ -10,13 +10,18 @@ maintainer approval before any implementation)
 
 Branch: `2-2-8-bounded-fearless-port-of-dense-query-to-points-kernel`
 
-Roadmap item: `2.2.8` in `docs/roadmap.md` lines 396-411, "Evaluate and, if
+Roadmap item: `2.2.8` in `docs/roadmap.md` lines 428-441, "Evaluate and, if
 accepted, adopt a bounded Fearless SIMD port of the dense query-to-points
-Euclidean kernel".
+Euclidean kernel". Its `Requires 2.2.2, 2.2.3, 2.2.6, and 2.2.7` line is a
+plain sub-bullet rather than a checkbox, because it states a dependency rather
+than a deliverable; EP-M5 ticks the item itself and must not reintroduce a
+checkbox on that line.
 
-Reconciled against `main` at `d6fdbe3` ("Remove the no-op `skeleton` feature",
-PR 461). All source citations below are to that revision unless a line says
-otherwise.
+Reconciled against `main` at `00af09e` ("Delete the pull-request concurrency
+text test", PR 465), whose parent chain includes `51e8093` ("State the
+roadmap's task and phase dependencies", PR 463) and `d6fdbe3` ("Remove the no-op
+`skeleton` feature", PR 461). All source citations below are to `00af09e`
+unless a line says otherwise.
 
 Governing design: `docs/rfcs/rfc-0001-fearless-simd-query-to-points.md` (RFC
 0001), `docs/adrs/adr-0007-fearless-simd-kernel-boundary.md` (ADR 0007), and
@@ -819,7 +824,7 @@ for the corroborating wall-clock comparison described under
 
 Upstream artefacts inspected for this revision, all at `2c89752` unless stated:
 
-- `docs/roadmap.md` lines 396-411 (item 2.2.8) and 419-425 (item 2.3.2).
+- `docs/roadmap.md` lines 428-441 (item 2.2.8) and 450-456 (item 2.3.2).
 - RFC 0001, `docs/rfcs/rfc-0001-fearless-simd-query-to-points.md`, revision as
   merged by PR #453 (commit `c23348e`). Its own `Status:` line still reads
   "Proposed; pending pull-request review" although the document is merged; the
@@ -2532,3 +2537,30 @@ does. The plan's default is stated for each.
     wrong line citations and one over-long range were corrected; and the
     prototype's `pretty_assertions` justification no longer claims it compares
     bits, which it does not.
+
+- 2026-11-24, revision 7: Rebased again, onto `main` at `00af09e`. Two commits
+  landed since the previous rebase; one changed something this plan cites.
+
+  - `51e8093` ("State the roadmap's task and phase dependencies") turned item
+    2.2.8's `Requires 2.2.2, 2.2.3, 2.2.6, and 2.2.7` line from a checkbox into
+    a plain sub-bullet, because it states a dependency rather than a deliverable.
+    That is the right model: a checkbox claims someone will *do* it, and nobody
+    delivers "requiring 2.2.2". EP-M5 now ticks the item itself and is told not
+    to reintroduce a checkbox on that line. The item also moved from lines
+    396-411 to 428-441, and the conformance basis follows.
+  - `00af09e` ("Delete the pull-request concurrency text test") removed four
+    `tests/workflow_contracts/` modules. None is cited here, and the
+    `trim_scoring_dispatch_test.py` precedent that Q6 leans on survives, as does
+    the unconditional `make test-workflow-contracts` step
+    (`.github/workflows/ci.yml:194`) and `INTERROGATE_TARGETS = scripts tests`.
+    Reconnaissance re-confirmed all three.
+  - The `developers-guide.md` change landed after line 3397, so every anchor
+    this
+    plan cites (2470, 2495, 2644, 2777, 2870, 1094, 3397, and the
+    `[dev-dependencies]` rule at 1476-1478) is byte-for-byte in the same place.
+    That is recorded because a reader should not have to re-verify it.
+
+  The replay itself was clean again: 19 commits, no conflicts, every commit `=`
+  in `range-diff`. Note the exclusive boundary is `d6fdbe3`, not the branch's
+  older base `2c89752`: `d6fdbe3` is `main`'s own commit, inherited by the
+  previous rebase, and must not be replayed as branch work.
