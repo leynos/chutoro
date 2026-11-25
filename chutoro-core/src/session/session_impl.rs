@@ -177,6 +177,17 @@ impl<D: DataSource + Send + Sync> ClusteringSession<D> {
     /// insertion fails, earlier successful insertions and their pending edges
     /// remain in the session.
     ///
+    /// ## Contiguity requirement
+    ///
+    /// Across the session's lifetime the appended indices must form the
+    /// contiguous prefix `[0, point_count)`. HNSW node ids are the source
+    /// indices, and both core-distance storage and label extraction are
+    /// indexed by them, so this method accepts a non-contiguous sequence such
+    /// as `&[0, 1, 3]` while [`Self::refresh`] then rejects the session with
+    /// [`crate::ChutoroError::CpuMstFailure`] carrying `INVALID_NODE_ID`.
+    /// Append contiguous prefixes, including after a partial failure, so the
+    /// session stays refreshable.
+    ///
     /// # Errors
     ///
     /// Returns [`ChutoroError::DataSource`] when the backing source rejects an

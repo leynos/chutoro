@@ -13,7 +13,7 @@
 //! every refresh re-derives the weight from the raw distance and the current
 //! core distances.
 
-use std::{collections::BTreeSet, num::NonZeroUsize};
+use std::num::NonZeroUsize;
 
 use crate::{
     CandidateEdge, HierarchyConfig, MstEdge, Result,
@@ -113,7 +113,7 @@ pub(super) fn rebuild_mst_labels(
         // refresh merges.
         return Ok(RefreshOutcome {
             labels: vec![0; inputs.node_count],
-            mst_backbone: combined,
+            mst_backbone: dedup_raw_candidates(combined),
         });
     }
 
@@ -126,7 +126,7 @@ pub(super) fn rebuild_mst_labels(
         HierarchyConfig::new(inputs.min_cluster_size),
     )
     .map_err(|error| map_cpu_hierarchy_error(&error))?;
-    let mst_backbone = recover_raw_backbone(&combined, forest.edges());
+    let mst_backbone = recover_raw_backbone(&combined, &reweighted, forest.edges());
 
     Ok(RefreshOutcome {
         labels,
@@ -174,24 +174,80 @@ fn combine_raw_edges(inputs: &RefreshInputs<'_>) -> Vec<CandidateEdge> {
 /// Recovers the raw inputs whose reweighted forms Kruskal selected.
 ///
 /// Each accepted forest edge is matched to at most one raw candidate by the
-/// canonical `(source, target, sequence)` key. Matching at most once keeps a
-/// raw edge that appears in two buffers from being retained twice, so the
-/// recovered backbone is independent of buffer overlap.
+/// canonical `(source, target, sequence)` key **and** by its reweighted weight.
+/// Matching at most once keeps a raw edge that appears in two buffers from
+/// being retained twice, so the recovered backbone is independent of buffer
+/// overlap.
+///
+/// The weight is part of the match because the endpoint-and-sequence key alone
+/// can be ambiguous. Two directly constructed candidates may share a key while
+/// carrying different raw distances, as in `(0, 1, 9, 7)` and `(0, 1, 1, 7)`;
+/// Kruskal then selects by weight, and recovering on the key alone could retain
+/// the wrong raw distance. Kruskal deduplicates identical
+/// `(weight, source, target)` triples, so within one key only the candidate
+/// whose reweighted weight matches the accepted edge can be its source.
 fn recover_raw_backbone(
     combined: &[CandidateEdge],
+    reweighted: &[CandidateEdge],
     forest_edges: &[MstEdge],
 ) -> Vec<CandidateEdge> {
-    let mut pending_keys = forest_edges
+    let mut pending = forest_edges
         .iter()
-        .map(|edge| (edge.source(), edge.target(), edge.sequence()))
-        .collect::<BTreeSet<_>>();
-    let mut backbone = Vec::with_capacity(pending_keys.len());
-    for edge in combined {
-        if pending_keys.remove(&canonical_key(*edge)) {
+        .map(|edge| AcceptedKey {
+            key: (edge.source(), edge.target(), edge.sequence()),
+            weight: edge.weight(),
+        })
+        .collect::<Vec<_>>();
+    let mut backbone = Vec::with_capacity(pending.len());
+    // `mutual_reachability_edges` preserves input order, so the reweighted
+    // slice is index-aligned with `combined` and no edge needs reweighting
+    // twice.
+    for (edge, weighted) in combined.iter().zip(reweighted) {
+        let key = canonical_key(*edge);
+        let Some(index) = pending.iter().position(|accepted| accepted.key == key) else {
+            continue;
+        };
+        // Only claim this candidate when its own reweighted weight is the one
+        // Kruskal accepted. A same-key candidate with a different distance
+        // therefore cannot be mistaken for the selected edge.
+        let Some(accepted) = pending.get(index) else {
+            continue;
+        };
+        if weighted.distance().total_cmp(&accepted.weight).is_eq() {
             backbone.push(*edge);
+            pending.swap_remove(index);
         }
     }
     backbone
+}
+
+/// Drops repeated raw candidates, keeping the first occurrence of each.
+///
+/// A warm-up refresh retains the merged pool rather than a tree, so it must
+/// apply the same overlap tolerance the real rebuild gets from Kruskal's
+/// deduplication. Otherwise the same raw edge reaching the merge through two
+/// buffers would be retained twice and the pool would grow with each warm-up
+/// refresh. Identity is the canonical `(source, target, sequence)` key plus the
+/// raw distance, so two same-key candidates that differ only in distance both
+/// survive; Kruskal decides between them at the first real rebuild.
+fn dedup_raw_candidates(combined: Vec<CandidateEdge>) -> Vec<CandidateEdge> {
+    let mut seen = std::collections::BTreeSet::new();
+    let mut retained = Vec::with_capacity(combined.len());
+    for edge in combined {
+        let key = (canonical_key(edge), edge.distance().to_bits());
+        if seen.insert(key) {
+            retained.push(edge);
+        }
+    }
+    retained
+}
+
+/// One accepted forest edge, awaiting its raw input.
+struct AcceptedKey {
+    /// Canonical `(source, target, sequence)` identity.
+    key: (usize, usize, u64),
+    /// The mutual-reachability weight Kruskal accepted.
+    weight: f32,
 }
 
 /// Returns the canonical `(smaller endpoint, larger endpoint, sequence)` key.

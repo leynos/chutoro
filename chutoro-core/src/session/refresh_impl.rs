@@ -151,6 +151,13 @@ impl<D: DataSource + Send + Sync> ClusteringSession<D> {
     }
 
     /// Publishes a completed refresh as one all-or-nothing commit block.
+    ///
+    /// The version bump saturates. At `u64::MAX` a further successful refresh
+    /// therefore republishes the snapshot without advancing the counter, which
+    /// is the one case where the per-call increment contract does not hold.
+    /// Reaching it needs 2^64 refreshes, and the alternative — a new error
+    /// variant for an unreachable state — is forbidden by the plan's interface
+    /// tolerance, so the boundary is documented rather than rejected.
     fn publish_refresh(&mut self, node_count: usize, outcome: RefreshOutcome) {
         self.labels = Arc::new(outcome.labels);
         self.mst_backbone = outcome.mst_backbone;

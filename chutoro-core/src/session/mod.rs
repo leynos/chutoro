@@ -108,6 +108,9 @@ pub struct ClusteringSession<D: DataSource + Send + Sync> {
     /// Immutable labels published by the most recent refresh.
     labels: Arc<Vec<usize>>,
     /// Monotonic version of the published clustering snapshot.
+    ///
+    /// Advanced once per successful refresh, saturating at `u64::MAX`; see
+    /// `ClusteringSession::refresh` for that boundary.
     snapshot_version: u64,
     /// Backing data source used by HNSW and clustering computations.
     source: Arc<D>,

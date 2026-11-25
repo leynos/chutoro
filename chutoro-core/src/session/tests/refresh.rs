@@ -106,19 +106,49 @@ fn refresh_on_empty_session_publishes_empty_snapshot(session_builder: ChutoroBui
     assert_eq!(session.snapshot_version(), 1);
 }
 
+/// OBL-3's four named partitions, on the public session surface.
+///
+/// The pure rebuild suite pins the exact warm-up label values; these cases pin
+/// the same partitions through `append` + `refresh` + `labels`, which is what
+/// a caller observes. Only the degenerate size is asserted by label value,
+/// because a rebuild at or above the threshold must be allowed to choose any
+/// valid partition rather than a hard-coded one.
 #[rstest]
-fn refresh_below_min_cluster_size_publishes_all_noise(session_builder: ChutoroBuilder) {
-    let (mut session, _) =
-        make_session(session_builder.with_min_cluster_size(5), 4).expect("session must build");
-    session.append(&[0, 1, 2, 3]).expect("append must succeed");
+#[case::empty_session(0, 2)]
+#[case::below_threshold(3, 4)]
+#[case::exactly_at_threshold(4, 4)]
+#[case::above_threshold(5, 4)]
+fn refresh_publishes_a_partition_covering_every_point(
+    session_builder: ChutoroBuilder,
+    #[case] source_len: usize,
+    #[case] min_cluster_size: usize,
+) {
+    let (mut session, _) = make_session(session_builder.with_min_cluster_size(min_cluster_size), 8)
+        .expect("session must build");
+    session
+        .append(&(0..source_len).collect::<Vec<_>>())
+        .expect("contiguous append must succeed");
 
-    session.refresh().expect("a warm-up session must refresh");
+    session.refresh().expect("refresh must succeed");
 
-    assert_eq!(session.labels().as_slice(), [0, 0, 0, 0]);
+    let labels = session.labels();
+    assert_eq!(labels.len(), source_len);
+    assert_eq!(session.point_count(), source_len);
     assert_eq!(session.snapshot_version(), 1);
-    assert!(
-        !session.mst_backbone.is_empty(),
-        "warm-up must retain the harvested candidate pool for the first rebuild"
+    if source_len == 0 {
+        assert!(labels.is_empty(), "an empty session publishes no labels");
+    }
+    if source_len < min_cluster_size {
+        assert_eq!(
+            labels.as_slice(),
+            vec![0; source_len],
+            "a below-threshold session publishes all noise"
+        );
+    }
+    assert_eq!(
+        session.mst_backbone.is_empty(),
+        source_len == 0,
+        "a non-empty session retains either a forest or its warm-up pool"
     );
 }
 

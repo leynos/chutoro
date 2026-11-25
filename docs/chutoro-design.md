@@ -3058,16 +3058,27 @@ by roughly O(M) entries per appended point (where M is the HNSW connectivity
 parameter), because each insertion discovers up to M candidate edges. On
 refresh, `pending_edges` is drained: the edges are merged into the Kruskal
 candidate set, and the buffer is cleared. After refresh, the session retains
-two edge collections: (a) `mst_backbone`, whose size is bounded by n − 1 where
-n is the total point count; and (b) `historical_edges`, a bounded set of
-non-MST edges retained for correctness under core-distance drift (see §12.5).
-The backbone holds raw `CandidateEdge` values, not weighted `MstEdge` values,
-so the next refresh reweights from the raw distances; see §12.5. The
-`historical_edges` set is capped at a configurable multiple of the MST edge
+two edge collections: (a) `mst_backbone`; and (b) `historical_edges`, a bounded
+set of non-MST edges retained for correctness under core-distance drift (see
+§12.5). The backbone holds raw `CandidateEdge` values, not weighted `MstEdge`
+values, so the next refresh reweights from the raw distances; see §12.5.
+
+The backbone's size bound depends on the phase. After a real rebuild it holds
+the selected forest, so it is bounded by n − 1 for n points. During **warm-up**
+— while the point count is below `min_cluster_size` and no tree exists — it
+instead holds the deduplicated harvested candidate pool, which may include
+non-MST edges and is bounded by the O(n × M) candidates HNSW has harvested so
+far rather than by n − 1. That pool is deliberately retained because HNSW never
+re-harvests an old-old edge; discarding it would lose those connections
+permanently. Warm-up is transient by construction: the first refresh at or above
+`min_cluster_size` replaces the pool with a forest.
+
+The `historical_edges` set is capped at a configurable multiple of the MST edge
 count (default 2×); edges with the highest mutual-reachability weight are
-evicted first when the cap is exceeded. This bounds total edge memory to O(n ×
-cap_factor) regardless of how many refresh cycles the session undergoes. The
-compaction path (§15.3) resets both edge sets by rebuilding from scratch.
+evicted first when the cap is exceeded. Once the session is past warm-up, this
+bounds total edge memory to O(n × cap_factor) regardless of how many refresh
+cycles the session undergoes. The compaction path (§15.3) resets both edge sets
+by rebuilding from scratch.
 
 The session lifecycle follows four phases:
 

@@ -85,27 +85,43 @@ proptest! {
         }
     }
 
-    /// Two sessions driven by the same append/refresh sequence publish
-    /// identical label vectors, so a snapshot is replayable from its inputs.
+    /// Two sessions driven by the same *multi-round* append/refresh sequence
+    /// publish identical label vectors, so a snapshot is replayable from its
+    /// inputs.
+    ///
+    /// A single append followed by a single refresh would not exercise the
+    /// retained backbone or the warm-up pool, which are the parts a replay
+    /// could diverge on. The rounds here are derived from the fixture size, so
+    /// several rounds genuinely run and every round appends at least one point.
     #[test]
     fn refresh_is_deterministic_for_identical_inputs(
-        source_len in 2usize..=24,
+        source_len in 4usize..=24,
         min_cluster_size in 1usize..=4,
+        round_count in 2usize..=3,
     ) {
-        let append_all = || {
+        let expected_cuts = round_cuts(source_len, round_count);
+        let run = || {
             let source = Arc::new(session_test_source_with_len(source_len));
             let mut session = ChutoroBuilder::new()
                 .with_min_cluster_size(min_cluster_size)
                 .build_session(source)
                 .expect("session must build for any configured size");
-            session
-                .append(&(0..source_len).collect::<Vec<_>>())
-                .expect("contiguous append must succeed");
-            session.refresh().expect("refresh must succeed");
+            let mut start = 0usize;
+            for end in round_cuts(source_len, round_count) {
+                session
+                    .append(&(start..end).collect::<Vec<_>>())
+                    .expect("contiguous append must succeed");
+                start = end;
+                session.refresh().expect("refresh must succeed");
+            }
             session.labels().to_vec()
         };
 
-        prop_assert_eq!(append_all(), append_all());
+        let first = run();
+        let second = run();
+        prop_assert_eq!(&first, &second);
+        prop_assert_eq!(first.len(), source_len);
+        prop_assert!(expected_cuts.len() >= 2, "several rounds must run");
     }
 
     /// After several append/refresh rounds, the incremental partition still

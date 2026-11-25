@@ -339,17 +339,40 @@ Hard invariants. Violation requires escalation, not a workaround.
 
 ## Decision log
 
+- Decision: Backbone recovery matches on `(source, target, sequence)` **and**
+  the accepted reweighted weight, and the warm-up pool is deduplicated by
+  canonical key plus raw-distance bits. Rationale: the hosted proof assessment
+  showed that a key-only match is ambiguous when two directly constructed
+  candidates share an endpoint-and-sequence key but carry different raw
+  distances — Kruskal would select the lighter edge while recovery could retain
+  the other raw distance. Weight-qualifying the match removes that possibility
+  without changing any reachable HNSW-harvested case. Warm-up returns the
+  merged pool rather than a forest, so it must apply OBL-7's overlap tolerance
+  itself; without deduplication a candidate reaching the merge through two
+  buffers would be retained twice and the pool would grow on every warm-up
+  refresh. Date/Author: 2026-11-25, implementation (post-review repair).
+
+- Decision: The version bump saturates at `u64::MAX` and that boundary is
+  documented rather than rejected. Rationale: a rejection path would need a new
+  public `ChutoroError` variant, which the plan's interface tolerance forbids,
+  and reaching the boundary needs 2^64 refreshes. The doc comments on
+  `publish_refresh` and the `snapshot_version` field state that at the boundary
+  a successful refresh republishes without advancing the counter, so the
+  per-call increment contract has one documented exception rather than a silent
+  one. Date/Author: 2026-11-25, implementation (post-review repair).
+
 - Decision: Retain the MST backbone as raw `CandidateEdge` (change `mst_edges`
   to `mst_backbone: Vec<CandidateEdge>`), reweighting from raw distances every
   refresh. Rationale: reweighting an already-weighted edge ratchets weights
   upward when core distances fall, drifting the partition across refreshes and
   contradicting the cited FISHDBC approach (which refeeds raw triples). Raw
-  retention makes the reweight refresh-count-independent and numerically
-  identical to batch. The cost is one extra recovery pass matching Kruskal
-  output back to raw inputs by `(source, target, sequence)`. Refines design
-  Figure 3 (see Conformance Basis: DES-FIG3 deviation, accepted by the plan
-  approver at approval time). Date/Author: 2026-07-22, planning (post expert
-  review).
+  retention makes an edge's weight depend only on its raw distance and the
+  current core distances. The cost is one extra recovery pass matching Kruskal
+  output back to raw inputs. Refines design Figure 3 (see Conformance Basis:
+  DES-FIG3 deviation, accepted by the plan approver at approval time).
+  Date/Author: 2026-07-22, planning (post expert review); wording narrowed
+  2026-11-25 after the hosted assessments showed the original "numerically
+  identical to batch" phrasing overstated it.
 
 - Decision: Graceful degenerate handling instead of mirroring batch `run`.
   Rationale: `run` errors on `items == 0` (`EmptySource`) and
@@ -1384,6 +1407,24 @@ Implementation evidence, recorded 2026-11-23.
   (`assertion failed: (left == right)` at `session/tests/refresh.rs:60`) and
   `session::tests::refresh_properties::refresh_invariants_hold_across_interleavings`
   (`Test failed: assertion failed: (left == right)`). Code restored.
+- OBL-3 mutation check. Temporarily truncating the extracted label vector by
+  one in `rebuild_mst_labels` failed both witnesses:
+  `session::tests::refresh::refresh_publishes_labels_of_point_count_length`
+  (`assertion failed: (left == right)` at `session/tests/refresh.rs:60`) and
+  `session::tests::refresh_properties::refresh_invariants_hold_across_interleavings`
+  (`Test failed: assertion failed: (left == right)`). Code restored.
+- OBL-4 mutation check (recorded 2026-11-25). Replacing the version bump with a
+  double increment (`saturating_add(2)`) failed both witnesses:
+  `session::tests::refresh::refresh_advances_snapshot_version_by_one` and
+  `session::tests::refresh_properties::refresh_invariants_hold_across_interleavings`,
+  `Summary: 2 tests run: 0 passed, 2 failed`. Code restored.
+- OBL-5 mutation check (recorded 2026-11-25). Publishing the version bump
+  *before* the fallible work (and subtracting it again on the success path, so
+  only the failure path changed) failed both witnesses:
+  `session::tests::refresh_errors::failed_refresh_preserves_snapshot_and_pending`
+  and
+  `session::tests::refresh_errors::contiguity_violation_reports_cpu_mst_failure_and_preserves_state`,
+  `Summary: 2 tests run: 0 passed, 2 failed`. Code restored.
 - OBL-6 mutation check. Substituting `min` for `max` in
   `mutual_reachability_weight` was rejected by
   `session::tests::refresh::refresh_matches_batch_partition`, whose `insta`
