@@ -181,7 +181,9 @@ KANI_MANIFEST ?= tools/kani/harnesses.toml
 # wrote; the default is the profile directory every other target uses.
 CARGO_TARGET_DIR ?= target
 override KANI_SUITE_TARGET_DIR := $(CARGO_TARGET_DIR)
-KANI_SUITE_BINARY := $(KANI_SUITE_TARGET_DIR)/debug/kani_suite
+# Quoted because the directory comes from the environment and may contain a
+# space or a shell metacharacter; the assignment reaches the shell verbatim.
+override KANI_SUITE_BINARY := "$(KANI_SUITE_TARGET_DIR)/debug/kani_suite"
 KANI_SUITE_PREREQ :=
 ifeq ($(origin KANI_SUITE),command line)
 else

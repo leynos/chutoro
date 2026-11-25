@@ -60,7 +60,7 @@ KANI_COMMAND_RE = re.compile(
 #: The checker wrapper around one delegated command: the manifest, the
 #: package and the scope, in that order, then the argument separator.
 CHECKER_WRAPPER_RE = re.compile(
-    r"^\t\$\(KANI_SUITE\)\s+--manifest\s+\$\(KANI_MANIFEST\)\s+"
+    r"^\t[-@+]*\$\(KANI_SUITE\)\s+--manifest\s+\$\(KANI_MANIFEST\)\s+"
     r"--package\s+(?P<package>[A-Za-z0-9_-]+)\s+"
     r"--scope\s+(?P<scope>fast|full)\s+--\s+"
 )

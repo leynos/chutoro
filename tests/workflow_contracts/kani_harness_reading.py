@@ -137,47 +137,71 @@ class _Package(typ.NamedTuple):
     directory: Path
 
 
-def _child_directory(file: Path, is_crate_root: bool) -> Path:
-    """Return the directory in which `file` resolves its child modules."""
-    if is_crate_root or file.name == "mod.rs":
-        return file.parent
-    return file.with_suffix("")
+class _Location(typ.NamedTuple):
+    """Where a file sits in the module tree, for resolving its children.
+
+    Attributes
+    ----------
+    file
+        The file being read.
+    is_crate_root
+        Whether it is a crate root.
+    via_path
+        Whether a ``#[path]`` attribute named it. Rust gives such a file the
+        same directory rule as ``mod.rs``: its children resolve from the
+        file's own parent directory, not from a directory named after its
+        stem. Without that, a ``#[path]``-loaded module's children would be
+        looked for in a directory Rust never uses, and their proofs would be
+        reported unreachable.
+    """
+
+    file: Path
+    is_crate_root: bool
+    via_path: bool
 
 
-def _path_base(
-    file: Path,
-    is_crate_root: bool,
-    chain: tuple[_ModuleItem, ...],
-) -> Path:
+def _is_mod_rs(location: _Location) -> bool:
+    """Report whether `location` follows the ``mod.rs`` directory rule."""
+    return (
+        location.is_crate_root
+        or location.via_path
+        or location.file.name == "mod.rs"
+    )
+
+
+def _child_directory(location: _Location) -> Path:
+    """Return the directory in which `location` resolves its child modules."""
+    if _is_mod_rs(location):
+        return location.file.parent
+    return location.file.with_suffix("")
+
+
+def _path_base(location: _Location, chain: tuple[_ModuleItem, ...]) -> Path:
     """Return the directory a ``#[path]`` value is relative to.
 
     Rust resolves a path attribute on a declaration outside an inline module
     block relative to the containing file's directory, and one inside an
     inline block relative to the module directory with the inline blocks as
-    directories. A "mod-rs" file — a crate root or ``mod.rs`` — starts from its
-    own directory; any other file starts from its stem directory.
+    directories.
     """
     if not chain:
-        return file.parent
-    if is_crate_root or file.name == "mod.rs":
-        base = file.parent
-    else:
-        base = file.with_suffix("")
-    return base.joinpath(*(item.name for item in chain))
+        return location.file.parent
+    return _child_directory(location).joinpath(
+        *(item.name for item in chain)
+    )
 
 
 def _child_file(
-    file: Path,
-    is_crate_root: bool,
+    location: _Location,
     chain: tuple[_ModuleItem, ...],
     name: str,
     path_value: str | None,
 ) -> Path | None:
     """Return the file a ``mod name;`` declaration reads, if one exists."""
     if path_value is not None:
-        candidate = _path_base(file, is_crate_root, chain) / path_value
+        candidate = _path_base(location, chain) / path_value
         return candidate if candidate.is_file() else None
-    directory = _child_directory(file, is_crate_root).joinpath(
+    directory = _child_directory(location).joinpath(
         *(item.name for item in chain)
     )
     for candidate in (directory / f"{name}.rs", directory / name / "mod.rs"):
@@ -214,6 +238,7 @@ class _Reader:
         module: tuple[str, ...],
         *,
         is_crate_root: bool = False,
+        via_path: bool = False,
     ) -> None:
         """Read `file` as the module `module`, following its declarations.
 
@@ -252,7 +277,11 @@ class _Reader:
             )
             return
         self._record_proofs(source, module, relative)
-        self._follow(file, source, module, is_crate_root)
+        self._follow(
+            _Location(file=file, is_crate_root=is_crate_root, via_path=via_path),
+            source,
+            module,
+        )
 
     def _record_proofs(
         self,
@@ -298,28 +327,21 @@ class _Reader:
 
     def _follow(
         self,
-        file: Path,
+        location: _Location,
         source: _Source,
         module: tuple[str, ...],
-        is_crate_root: bool,
     ) -> None:
-        """Follow each file-based module declaration in `file`."""
+        """Follow each file-based module declaration in one file."""
         for item in source.modules:
             if item.inline:
                 continue
             chain = _module_chain(source.modules, item.start)
-            child = _child_file(
-                file,
-                is_crate_root,
-                chain,
-                item.name,
-                item.path_value,
-            )
+            child = _child_file(location, chain, item.name, item.path_value)
             if child is None:
                 if item.path_value is not None:
                     self._report(
                         "path-attribute",
-                        file.relative_to(self._repo_root).as_posix(),
+                        location.file.relative_to(self._repo_root).as_posix(),
                         _line_of(source.text, item.start),
                         f"#[path = {item.path_value!r}] does not resolve to a "
                         "readable source file",
@@ -328,15 +350,36 @@ class _Reader:
             self.visit(
                 child,
                 (*module, *(parent.name for parent in chain), item.name),
+                via_path=item.path_value is not None,
             )
+
+
+def _manifests(root: Path) -> list[Path]:
+    """Return every package manifest under `root`, never entering an ignored tree.
+
+    Pruning during the walk rather than filtering afterwards is what keeps a
+    `target` tree from being traversed at all: a compiled workspace can hold
+    tens of thousands of `Cargo.toml` files under one, and reading them only to
+    discard each by path would make the sweep quadratic in the wrong thing.
+    """
+    found: list[Path] = []
+    pending = [root]
+    while pending:
+        directory = pending.pop()
+        for child in sorted(directory.iterdir()):
+            if child.is_dir():
+                if child.name not in IGNORED_DIRECTORIES:
+                    pending.append(child)
+                continue
+            if child.name == "Cargo.toml":
+                found.append(child)
+    return sorted(found)
 
 
 def _package_directories(root: Path) -> list[tuple[str, Path]]:
     """Return each package's name and directory under `root`."""
     found: list[tuple[str, Path]] = []
-    for manifest in sorted(root.rglob("Cargo.toml")):
-        if IGNORED_DIRECTORIES.intersection(manifest.relative_to(root).parts):
-            continue
+    for manifest in _manifests(root):
         document = tomllib.loads(manifest.read_text(encoding="utf-8"))
         package = document.get("package")
         if isinstance(package, dict) and (manifest.parent / "src").is_dir():

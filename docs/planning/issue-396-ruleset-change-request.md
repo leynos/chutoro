@@ -31,9 +31,10 @@ change a public conversation and a live repository setting.
 >
 > - `make verus` is enforced, expensive per pull request, and not
 >   drift-sensitive at build time.
-> - `make kani` is enforced, bounded, and compiles the production code the
->   harness reaches, so the harnesses that drive production paths cannot
->   disagree with `src/` without failing to compile.
+> - `make kani` runs on every pull request but is **not yet enforced**; once
+>   the ruleset change lands it will be, and it is bounded, and it compiles the
+>   production code the harness reaches, so the harnesses that drive production
+>   paths cannot disagree with `src/` without failing to compile.
 >
 > That last point is narrower than "Kani cannot drift", and the difference
 > matters. Several harnesses do not drive production paths: the MST proofs
@@ -47,11 +48,13 @@ change a public conversation and a live repository setting.
 > ledger that would make that obligation explicit; this work does not
 > implement it.
 >
-> The cost asymmetry the issue asked to document is therefore a difference in
-> *guarantee* rather than in enforcement: Kani proves properties of the code a
-> harness reaches, within bounds, and of a model where it does not; Verus
-> proves properties of a model throughout. The guidance in the developer's
-> guide, "Choosing a verification tool", reflects that.
+> Once the ruleset change lands, the cost asymmetry the issue asked to
+> document becomes a difference in *guarantee* rather than in enforcement:
+> Kani proves properties of the code a harness reaches, within bounds, and of a
+> model where it does not; Verus proves properties of a model throughout. Until
+> it lands, enforcement itself is still asymmetric, and both differences are
+> worth recording. The guidance in the developer's guide, "Choosing a
+> verification tool", reflects both.
 >
 > **Not implemented here: FV05.** The proof-to-production refinement ledger is
 > separate work.

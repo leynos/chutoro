@@ -168,6 +168,23 @@ issue text and the repository's documentation are the authority.
       derived the inline-module count and the tier call counts from their
       sources, parameterised the checker's rejection cases, and corrected the
       guide's checker path and the enforcement test's proof tier.
+- [x] Third CodeRabbit review, all 13 findings actioned. The substantive one
+      was a `#[path]` resolution bug: Rust gives a path-loaded file the
+      `mod.rs` directory rule for its children, and the reader used the stem
+      directory instead, so a child beside a path-loaded module would have been
+      looked for somewhere Rust never uses. It is fixed and has a regression
+      test. The others: the derived checker path is quoted; the delegated
+      command accepts a leading `+toolchain` word; the fake verifier moved to a
+      real script under `tests/fixtures/` (which also brought the test module
+      under 400 lines); the event helper accepts scalar and sequence `on:`
+      forms and names the file on a genuine error; the package walk prunes
+      ignored directories instead of filtering after traversing them; the
+      wrapper and dry-run contracts accept make's recipe prefixes and derive
+      their counts; the duplicated fast/full tests are one parameterised table;
+      the failure-propagation test runs both tiers; bare asserts carry failure
+      messages; and the draft keeps Kani's enforcement explicitly pending.
+      Whitaker then caught the runner module at 405 lines from the `+toolchain`
+      addition, so its argument walk moved to `parser.rs`.
 - [ ] Push the branch and create the draft pull request.
 
 ## Surprises & discoveries

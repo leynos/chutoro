@@ -21,6 +21,7 @@
 
 pub mod manifest;
 pub mod output;
+pub mod parser;
 pub mod process;
 pub mod runner;
 pub mod verdict;

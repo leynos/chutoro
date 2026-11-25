@@ -37,35 +37,28 @@ from workflow_support import ROOT
 # The checker wrapper
 # ---------------------------------------------------------------------------
 
-def test_every_fast_call_is_wrapped_by_the_checker(fast_recipe: str) -> None:
-    """Every pull-request Kani call runs behind the manifest checker.
+@pytest.mark.parametrize(
+    ("recipe_fixture", "scope"),
+    (("fast_recipe", "fast"), ("full_recipe", "full")),
+)
+def test_every_call_is_wrapped_by_the_checker(
+    recipe_fixture: str, scope: str, request: pytest.FixtureRequest
+) -> None:
+    """Every Kani call in a tier runs behind the manifest checker.
 
     A recipe that invokes `cargo kani` directly would report Kani's exit status,
     which does not count harnesses, so a filter that silently matched less
     would pass. The checker is what makes the tier mean its manifest scope.
     """
-    commands = executable_commands(fast_recipe)
-    found = wrappers(fast_recipe)
+    recipe = request.getfixturevalue(recipe_fixture)
+    commands = executable_commands(recipe)
+    found = wrappers(recipe)
     assert len(found) == len(commands), (
-        "every kani: command must be wrapped by $(KANI_SUITE); "
+        f"every {scope} command must be wrapped by $(KANI_SUITE); "
         f"{len(commands)} commands and {len(found)} wrappers found"
     )
-    assert {wrapper["scope"] for wrapper in found} == {"fast"}, (
-        "every kani: wrapper must name the fast scope, got "
-        f"{[wrapper['scope'] for wrapper in found]!r}"
-    )
-
-
-def test_every_full_call_is_wrapped_by_the_checker(full_recipe: str) -> None:
-    """Every nightly call runs behind the manifest checker, for the full scope."""
-    commands = executable_commands(full_recipe)
-    found = wrappers(full_recipe)
-    assert len(found) == len(commands), (
-        "every kani-full: command must be wrapped by $(KANI_SUITE); "
-        f"{len(commands)} commands and {len(found)} wrappers found"
-    )
-    assert {wrapper["scope"] for wrapper in found} == {"full"}, (
-        "every kani-full: wrapper must name the full scope, got "
+    assert {wrapper["scope"] for wrapper in found} == {scope}, (
+        f"every {scope} wrapper must name its own scope, got "
         f"{[wrapper['scope'] for wrapper in found]!r}"
     )
 
@@ -214,31 +207,47 @@ def test_make_tier_runs_the_checker_for_each_command_in_order(
     )
 
 
-@pytest.mark.parametrize("fail_at", (1, 3, 6), ids=("first", "middle", "last"))
-def test_a_failing_checker_stops_the_fast_tier(
-    tmp_path: Path, fast_recipe: str, fail_at: int
+@pytest.mark.parametrize(
+    ("target", "recipe_fixture"),
+    (("kani", "fast_recipe"), ("kani-full", "full_recipe")),
+)
+@pytest.mark.parametrize("position", ("first", "middle", "last"))
+def test_a_failing_checker_stops_the_tier(
+    tmp_path: Path,
+    target: str,
+    recipe_fixture: str,
+    position: str,
+    request: pytest.FixtureRequest,
 ) -> None:
     """A failure at the first, middle or last call stops the tier there.
 
     The checker propagates a delegated failure, so the tier must stop rather
-    than continue to the next proof and report a later success as the run's
-    outcome.
+    than continue to the next command and report a later success as the run's
+    outcome. Both tiers are exercised, because the nightly one is the only
+    place several proofs run at all.
     """
+    recipe = request.getfixturevalue(recipe_fixture)
+    commands = selections(recipe)
+    fail_at = {"first": 1, "middle": (len(commands) + 1) // 2, "last": len(commands)}[
+        position
+    ]
     tool, log = _recorder(tmp_path)
-    completed = _run_tier(tool, log, fail_at, "kani")
+    completed = _run_tier(tool, log, fail_at, target)
     assert completed.returncode != 0, (
-        f"make kani must fail when checked call {fail_at} fails: "
+        f"make {target} must fail when checked call {fail_at} fails: "
         f"stdout={completed.stdout!r}"
     )
     recorded = _recorded(log)
     assert len(recorded) == fail_at, (
-        f"the tier must stop at call {fail_at}, recorded {len(recorded)} calls"
+        f"the {target} tier must stop at call {fail_at}, recorded "
+        f"{len(recorded)} calls"
     )
-    expected = [name for _, names in selections(fast_recipe) for name in names]
-    assert _selectors(recorded[-1]) == [expected[fail_at - 1]], (
-        "the failing call must be the selector at its position: "
-        f"expected {expected[fail_at - 1]!r}, recorded {recorded[-1]!r}"
-    )
+    if _selectors(recorded[-1]):
+        expected = [name for _, names in commands for name in names]
+        assert _selectors(recorded[-1]) == [expected[fail_at - 1]], (
+            "the failing call must be the selector at its position: "
+            f"expected {expected[fail_at - 1]!r}, recorded {recorded[-1]!r}"
+        )
 
 
 def _joined_dry_run(stdout: str) -> list[str]:
@@ -247,7 +256,7 @@ def _joined_dry_run(stdout: str) -> list[str]:
 
 
 def test_make_dry_run_shows_each_wrapped_call(fast_recipe: str) -> None:
-    """`make -n kani` prints the six checker invocations and their commands."""
+    """`make -n kani` prints one checker invocation per fast-tier command."""
     completed = subprocess.run(
         ["make", "-n", "--no-print-directory", "kani"],
         cwd=ROOT,
@@ -259,11 +268,16 @@ def test_make_dry_run_shows_each_wrapped_call(fast_recipe: str) -> None:
     commands = [
         line for line in _joined_dry_run(completed.stdout) if "cargo kani" in line
     ]
-    assert len(commands) == 6, (
-        f"expected six wrapped commands in the dry run, got {commands!r}"
+    expected_count = len(selections(fast_recipe))
+    assert len(commands) == expected_count, (
+        f"expected {expected_count} wrapped commands in the dry run, got "
+        f"{commands!r}"
     )
     for line in commands:
-        assert "target/debug/kani_suite --manifest tools/kani/harnesses.toml" in line, (
+        # The path is quoted because it is derived from CARGO_TARGET_DIR, so
+        # the assertion matches the checker's name and manifest rather than a
+        # bare, unquoted prefix.
+        assert "kani_suite\" --manifest tools/kani/harnesses.toml" in line, (
             f"the dry run must show the checker: {line!r}"
         )
         assert "--manifest tools/kani/harnesses.toml" in line, line

@@ -25,7 +25,7 @@ import typing as typ
 from pathlib import Path
 
 import pytest
-from workflow_support import ROOT, all_workflow_documents, triggers
+from workflow_support import ROOT, all_workflow_documents
 
 GUIDE_PATH = ROOT / "docs" / "developers-guide.md"
 
@@ -52,12 +52,44 @@ class CheckError(ValueError):
     """Raised when a required context cannot be attributed to one job."""
 
 
+def _events(document: dict[str, typ.Any], name: str) -> dict[str, typ.Any]:
+    """Return a workflow's events as a mapping, whatever form it was written in.
+
+    GitHub accepts three spellings of ``on``: a mapping of event to its
+    configuration, a bare scalar (``on: push``), and a sequence
+    (``on: [pull_request, push]``). PyYAML turns the last two into a string
+    and a list, and a mapping-only reader would raise on either -- during
+    fixture setup, so every test in the module would error over a workflow
+    that need not concern it.
+
+    Returns
+    -------
+    dict[str, typing.Any]
+        Each event mapped to its configuration, or None when it has none.
+
+    Raises
+    ------
+    AssertionError
+        When ``on`` is absent or is some other type, and the message names
+        ``name`` so the offending file is findable.
+    """
+    found = document.get("on", document.get(True))
+    if isinstance(found, str):
+        return {found: None}
+    if isinstance(found, list):
+        return {event: None for event in found if isinstance(event, str)}
+    if isinstance(found, dict):
+        return found
+    message = f"{name} must declare an on: mapping, sequence or scalar"
+    raise AssertionError(message)
+
+
 def _pull_request_workflows() -> dict[str, dict[str, typ.Any]]:
     """Return each workflow document declaring a pull-request trigger."""
     return {
         name: document
         for name, document in all_workflow_documents().items()
-        if "pull_request" in triggers(document)
+        if "pull_request" in _events(document, name)
     }
 
 
@@ -178,7 +210,7 @@ def test_the_owning_trigger_declares_no_path_filter(
     request to the branch the ruleset protects.
     """
     for workflow, _ in jobs.get(context, []):
-        pull_request = triggers(documents[workflow])["pull_request"]
+        pull_request = _events(documents[workflow], workflow)["pull_request"]
         # A bare `pull_request:` key parses as None, which GitHub reads as an
         # unconfigured trigger: every pull request, with no filter. Treating
         # the value as a mapping before normalising it would raise TypeError

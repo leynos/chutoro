@@ -284,7 +284,8 @@ def test_reader_ignores_a_proof_in_a_comment(tmp_path: Path) -> None:
         tmp_path,
         "// #[kani::proof]\n// fn verify_commented() {}\n",
     )
-    assert _names(discover(tmp_path)) == []
+    names = _names(discover(tmp_path))
+    assert names == [], f"a comment must not declare a proof, got {names!r}"
 
 
 def test_reader_ignores_a_proof_in_a_string_literal(tmp_path: Path) -> None:
@@ -293,7 +294,8 @@ def test_reader_ignores_a_proof_in_a_string_literal(tmp_path: Path) -> None:
         tmp_path,
         'const DOC: &str = "#[kani::proof]\\nfn verify_quoted() {}";\n',
     )
-    assert _names(discover(tmp_path)) == []
+    names = _names(discover(tmp_path))
+    assert names == [], f"a comment must not declare a proof, got {names!r}"
 
 
 def test_reader_derives_a_nested_inline_module_path(tmp_path: Path) -> None:
@@ -303,7 +305,10 @@ def test_reader_derives_a_nested_inline_module_path(tmp_path: Path) -> None:
         "mod outer {\n    mod inner {\n        #[kani::proof]\n"
         "        fn verify_nested() {}\n    }\n}\n",
     )
-    assert _names(discover(tmp_path)) == ["outer::inner::verify_nested"]
+    names = _names(discover(tmp_path))
+    assert names == ["outer::inner::verify_nested"], (
+        f"the nested inline path must be derived, got {names!r}"
+    )
 
 
 def test_reader_derives_a_file_based_module_path(tmp_path: Path) -> None:
@@ -312,13 +317,19 @@ def test_reader_derives_a_file_based_module_path(tmp_path: Path) -> None:
     (crate_root.parent / "proofs.rs").write_text(
         "#[kani::proof]\nfn verify_file() {}\n", encoding="utf-8"
     )
-    assert _names(discover(tmp_path)) == ["proofs::verify_file"]
+    names = _names(discover(tmp_path))
+    assert names == ["proofs::verify_file"], (
+        f"the file-based module path must be derived, got {names!r}"
+    )
 
 
 def test_reader_reports_an_unresolvable_path_attribute(tmp_path: Path) -> None:
     """A ``#[path]`` naming no file is reported rather than skipped."""
     _write_package(tmp_path, '#[path = "absent.rs"]\nmod proofs;\n')
-    assert _kinds(discover(tmp_path)) == ["path-attribute"]
+    kinds = _kinds(discover(tmp_path))
+    assert kinds == ["path-attribute"], (
+        f"an unresolvable #[path] must be reported, got {kinds!r}"
+    )
 
 
 def test_reader_follows_a_resolvable_path_attribute(tmp_path: Path) -> None:
@@ -333,7 +344,10 @@ def test_reader_follows_a_resolvable_path_attribute(tmp_path: Path) -> None:
     (crate_root.parent / "elsewhere.rs").write_text(
         "#[kani::proof]\nfn verify_moved() {}\n", encoding="utf-8"
     )
-    assert _names(discover(tmp_path)) == ["proofs::verify_moved"]
+    names = _names(discover(tmp_path))
+    assert names == ["proofs::verify_moved"], (
+        f"a resolvable #[path] must contribute its module name, got {names!r}"
+    )
 
 
 def test_reader_reports_a_cfg_attr_wrapped_proof(tmp_path: Path) -> None:
@@ -342,7 +356,10 @@ def test_reader_reports_a_cfg_attr_wrapped_proof(tmp_path: Path) -> None:
         tmp_path,
         '#[cfg_attr(kani, kani::proof)]\nfn verify_conditional() {}\n',
     )
-    assert _kinds(discover(tmp_path)) == ["cfg-attr"]
+    kinds = _kinds(discover(tmp_path))
+    assert kinds == ["cfg-attr"], (
+        f"a cfg_attr-wrapped proof must be reported, got {kinds!r}"
+    )
 
 
 def test_reader_reports_a_proof_inside_a_macro(tmp_path: Path) -> None:
@@ -352,7 +369,10 @@ def test_reader_reports_a_proof_inside_a_macro(tmp_path: Path) -> None:
         "macro_rules! declare {\n    () => {\n        #[kani::proof]\n"
         "        fn verify_expanded() {}\n    };\n}\n",
     )
-    assert _kinds(discover(tmp_path)) == ["macro"]
+    kinds = _kinds(discover(tmp_path))
+    assert kinds == ["macro"], (
+        f"a proof inside a macro must be reported, got {kinds!r}"
+    )
 
 
 def test_reader_reports_a_proof_bearing_source_no_module_reaches(
@@ -369,8 +389,36 @@ def test_reader_reports_a_proof_bearing_source_no_module_reaches(
         "#[kani::proof]\nfn verify_orphan() {}\n", encoding="utf-8"
     )
     inventory = discover(tmp_path)
-    assert _names(inventory) == []
-    assert _kinds(inventory) == ["unreachable"]
+    names = _names(inventory)
+    assert names == [], f"an unreached proof must not be listed, got {names!r}"
+    kinds = _kinds(inventory)
+    assert kinds == ["unreachable"], (
+        f"the orphaned source must be reported, got {kinds!r}"
+    )
+
+
+def test_reader_resolves_a_path_loaded_module_children_beside_it(
+    tmp_path: Path,
+) -> None:
+    """A ``#[path]``-loaded file resolves its children from its own directory.
+
+    Rust gives a path-loaded file the ``mod.rs`` directory rule: a ``mod
+    child;`` inside it reads ``child.rs`` beside it, not from a directory
+    named after its stem. Reading the other way would look for the child in a
+    directory Rust never uses and report its proof unreachable.
+    """
+    crate_root = _write_package(tmp_path, '#[path = "elsewhere.rs"]\nmod proofs;\n')
+    (crate_root.parent / "elsewhere.rs").write_text(
+        "mod nested;\n", encoding="utf-8"
+    )
+    (crate_root.parent / "nested.rs").write_text(
+        "#[kani::proof]\nfn verify_nested() {}\n", encoding="utf-8"
+    )
+    inventory = discover(tmp_path)
+    assert _names(inventory) == ["proofs::nested::verify_nested"], (
+        f"expected the child beside the path-loaded file, got {_names(inventory)!r}"
+    )
+    assert _kinds(inventory) == [], f"expected no reports, got {inventory.unresolved!r}"
 
 
 def test_reader_keeps_a_module_file_without_a_proof_out_of_the_inventory(
@@ -386,8 +434,10 @@ def test_reader_keeps_a_module_file_without_a_proof_out_of_the_inventory(
         "pub fn work() -> bool { true }\n", encoding="utf-8"
     )
     inventory = discover(tmp_path)
-    assert _names(inventory) == []
-    assert _kinds(inventory) == []
+    names = _names(inventory)
+    assert names == [], f"a helper module holds no proof, got {names!r}"
+    kinds = _kinds(inventory)
+    assert kinds == [], f"nothing must be reported, got {kinds!r}"
 
 
 def test_unresolved_report_names_the_file_and_line(tmp_path: Path) -> None:

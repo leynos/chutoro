@@ -55,7 +55,10 @@ def _manifest_packages() -> list[str]:
 )
 def test_nonexecuting_recipe_text_selects_no_harness(recipe: str) -> None:
     """Names in comments or in output commands cannot satisfy the contract."""
-    assert executable_commands(recipe) == []
+    found = executable_commands(recipe)
+    assert found == [], (
+        f"non-executing text must select nothing, got {[m[0] for m in found]!r}"
+    )
 
 
 @pytest.mark.parametrize(
@@ -116,28 +119,22 @@ def test_a_regular_output_format_is_not_a_violation() -> None:
     assert violations("-p chutoro-core --lib --output-format regular") == []
 
 
-def test_fast_commands_pass_no_forbidden_flag(fast_recipe: str) -> None:
-    """Every executable fast-tier command is one the checker will accept."""
+@pytest.mark.parametrize(
+    ("target", "recipe_fixture"),
+    (("kani", "fast_recipe"), ("kani-full", "full_recipe")),
+)
+def test_commands_pass_no_forbidden_flag(
+    target: str, recipe_fixture: str, request: pytest.FixtureRequest
+) -> None:
+    """Every executable command in a tier is one the checker will accept."""
+    recipe = request.getfixturevalue(recipe_fixture)
     offenders = [
         (arguments, violations(arguments))
-        for match in executable_commands(fast_recipe)
+        for match in executable_commands(recipe)
         if (arguments := match["arguments"]) and violations(arguments)
     ]
     assert not offenders, (
-        "the kani: target passes options the checker refuses, so the run "
-        f"would fail before verification: {offenders!r}"
-    )
-
-
-def test_full_commands_pass_no_forbidden_flag(full_recipe: str) -> None:
-    """Every executable nightly command is one the checker will accept."""
-    offenders = [
-        (arguments, violations(arguments))
-        for match in executable_commands(full_recipe)
-        if (arguments := match["arguments"]) and violations(arguments)
-    ]
-    assert not offenders, (
-        "the kani-full: target passes options the checker refuses, so the "
+        f"the {target}: target passes options the checker refuses, so the "
         f"run would fail before verification: {offenders!r}"
     )
 

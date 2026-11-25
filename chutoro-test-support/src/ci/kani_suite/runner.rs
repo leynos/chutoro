@@ -13,12 +13,12 @@
 //! execution itself lives in [`super::process`], which this module's types
 //! feed.
 
-use std::collections::BTreeMap;
-
 use thiserror::Error;
 
+use super::parser;
+
 /// A Kani option the checker cannot work with, with the reason it is refused.
-const FORBIDDEN_FLAGS: &[(&str, &str)] = &[
+pub(super) const FORBIDDEN_FLAGS: &[(&str, &str)] = &[
     (
         "--quiet",
         "it suppresses the per-harness blocks the checker parses",
@@ -192,13 +192,21 @@ pub fn parse_command(words: &[String], package: &str) -> Result<Delegated, Comma
     let Some((program, args)) = command.split_first() else {
         return Err(CommandError::Empty);
     };
-    if args.first().map(String::as_str) != Some("kani") {
+    // `cargo +nightly kani` selects a toolchain with a word before the
+    // subcommand, and the repository's own `CARGO` may carry one. Skipping it
+    // keeps this check about the subcommand rather than about how the toolchain
+    // is spelled.
+    let subcommand = args
+        .iter()
+        .position(|word| !word.starts_with('+'))
+        .unwrap_or(args.len());
+    if args.get(subcommand).map(String::as_str) != Some("kani") {
         return Err(CommandError::NotCargoKani {
             args: args.to_vec(),
         });
     }
-    let mut parser = Parser::default();
-    let mut index = 1;
+    let mut parser = parser::Parser::default();
+    let mut index = subcommand + 1;
     while index < args.len() {
         index = parser.consume(args, index)?;
     }
@@ -216,182 +224,11 @@ pub fn parse_command(words: &[String], package: &str) -> Result<Delegated, Comma
 /// parameters: they travel together and are consumed together, and a
 /// four-parameter ceiling keeps a reader from having to hold five positional
 /// arguments in mind.
-struct Invocation {
+pub(super) struct Invocation {
     /// Environment assignments applied to the child alone.
-    env: Vec<(String, String)>,
+    pub(super) env: Vec<(String, String)>,
     /// The program to run.
-    program: String,
+    pub(super) program: String,
     /// The program's arguments.
-    args: Vec<String>,
-}
-
-/// The state of one delegated-command walk.
-#[derive(Debug, Default)]
-struct Parser {
-    /// Packages the command selects.
-    packages: Vec<String>,
-    /// Harness selectors the command passes.
-    selectors: Vec<String>,
-    /// Whether `--exact` was supplied.
-    exact: bool,
-    /// Whether `--lib` was supplied.
-    lib: bool,
-}
-
-impl Parser {
-    /// Consume the argument at `index`, returning the next index to read.
-    fn consume(&mut self, args: &[String], index: usize) -> Result<usize, CommandError> {
-        // The caller walks only while `index < args.len()`, so a missing
-        // argument ends the walk rather than panicking on a slice index.
-        let Some(argument) = args.get(index) else {
-            return Ok(args.len());
-        };
-        if let Some((flag, reason)) = FORBIDDEN_FLAGS
-            .iter()
-            .find(|(flag, _)| argument == flag || argument.starts_with(&format!("{flag}=")))
-        {
-            return Err(CommandError::Forbidden {
-                flag: (*flag).to_owned(),
-                reason,
-            });
-        }
-        let consumed = self.consume_separated(args, index, argument)?;
-        if consumed > index + 1 {
-            return Ok(consumed);
-        }
-        match argument.as_str() {
-            "--exact" => self.exact = true,
-            "--lib" => self.lib = true,
-            _ => self.consume_attached(argument)?,
-        }
-        Ok(index + 1)
-    }
-
-    /// Consume an option whose value is the following argument.
-    ///
-    /// Returns the index to read next, which is `index + 1` when this option is
-    /// not one of them, so the caller can fall through to the attached
-    /// spellings and the flags.
-    fn consume_separated(
-        &mut self,
-        args: &[String],
-        index: usize,
-        argument: &str,
-    ) -> Result<usize, CommandError> {
-        let Some(store) = separated_option(argument) else {
-            return Ok(index + 1);
-        };
-        let Some(value) = args.get(index + 1).cloned() else {
-            return Err(CommandError::MissingValue {
-                flag: argument.to_owned(),
-            });
-        };
-        store(self, value)?;
-        Ok(index + 2)
-    }
-
-    /// Consume an option whose value is attached with `=`.
-    fn consume_attached(&mut self, argument: &str) -> Result<(), CommandError> {
-        if let Some(value) = argument.strip_prefix("--output-format=") {
-            check_output_format(value)?;
-        } else if let Some(value) = argument.strip_prefix("--harness=") {
-            self.selectors.push(value.to_owned());
-        } else if let Some(value) = argument
-            .strip_prefix("-p=")
-            .or_else(|| argument.strip_prefix("--package="))
-        {
-            self.packages.push(value.to_owned());
-        }
-        Ok(())
-    }
-
-    /// Record one package.
-    fn push_package(&mut self, package: String) {
-        self.packages.push(package);
-    }
-
-    /// Record one harness selector.
-    fn push_selector(&mut self, selector: String) {
-        self.selectors.push(selector);
-    }
-
-    /// Check the collected state and build the delegated command.
-    fn finish(self, invocation: &Invocation, package: &str) -> Result<Delegated, CommandError> {
-        if self.packages != [package.to_owned()] {
-            return Err(CommandError::Package {
-                expected: package.to_owned(),
-                found: self.packages,
-            });
-        }
-        if !self.lib {
-            return Err(CommandError::MissingLib);
-        }
-        if !self.selectors.is_empty() && !self.exact {
-            return Err(CommandError::NotExact);
-        }
-        let duplicates = repeated(&self.selectors);
-        if !duplicates.is_empty() {
-            return Err(CommandError::DuplicateSelector { names: duplicates });
-        }
-        Ok(Delegated {
-            env: invocation.env.clone(),
-            program: invocation.program.clone(),
-            args: invocation.args.clone(),
-            package: package.to_owned(),
-            selectors: self.selectors,
-        })
-    }
-}
-
-/// One option's store, or None when the option is not one this handles.
-///
-/// The options that take a value in the following argument are exactly the
-/// three here: the output format, checked rather than stored, and the package
-/// and harness selectors, which are recorded. Naming them in one place keeps
-/// the separated and attached spellings from disagreeing about which options
-/// exist.
-/// One option's store, or None when the option is not one this handles.
-///
-/// The output format is checked rather than stored, so every store returns a
-/// `Result` even where recording cannot fail: one uniform signature is what
-/// lets the table hold both, and the caller propagates whatever it gets.
-type Store = fn(&mut Parser, String) -> Result<(), CommandError>;
-
-/// Return the store for `argument`, or None when it takes no separated value.
-fn separated_option(argument: &str) -> Option<Store> {
-    match argument {
-        "--output-format" => Some(|_, value| check_output_format(&value)),
-        "-p" | "--package" => Some(|parser, value| {
-            parser.push_package(value);
-            Ok(())
-        }),
-        "--harness" => Some(|parser, value| {
-            parser.push_selector(value);
-            Ok(())
-        }),
-        _ => None,
-    }
-}
-
-/// Reject any output format other than the regular one.
-fn check_output_format(format: &str) -> Result<(), CommandError> {
-    if format == "regular" {
-        return Ok(());
-    }
-    Err(CommandError::OutputFormat {
-        format: format.to_owned(),
-    })
-}
-
-/// Return the names appearing more than once in `names`, sorted.
-fn repeated(names: &[String]) -> Vec<String> {
-    let mut counts: BTreeMap<&str, usize> = BTreeMap::new();
-    for name in names {
-        *counts.entry(name.as_str()).or_default() += 1;
-    }
-    counts
-        .into_iter()
-        .filter(|(_, count)| *count > 1)
-        .map(|(name, _)| name.to_owned())
-        .collect()
+    pub(super) args: Vec<String>,
 }
