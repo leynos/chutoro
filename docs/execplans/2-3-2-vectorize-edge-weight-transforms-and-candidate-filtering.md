@@ -444,6 +444,18 @@ Timestamps are mandatory (Tolerance 8).
       implementation update with the measurement table; `docs/roadmap.md`
       ticks 2.3.2 with a one-line null result; `docs/users-guide.md` is
       untouched because no `stage` label shipped and no error wording changed.
+- [x] (2026-11-24) Milestone review and final gates. The local CodeRabbit CLI
+      review completed over the committed range and raised three minor
+      findings, all repaired and recorded in the decision log. Gates on the
+      final tree: `check-fmt`, `typecheck`, `lint` (interrogate, rustdoc,
+      Clippy, Whitaker), `markdownlint`, `nixie` and `make test-doc` pass.
+      Nextest passes 1567/1567 outside `chutoro-compile-contracts` and
+      `benchmark_smoke`, and 6/6 in the MST scenario target; `benchmark_smoke`
+      passes on its own in 1629 s of its 1800 s budget; the 21
+      compile-contract tests pass across all nine binaries in per-binary
+      invocations. A single whole-`make test` run still expires a per-test
+      budget on the host's saturated compile admission; that is issue #454's
+      gate-reliability defect, not a failure of any test in this range.
 
 ## Surprises & discoveries
 
