@@ -594,12 +594,12 @@ permitted.
   commit, and the draft pull request.
 - 2026-11-24 tolerance exception: the documentation budget in `Tolerances` was
   120 net lines across the ADR and the hypothesis-testing document. Measured
-  against the current base `ddf3be7`, the ADR adds 50 net lines and the
-  hypothesis document 115, a combined 165 lines, or 45 above the budget.
-  Earlier figures in this note were measured against the first rebase base and
-  are superseded; the review rounds account for the difference. The exception
-  is accepted because the branching instructions require both a dated ADR
-  finding and an evidence section in the hypothesis document, and the
+  with `git diff --numstat ddf3be7..HEAD` on this head, the ADR adds 50 net
+  lines and the hypothesis document 118, a combined 168 lines, or 48 above the
+  budget. Earlier figures in this note were measured at the `6729ae8` head and
+  are superseded; the final review round accounts for the difference. The
+  exception is accepted because the branching instructions require both a dated
+  ADR finding and an evidence section in the hypothesis document, and the
   measured-limit record is the deliverable the issue asks for when a design is
   bounded. No plan milestone or acceptance item was dropped to stay inside the
   budget.
