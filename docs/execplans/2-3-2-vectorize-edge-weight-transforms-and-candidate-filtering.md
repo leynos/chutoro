@@ -91,30 +91,30 @@ does not mark 2.2.8 complete or in progress.
 
 ## Inventory
 
-| Area                                                              | State     | Evidence or next action                                                         |
-| ----------------------------------------------------------------- | --------- | ------------------------------------------------------------------------------- |
-| Parallel mutual-reachability transform                            | Done      | `cpu_pipeline/mod.rs:125-135`, PR #276 (#204)                                   |
-| Redundant `EdgeHarvest::new` sort removed                         | Done      | `cpu_pipeline/mod.rs:103-111` passes the transformed `Vec` directly; PR #276    |
-| Slice entry point `parallel_kruskal_from_edges(&[CandidateEdge])` | Done      | `mst/mod.rs:324-327`; `EdgeHarvest::as_slice` at `hnsw/types.rs:340`            |
-| Ordered validation buffer, lowest-index MST error                 | Done      | `mst/mod.rs:296-321`, PR #428 (#206)                                            |
-| Allocation-free weight-group extension                            | Done      | `extend_with_accepted_edges`, `mst/mod.rs:255-267`, PR #279 (#205)              |
-| Parallel core-distance searches                                   | Done      | `compute_core_distances`, `cpu_pipeline/mod.rs:221-239`, PR #431 (#389)         |
-| Two-pool determinism and concurrent union-find tests              | Done      | `mst/property/concurrency.rs:101`, `mst/union_find.rs:225-260`, PR #225 (#201)  |
-| Non-exhaustive error-code enums                                   | Done      | `define_error_codes!` in `mst/error.rs:52-66`, PR #427 (#203)                   |
-| Users' guide MST error codes                                      | Done      | `docs/users-guide.md:531-564`, PR #434 (#207)                                   |
-| Pipeline benchmark and stage profile                              | Done      | `chutoro-benches/benches/pipeline.rs`, `pipeline-profile` feature, PR #431      |
-| Gate A on the current tree                                        | Done      | Milestone 1: 0.1640%-0.6895% at n = 10 000, so the gate fails                   |
-| Assembly inspection of scalar loops                               | Done      | Milestone 1: scalar `maxss`/`vmaxss`, no packed float max at either codegen     |
-| Exact-edge-list oracle property                                   | Done      | Milestone 2; mutation-checked against `MstEdge::Ord`                            |
-| BDD scenarios for edge preparation                                | Done      | Milestone 2: six scenarios, 6/6 passing                                         |
-| Deterministic transform lookup errors                             | Done      | Milestone 2: observed red at eight threads, then green in both pools            |
-| Dedup-before-sort                                                 | Declined  | Milestone 2: bit-keyed dedup would change the `±0.0` survivor; see decision log |
-| Gate B sub-stage instrument                                       | Declined  | Gate A failed: the ratio is below 5%, so the milestone is not entered           |
-| Packed sort record                                                | Declined  | Gate A failed: the sort-only lever cannot justify itself                        |
-| Candidate pre-filter (Filter-Kruskal)                             | Declined  | Gate A failed: the union-find walk is inside a sub-1% stage                     |
-| Fearless SIMD kernel                                              | Declined  | Gate A failed: no SIMD dependency is added                                      |
-| `fearless_simd = "1.2"`, `fearless_simd_macros = "0.1"`           | Not added | The Milestone 6 gates were not reached, so the exemption is unused              |
-| Null-result record and roadmap closure                            | Done      | Milestone 7: design §6.3 update and roadmap 2.3.2 ticked                        |
+| Area                                                              | State     | Evidence or next action                                                          |
+| ----------------------------------------------------------------- | --------- | -------------------------------------------------------------------------------- |
+| Parallel mutual-reachability transform                            | Done      | `cpu_pipeline/mod.rs:125-135`, PR #276 (#204)                                    |
+| Redundant `EdgeHarvest::new` sort removed                         | Done      | `cpu_pipeline/mod.rs:103-111` passes the transformed `Vec` directly; PR #276     |
+| Slice entry point `parallel_kruskal_from_edges(&[CandidateEdge])` | Done      | `mst/mod.rs:324-327`; `EdgeHarvest::as_slice` at `hnsw/types.rs:340`             |
+| Ordered validation buffer, lowest-index MST error                 | Done      | `mst/mod.rs:296-321`, PR #428 (#206)                                             |
+| Allocation-free weight-group extension                            | Done      | `extend_with_accepted_edges`, `mst/mod.rs:255-267`, PR #279 (#205)               |
+| Parallel core-distance searches                                   | Done      | `compute_core_distances`, `cpu_pipeline/mod.rs:221-239`, PR #431 (#389)          |
+| Two-pool determinism and concurrent union-find tests              | Done      | `mst/property/concurrency.rs:101`, `mst/union_find.rs:225-260`, PR #225 (#201)   |
+| Non-exhaustive error-code enums                                   | Done      | `define_error_codes!` in `mst/error.rs:52-66`, PR #427 (#203)                    |
+| Users' guide MST error codes                                      | Done      | `docs/users-guide.md:531-564`, PR #434 (#207)                                    |
+| Pipeline benchmark and stage profile                              | Done      | `chutoro-benches/benches/pipeline.rs`, `pipeline-profile` feature, PR #431       |
+| Gate A on the current tree                                        | Done      | Milestone 1, first measurement: 0.1640%-0.6895% at n = 10 000, so the gate fails |
+| Assembly inspection of scalar loops                               | Done      | Milestone 1: scalar `maxss`/`vmaxss`, no packed float max at either codegen      |
+| Exact-edge-list oracle property                                   | Done      | Milestone 2; mutation-checked against `MstEdge::Ord`                             |
+| BDD scenarios for edge preparation                                | Done      | Milestone 2: six scenarios, 6/6 passing                                          |
+| Deterministic transform lookup errors                             | Done      | Milestone 2: observed red at eight threads, then green in both pools             |
+| Dedup-before-sort                                                 | Declined  | Milestone 2: bit-keyed dedup would change the `±0.0` survivor; see decision log  |
+| Gate B sub-stage instrument                                       | Declined  | Gate A failed: the ratio is below 5%, so the milestone is not entered            |
+| Packed sort record                                                | Declined  | Gate A failed: the sort-only lever cannot justify itself                         |
+| Candidate pre-filter (Filter-Kruskal)                             | Declined  | Gate A failed: the union-find walk is inside a sub-1% stage                      |
+| Fearless SIMD kernel                                              | Declined  | Gate A failed: no SIMD dependency is added                                       |
+| `fearless_simd = "1.2"`, `fearless_simd_macros = "0.1"`           | Not added | The Milestone 6 gates were not reached, so the exemption is unused               |
+| Null-result record and roadmap closure                            | Done      | Milestone 7: design §6.3 update and roadmap 2.3.2 ticked                         |
 
 _Table 3: Completed, outstanding, gated and remaining work. Paths are relative
 to `chutoro-core/src/` unless shown otherwise._
@@ -747,14 +747,15 @@ n = 10 000. That is an expectation for Milestone 1, not its outcome.
   3. **The plan record was stale in three places.** Valid: the inventory still
      said "Remaining" for delivered work, no measurement SHA was recorded, and
      the `n = 1000` median was absent. The inventory is reconciled, Gate A now
-     names `7368d8d` as the measured head with the reason the result stands for
-     later heads, and the design table carries both size medians.
+     records `7368d8d` as the head of the first measurement and `4e96416` as the
+     head of the separate re-measurement, and the design table carries both size
+     medians.
 
   The same reply asked for the literal `make test` command's evidence gap to be
   stated or closed. It is stated in the Progress entry: the local command stops
   in its own nextest setup script under this host's queue, every test it would
-  run has been executed in partitions, and the hosted `build-test` suite on
-  this head passes 1634 tests plus the doctest step.
+  run has been executed in partitions, and the hosted `build-test` suite for
+  head `42f9e8c` passed 1634 tests plus the doctest step.
 
 - Decision (2026-11-23): **dedup-before-sort is declined.** The three
   Milestone 2 conditions do not all hold. The dedup key the milestone names is
@@ -775,7 +776,7 @@ n = 10 000. That is an expectation for Milestone 1, not its outcome.
   beside the roadmap item and continuing with the applicable remaining work,
   which is Milestone 2 and Milestone 7. Open questions Q1 and Q2 close as moot,
   as the 2026-11-23 authorization decision provided. Confirmed on 2026-11-25 by
-  a re-measurement at the final head, `4e96416`, whose ratios are 0.0512% to
+  a re-measurement at the measured head, `4e96416`, whose ratios are 0.0512% to
   0.3024% at the decision size: Milestone 2's change to the transform's
   collection was a production change to a timed stage, so the first measurement
   was not transferred to later heads without being repeated.
