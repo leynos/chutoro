@@ -2791,9 +2791,13 @@ only covers the version its own manifest pins, a matching `PROVER_TOOLS_SOURCE`
 bump.
 
 The two minimum-spanning-tree (MST) harnesses are fast-tier proofs and run in
-`make kani`. The full tier remains the package-wide sweep across every declared
-harness, including the distance and HNSW invariant proofs that are not in the
-fast list.
+`make kani`. The base-layer connectivity healing proof,
+`verify_base_layer_healing_links_isolated_node_2_nodes`, is fast-tier too: it
+drives the production `ConnectivityHealer::ensure_base_connectivity` on a
+concrete two-node graph and asserts the exact reciprocal base lists. It
+verifies in about ten seconds on the measurement host. The full tier remains
+the package-wide sweep across every declared harness, including the distance
+and HNSW invariant proofs that are not in the fast list.
 
 What the HNSW harnesses prove is bounded. The graph-structure obligations FV04
 and FV08 model graph state — adjacency, reciprocity, level membership, and the
@@ -2831,6 +2835,14 @@ removed-edge reconciliation, and deferred scrubs in one formula was intractable
 even on a two-node graph, while per-call proofs of `ensure_reverse_edge` verify
 in about a minute.
 
+The healer proof measures the same cliff. An all-concrete two-node harness
+verifies in about ten seconds with no aborted paths, while a three-node probe
+that also added one symbolic boolean for an optional spare neighbour and raised
+the unwind bound exceeded ten minutes of solving with more than six thousand
+aborted paths. The probe changed three factors together, so it does not
+separate their effects; it establishes that the tested wider configuration is
+not fast-tier material, and the concrete fixture remains the retained proof.
+
 Harness construction must avoid panic-capable paths such as `.expect(...)` and
 production errors that build messages with `format!` before an invariant
 assertion. Prefer
@@ -2862,7 +2874,10 @@ Standard hash collections must not appear on any Kani-reachable path. The
 default `HashMap`/`HashSet` hasher seeds symbolic SipHash state that makes even
 fully deterministic harnesses intractable. Substitute a bounded linear-scan
 structure under `#[cfg(kani)]`, as `ConnectivityHealer`'s visited set does in
-`chutoro-core/src/hnsw/insert/connectivity.rs`.
+`chutoro-core/src/hnsw/insert/connectivity.rs`. That substitute's insertion
+semantics are pinned by `rstest` equivalence cases, and the concrete two-node
+healing path itself is now proved by the fast-tier harness above; the
+substitute remains in use because the proof drives it.
 
 Keep each `#[kani::unwind(N)]` bound as tight as the harness permits; do not
 increase a default bound to compensate for proof cost. For a demonstrably slow
@@ -3558,11 +3573,11 @@ repository different amounts at review time. The distinction that matters is
 not which tool is stronger but what each one actually checks and what runs
 before a merge.
 
-| Tool       | CI execution                                                                                                                  | Proof selection                                                | Standing pull-request cost                                                                             | What it checks                                           |
-| ---------- | ----------------------------------------------------------------------------------------------------------------------------- | -------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------ | -------------------------------------------------------- |
-| Verus      | Every pull request (`ci.yml`, no path filter)                                                                                 | Default `VERUS_PROOF_FILES` roots in the `Makefile`            | `verus-proofs` job runtime on every pull request; elapsed impact only while it is on the critical path | A specification model transcribed from production logic  |
-| Kani       | Path-filtered pull requests to `main` (`kani-pr.yml`); nightly full suite                                                     | Six harnesses in `make kani`; package list in `make kani-full` | Only when a path filter matches                                                                        | Executable Rust under `cfg(kani)`, within harness bounds |
-| `proptest` | Every pull request through the `build-test` coverage run; extra path-filtered suites in `property-tests.yml`; weekly deep run | Test targets in the property suites                            | Always, within the existing test run; extra cases only when a path filter matches                      | Shipped code at realistic sizes                          |
+| Tool       | CI execution                                                                                                                  | Proof selection                                                  | Standing pull-request cost                                                                             | What it checks                                           |
+| ---------- | ----------------------------------------------------------------------------------------------------------------------------- | ---------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------ | -------------------------------------------------------- |
+| Verus      | Every pull request (`ci.yml`, no path filter)                                                                                 | Default `VERUS_PROOF_FILES` roots in the `Makefile`              | `verus-proofs` job runtime on every pull request; elapsed impact only while it is on the critical path | A specification model transcribed from production logic  |
+| Kani       | Path-filtered pull requests to `main` (`kani-pr.yml`); nightly full suite                                                     | Seven harnesses in `make kani`; package list in `make kani-full` | Only when a path filter matches                                                                        | Executable Rust under `cfg(kani)`, within harness bounds |
+| `proptest` | Every pull request through the `build-test` coverage run; extra path-filtered suites in `property-tests.yml`; weekly deep run | Test targets in the property suites                              | Always, within the existing test run; extra cases only when a path filter matches                      | Shipped code at realistic sizes                          |
 
 *Table 1: Verification tools, what each checks, and what it costs at review
 time.*
@@ -3577,17 +3592,17 @@ past the longest parallel job. The `.verus` cache reduces the installation cost
 but does not remove it: a cache miss downloads and verifies the pinned release
 again.
 
-Kani is narrower. `make kani` runs six curated harnesses, and the path-filtered
-`kani-pr.yml` workflow runs it only for pull requests to `main` that touch a
-harness, its production module, the `Makefile` or the Cargo dependency graph. A
-new harness reaches that configured check only if it matches a path filter and
-is named in the `make kani` list. Otherwise it runs only in the nightly
-`make kani-full` sweep, and only if its package is in that target's package
-list; the dataset crate is not. The nightly job can also skip with a green
-result when its commit-recency gate finds no recent `main` commits. A
-successful harness explores every reachable path within its unwind bound and
-stated assumptions, so its result is bounded and conditional rather than a
-general proof; incomplete unwinding leaves the property unproved. See
+Kani is narrower. `make kani` runs seven curated harnesses, and the
+path-filtered `kani-pr.yml` workflow runs it only for pull requests to `main`
+that touch a harness, its production module, the `Makefile` or the Cargo
+dependency graph. A new harness reaches that configured check only if it
+matches a path filter and is named in the `make kani` list. Otherwise it runs
+only in the nightly `make kani-full` sweep, and only if its package is in that
+target's package list; the dataset crate is not. The nightly job can also skip
+with a green result when its commit-recency gate finds no recent `main`
+commits. A successful harness explores every reachable path within its unwind
+bound and stated assumptions, so its result is bounded and conditional rather
+than a general proof; incomplete unwinding leaves the property unproved. See
 [Kani CI policy](#kani-ci-policy) for the tier details.
 
 `proptest` runs on every pull request as well, because `build-test` runs the

@@ -125,6 +125,9 @@ open each document.
     execplans/2-2-7-kani-harnesses-for-tail-padding-and-dispatch-selection.md)
   - [2-3-1 HNSW neighbour evaluation using packed
     indices](execplans/2-3-1-hnsw-neighbour-evaluation-using-packed-indices.md)
+  - [Issue 255 tractable Kani coverage for connectivity
+    healing](execplans/issue-255-investigate-tractable-kani-coverage-for-connectivityhealer-base-layer-healing.md):
+    investigation and proof of the base-layer healing path.
   - [Phase 1 bounded Kani harness](execplans/phase-1-bounded-kani-harness.md)
   - [Phase 1 candidate edge harvest property suite](
     execplans/phase-1-candidate-edge-harvest-property-suite.md)
