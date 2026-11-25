@@ -103,7 +103,7 @@ does not mark 2.2.8 complete or in progress.
 | Non-exhaustive error-code enums                                   | Done      | `define_error_codes!` in `mst/error.rs:52-66`, PR #427 (#203)                    |
 | Users' guide MST error codes                                      | Done      | `docs/users-guide.md:531-564`, PR #434 (#207)                                    |
 | Pipeline benchmark and stage profile                              | Done      | `chutoro-benches/benches/pipeline.rs`, `pipeline-profile` feature, PR #431       |
-| Gate A on the current tree                                        | Done      | Milestone 1, first measurement: 0.1640%-0.6895% at n = 10 000, so the gate fails |
+| Gate A measurements                                               | Done      | Milestone 1, first measurement: 0.1640%-0.6895% at n = 10 000, so the gate fails |
 | Assembly inspection of scalar loops                               | Done      | Milestone 1: scalar `maxss`/`vmaxss`, no packed float max at either codegen      |
 | Exact-edge-list oracle property                                   | Done      | Milestone 2; mutation-checked against `MstEdge::Ord`                             |
 | BDD scenarios for edge preparation                                | Done      | Milestone 2: six scenarios, 6/6 passing                                          |
