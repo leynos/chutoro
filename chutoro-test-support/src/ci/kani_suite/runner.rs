@@ -278,22 +278,15 @@ impl Parser {
         index: usize,
         argument: &str,
     ) -> Result<usize, CommandError> {
-        let (records, store): (bool, fn(&mut Self, String)) = match argument {
-            "--output-format" => (false, |_, _| {}),
-            "-p" | "--package" => (true, Self::push_package),
-            "--harness" => (true, Self::push_selector),
-            _ => return Ok(index + 1),
+        let Some(store) = separated_option(argument) else {
+            return Ok(index + 1);
         };
-        let Some(value) = args.get(index + 1) else {
+        let Some(value) = args.get(index + 1).cloned() else {
             return Err(CommandError::MissingValue {
                 flag: argument.to_owned(),
             });
         };
-        if !records {
-            check_output_format(value)?;
-        } else {
-            store(self, value.clone());
-        }
+        store(self, value)?;
         Ok(index + 2)
     }
 
@@ -302,22 +295,22 @@ impl Parser {
         if let Some(value) = argument.strip_prefix("--output-format=") {
             check_output_format(value)?;
         } else if let Some(value) = argument.strip_prefix("--harness=") {
-            self.push_selector(value.to_owned());
+            self.selectors.push(value.to_owned());
         } else if let Some(value) = argument
             .strip_prefix("-p=")
             .or_else(|| argument.strip_prefix("--package="))
         {
-            self.push_package(value.to_owned());
+            self.packages.push(value.to_owned());
         }
         Ok(())
     }
 
-    /// Record one selected package.
+    /// Record one package.
     fn push_package(&mut self, package: String) {
         self.packages.push(package);
     }
 
-    /// Record one selected harness.
+    /// Record one harness selector.
     fn push_selector(&mut self, selector: String) {
         self.selectors.push(selector);
     }
@@ -347,6 +340,36 @@ impl Parser {
             package: package.to_owned(),
             selectors: self.selectors,
         })
+    }
+}
+
+/// One option's store, or None when the option is not one this handles.
+///
+/// The options that take a value in the following argument are exactly the
+/// three here: the output format, checked rather than stored, and the package
+/// and harness selectors, which are recorded. Naming them in one place keeps
+/// the separated and attached spellings from disagreeing about which options
+/// exist.
+/// One option's store, or None when the option is not one this handles.
+///
+/// The output format is checked rather than stored, so every store returns a
+/// `Result` even where recording cannot fail: one uniform signature is what
+/// lets the table hold both, and the caller propagates whatever it gets.
+type Store = fn(&mut Parser, String) -> Result<(), CommandError>;
+
+/// Return the store for `argument`, or None when it takes no separated value.
+fn separated_option(argument: &str) -> Option<Store> {
+    match argument {
+        "--output-format" => Some(|_, value| check_output_format(&value)),
+        "-p" | "--package" => Some(|parser, value| {
+            parser.push_package(value);
+            Ok(())
+        }),
+        "--harness" => Some(|parser, value| {
+            parser.push_selector(value);
+            Ok(())
+        }),
+        _ => None,
     }
 }
 

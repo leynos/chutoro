@@ -218,44 +218,63 @@ fn set_executable(path: &Path) -> Result<(), FixtureError> {
 }
 
 /// A case with the default fixture.
+///
+/// The fixture returns a `Result`, as the repository's other fallible fixtures
+/// do, and each `#[rstest]` body propagates it with `?`. That keeps setup
+/// failure out of the fixture, where neither `expect_used` nor a panicking
+/// fallback is permitted.
 #[fixture]
-fn case() -> Case {
-    Case::create("default").expect("the checker fixture must be prepared")
+fn case() -> Result<Case, FixtureError> {
+    Case::create("default")
 }
 
-/// Assert the checker failed and its diagnostics name `needle`.
-fn assert_rejected(output: &std::process::Output, needle: &str) {
-    assert!(
-        !output.status.success(),
-        "expected failure, got success: {}",
-        String::from_utf8_lossy(&output.stdout)
-    );
+/// Require the checker to have failed, naming `needle` in its diagnostics.
+///
+/// A `Result` rather than asserts, so the `#[rstest]` bodies can return it:
+/// a `panic_in_result_fn` denial applies to any test that propagates a
+/// fixture, and the checks belong beside the behaviour they describe rather
+/// than in a panicking helper.
+fn rejected(output: &std::process::Output, needle: &str) -> Result<(), String> {
+    if output.status.success() {
+        return Err(format!(
+            "expected failure, got success: {}",
+            String::from_utf8_lossy(&output.stdout)
+        ));
+    }
     let stderr = String::from_utf8_lossy(&output.stderr);
-    assert!(
-        stderr.contains(needle),
-        "expected the diagnostic to name {needle:?}, got {stderr}"
-    );
+    if !stderr.contains(needle) {
+        return Err(format!(
+            "expected the diagnostic to name {needle:?}, got {stderr}"
+        ));
+    }
+    Ok(())
+}
+
+/// Require the checker to have succeeded, with a `needle` in its output.
+fn accepted(output: &std::process::Output, needle: &str) -> Result<(), String> {
+    if !output.status.success() {
+        return Err(format!(
+            "expected success, got {}",
+            String::from_utf8_lossy(&output.stderr)
+        ));
+    }
+    let stdout = String::from_utf8_lossy(&output.stdout);
+    if !stdout.contains(needle) {
+        return Err(format!("expected {needle:?} in the output, got {stdout}"));
+    }
+    Ok(())
 }
 
 #[rstest]
-fn accepts_an_exact_successful_run(case: Case) {
-    let output = case
+fn accepts_an_exact_successful_run(case: Result<Case, FixtureError>) -> Result<(), String> {
+    let fixture = case.map_err(|error| error.to_string())?;
+    let output = fixture
         .run(&[], &["proofs::verify_one"], &[])
-        .expect("the checker must run");
-    assert!(
-        output.status.success(),
-        "expected success, got {}",
-        String::from_utf8_lossy(&output.stderr)
-    );
-    let stdout = String::from_utf8_lossy(&output.stdout);
-    assert!(
-        stdout.contains("verified 1 harness(es) for fixture (fast)"),
-        "expected the checker's summary, got {stdout}"
-    );
-    assert!(
-        stdout.contains(&format!("Kani Rust Verifier {}", VERSION.trim())),
-        "the delegated verifier's banner must be streamed: {stdout}"
-    );
+        .map_err(|error| error.to_string())?;
+    accepted(&output, "verified 1 harness(es) for fixture (fast)")?;
+    // The delegated verifier's own banner proves the run was streamed, not
+    // merely parsed from a captured file.
+    accepted(&output, &format!("Kani Rust Verifier {}", VERSION.trim()))
 }
 
 /// One rejection case: what the fake prints, and the diagnostic it must earn.
@@ -301,74 +320,88 @@ struct Rejection {
     needle: "carries no manual harness summary",
 })]
 /// Every way a run can fail the expected set is reported as its own defect.
-fn rejects_a_run_that_does_not_match_the_expected_set(case: Case, #[case] rejection: Rejection) {
-    let output = case
+fn rejects_a_run_that_does_not_match_the_expected_set(
+    case: Result<Case, FixtureError>,
+    #[case] rejection: Rejection,
+) -> Result<(), String> {
+    let fixture = case.map_err(|error| error.to_string())?;
+    let output = fixture
         .run(
             &[],
             rejection.selectors,
             &[("FAKE_KANI_MODE", rejection.mode)],
         )
-        .expect("the checker must run");
-    assert_rejected(&output, rejection.needle);
+        .map_err(|error| error.to_string())?;
+    rejected(&output, rejection.needle)
 }
 
 #[rstest]
-fn propagates_a_nonzero_delegated_status(case: Case) {
-    let output = case
+fn propagates_a_nonzero_delegated_status(case: Result<Case, FixtureError>) -> Result<(), String> {
+    let fixture = case.map_err(|error| error.to_string())?;
+    let output = fixture
         .run(
             &[],
             &["proofs::verify_one"],
             &[("FAKE_KANI_MODE", "silent"), ("FAKE_KANI_STATUS", "7")],
         )
-        .expect("the checker must run");
-    assert_rejected(&output, "failed with exit status: 7");
+        .map_err(|error| error.to_string())?;
+    rejected(&output, "failed with exit status: 7")
 }
 
 #[rstest]
-fn rejects_a_quiet_run_before_starting_it(case: Case) {
-    let marker = case.directory.join("invoked");
-    let output = case
+fn rejects_a_quiet_run_before_starting_it(case: Result<Case, FixtureError>) -> Result<(), String> {
+    let fixture = case.map_err(|error| error.to_string())?;
+    let marker = fixture.directory.join("invoked");
+    let output = fixture
         .run(
             &["--quiet"],
             &["proofs::verify_one"],
             &[("FAKE_KANI_MARKER", &marker.to_string_lossy())],
         )
-        .expect("the checker must run");
-    assert_rejected(&output, "--quiet");
-    assert!(
-        !marker.exists(),
-        "the checker must refuse the command before running it"
-    );
+        .map_err(|error| error.to_string())?;
+    rejected(&output, "--quiet")?;
+    if marker.exists() {
+        return Err(String::from(
+            "the checker must refuse the command before running it",
+        ));
+    }
+    Ok(())
 }
 
 #[rstest]
-fn rejects_a_selector_outside_the_manifest_scope(case: Case) {
-    let output = case
+fn rejects_a_selector_outside_the_manifest_scope(
+    case: Result<Case, FixtureError>,
+) -> Result<(), String> {
+    let fixture = case.map_err(|error| error.to_string())?;
+    let output = fixture
         .run(&[], &["proofs::verify_unlisted"], &[])
-        .expect("the checker must run");
-    assert_rejected(&output, "outside the fast scope");
+        .map_err(|error| error.to_string())?;
+    rejected(&output, "outside the fast scope")
 }
 
 #[rstest]
-fn applies_a_leading_assignment_to_the_delegated_process(case: Case) {
-    let output = case
+fn applies_a_leading_assignment_to_the_delegated_process(
+    case: Result<Case, FixtureError>,
+) -> Result<(), String> {
+    let fixture = case.map_err(|error| error.to_string())?;
+    let output = fixture
         .run(
             &[],
             &["proofs::verify_one", "proofs::verify_two"],
             &[("FAKE_KANI_MODE", "two")],
         )
-        .expect("the checker must run");
-    assert!(
-        output.status.success(),
-        "expected the delegated environment assignment to select the two-harness \
-         output, got {}",
-        String::from_utf8_lossy(&output.stderr)
-    );
+        .map_err(|error| error.to_string())?;
+    // The assignment selects the two-harness output, so a checker that failed
+    // to pass it would report a missing harness instead.
+    accepted(&output, "verified 2 harness(es) for fixture (fast)")
 }
 
 #[rstest]
-fn rejects_a_command_that_selects_another_package(case: Case) {
-    let manifest = case.manifest.to_string_lossy().into_owned();
+fn rejects_a_command_that_selects_another_package(
+    case: Result<Case, FixtureError>,
+) -> Result<(), String> {
+    let fixture = case.map_err(|error| error.to_string())?;
+    let manifest = fixture.manifest.to_string_lossy().into_owned();
     let raw = Command::new(env!("CARGO_BIN_EXE_kani_suite"))
         .args([
             "--manifest",
@@ -379,7 +412,7 @@ fn rejects_a_command_that_selects_another_package(case: Case) {
             "fast",
             "--",
         ])
-        .arg(&case.verifier)
+        .arg(&fixture.verifier)
         .args([
             "kani",
             "-p",
@@ -390,6 +423,6 @@ fn rejects_a_command_that_selects_another_package(case: Case) {
             "proofs::verify_one",
         ])
         .output();
-    let output = raw.expect("the checker must run");
-    assert_rejected(&output, "must select exactly package");
+    let output = raw.map_err(|error| error.to_string())?;
+    rejected(&output, "must select exactly package")
 }
