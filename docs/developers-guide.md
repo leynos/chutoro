@@ -3848,12 +3848,11 @@ repository different amounts at review time. The distinction that matters is
 not which tool is stronger but what each one actually checks and what runs
 before a merge.
 
-| Tool       | CI execution                                                                                                                  | Proof selection                                                     | Standing pull-request cost                                                                             | What it checks                                           |
-| ---------- | ----------------------------------------------------------------------------------------------------------------------------- | ------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------ | -------------------------------------------------------- |
-| Verus      | Every pull request (`ci.yml`, no path filter)                                                                                 | Default `VERUS_PROOF_FILES` roots in the `Makefile`                 | `verus-proofs` job runtime on every pull request; elapsed impact only while it is on the critical path | A specification model transcribed from production logic  |
-| Kani       | Every pull request to `main` (`kani-pr.yml`, no path filter); nightly full suite                                               | `tools/kani/harnesses.toml` tiers; seven harnesses in `make kani`    | `kani` job runtime on every pull request; elapsed impact only while it is on the critical path         | Executable Rust under `cfg(kani)`, within harness bounds |
-| `proptest` | Every pull request through the `build-test` coverage run; extra path-filtered suites in `property-tests.yml`; weekly deep run | Test targets in the property suites                                 | Always, within the existing test run; extra cases only when a path filter matches                      | Shipped code at realistic sizes                          |
-
+| Tool       | CI execution                                                                                                                  | Proof selection                                                   | Standing pull-request cost                                                                             | What it checks                                           |
+| ---------- | ----------------------------------------------------------------------------------------------------------------------------- | ----------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------ | -------------------------------------------------------- |
+| Verus      | Every pull request (`ci.yml`, no path filter)                                                                                 | Default `VERUS_PROOF_FILES` roots in the `Makefile`               | `verus-proofs` job runtime on every pull request; elapsed impact only while it is on the critical path | A specification model transcribed from production logic  |
+| Kani       | Every pull request to `main` (`kani-pr.yml`, no path filter); nightly full suite                                              | `tools/kani/harnesses.toml` tiers; seven harnesses in `make kani` | `kani` job runtime on every pull request; elapsed impact only while it is on the critical path         | Executable Rust under `cfg(kani)`, within harness bounds |
+| `proptest` | Every pull request through the `build-test` coverage run; extra path-filtered suites in `property-tests.yml`; weekly deep run | Test targets in the property suites                               | Always, within the existing test run; extra cases only when a path filter matches                      | Shipped code at realistic sizes                          |
 
 *Table 1: Verification tools, what each checks, and what it costs at review
 time.*
@@ -3904,8 +3903,6 @@ explores every reachable path within its unwind bound and stated assumptions,
 so its result is bounded and conditional rather than a general proof;
 incomplete unwinding leaves the property unproved. See
 [Kani CI policy](#kani-ci-policy) for the tier details.
-
-
 
 `proptest` runs on every pull request as well, because `build-test` runs the
 whole nextest suite under coverage. The path-filtered `property-tests.yml`
