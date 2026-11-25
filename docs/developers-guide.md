@@ -2992,9 +2992,13 @@ To add a proof:
 1. Declare it under `#[kani::proof]` beside the code it verifies, and decide
    its tier: fast only if it completes quickly enough for every pull request.
 2. Add its package, qualified path and tier to `tools/kani/harnesses.toml`.
-3. Add its qualified selector to the `kani:` target when it is fast-tier; a
-   full-tier proof needs no Makefile change, because `kani-full` sweeps the
-   package.
+3. Add its qualified selector to the `kani:` target when it is fast-tier. A
+   full-tier proof needs no selector, but it does need its package in the
+   `kani-full:` recipe: that target names `chutoro-core` and
+   `chutoro-providers-dense` explicitly, so a proof in any other package needs
+   a sweep entry there as well as its manifest entry. The workflow contract
+   requires the target to sweep exactly the manifest's packages, so the
+   omission fails the build rather than silently leaving the proof unrun.
 4. Run `make test-workflow-contracts` and `make kani`.
 
 ### Installing Kani
@@ -3900,6 +3904,7 @@ explores every reachable path within its unwind bound and stated assumptions,
 so its result is bounded and conditional rather than a general proof;
 incomplete unwinding leaves the property unproved. See
 [Kani CI policy](#kani-ci-policy) for the tier details.
+
 
 
 `proptest` runs on every pull request as well, because `build-test` runs the

@@ -33,7 +33,7 @@ impl Parser {
         };
         if let Some((flag, reason)) = FORBIDDEN_FLAGS
             .iter()
-            .find(|(flag, _)| argument == flag || argument.starts_with(&format!("{flag}=")))
+            .find(|(flag, _)| matches_forbidden(argument, flag))
         {
             return Err(CommandError::Forbidden {
                 flag: (*flag).to_owned(),
@@ -130,6 +130,25 @@ impl Parser {
             selectors: self.selectors,
         })
     }
+}
+
+/// Report whether `argument` spells the refused option `flag`.
+///
+/// `--jobs 4`, `--jobs=4` and `-j4` are one option in three spellings, and a
+/// short option takes its value attached without a separator. Matching only
+/// the exact flag and its `=` form would let `-j4` reach the child and
+/// interleave the blocks the checker reads.
+fn matches_forbidden(argument: &str, flag: &str) -> bool {
+    if argument == flag || argument.starts_with(&format!("{flag}=")) {
+        return true;
+    }
+    // A short option is one dash and one letter, so anything longer that
+    // starts with it is the option with its value attached.
+    flag.len() == 2
+        && flag.starts_with('-')
+        && !flag.starts_with("--")
+        && argument.starts_with(flag)
+        && argument.len() > flag.len()
 }
 
 /// One option's store, or None when the option is not one this handles.

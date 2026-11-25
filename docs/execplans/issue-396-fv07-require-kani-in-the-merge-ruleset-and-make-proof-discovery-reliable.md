@@ -185,6 +185,22 @@ issue text and the repository's documentation are the authority.
       messages; and the draft keeps Kani's enforcement explicitly pending.
       Whitaker then caught the runner module at 405 lines from the `+toolchain`
       addition, so its argument walk moved to `parser.rs`.
+- [x] Fourth CodeRabbit review, all 10 findings actioned, and every one is a
+      real gap. The reader now reads attributes by offset rather than by line,
+      so `#[path = "x"] mod m;` on one line and a `#[path]` spread over three
+      lines are both attached; it stops the walk at a brace, so an enclosing
+      inline module's attribute cannot leak to its first child; it applies an
+      inline module's own `#[path]` to its children's directory, as Rust does;
+      it discovers packages whose library lives at an explicit `[lib] path`;
+      and the repeated-source report now fires only for proof-bearing files, so
+      a shared test-only source is not a false positive. Four regression tests
+      cover the reader. The checker refuses `-j4` as well as `-j`, the recipe
+      reading rejects `|| true # comment`, the fixture owns its directory
+      before the first fallible write, and the Makefile clears
+      `CARGO_BUILD_TARGET` for the checker build so a configured triple cannot
+      leave the proofs running a path Cargo never wrote. The guide no longer
+      calls Kani "equally enforced" and states that a full-tier proof outside
+      the two named packages needs a `kani-full` sweep entry.
 - [ ] Push the branch and create the draft pull request.
 
 ## Surprises & discoveries

@@ -421,6 +421,102 @@ def test_reader_resolves_a_path_loaded_module_children_beside_it(
     assert _kinds(inventory) == [], f"expected no reports, got {inventory.unresolved!r}"
 
 
+def test_reader_applies_an_inline_module_path_attribute(
+    tmp_path: Path,
+) -> None:
+    """An inline module's ``#[path]`` renames the directory its children use.
+
+    For ``#[path = "thread_files"] mod thread { #[path = "tls.rs"] mod
+    local_data; }`` Rust loads ``thread_files/tls.rs``, while the harness
+    identity stays ``thread::local_data::...``. Reading the child from
+    ``thread/tls.rs`` would miss a valid proof or read the wrong file.
+    """
+    (_write_package(tmp_path, ""))
+    crate_root = _write_package(
+        tmp_path,
+        '#[path = "thread_files"]\nmod thread {\n    #[path = "tls.rs"]\n'
+        "    mod local_data;\n}\n",
+        name="other",
+    )
+    directory = crate_root.parent / "thread_files"
+    directory.mkdir()
+    (directory / "tls.rs").write_text(
+        "#[kani::proof]\nfn verify_tls() {}\n", encoding="utf-8"
+    )
+    inventory = discover(tmp_path)
+    names = _names(inventory)
+    assert names == ["thread::local_data::verify_tls"], (
+        f"the inline #[path] must name the child's directory, got {names!r}"
+    )
+
+
+def test_reader_finds_a_proof_in_a_package_with_an_explicit_lib_path(
+    tmp_path: Path,
+) -> None:
+    """A package whose library lives outside ``src/`` is still read.
+
+    Cargo honours ``[lib] path``, so the package compiles a proof that a
+    ``src/lib.rs``-only sweep never looks for. Skipping it would omit the
+    declaration without a report.
+    """
+    directory = tmp_path / "explicit"
+    (directory / "proofs").mkdir(parents=True)
+    (directory / "Cargo.toml").write_text(
+        '[package]\nname = "explicit"\nversion = "0.1.0"\n\n'
+        '[lib]\npath = "proofs/root.rs"\n',
+        encoding="utf-8",
+    )
+    (directory / "proofs" / "root.rs").write_text(
+        "#[kani::proof]\nfn verify_explicit() {}\n", encoding="utf-8"
+    )
+    inventory = discover(tmp_path)
+    names = _names(inventory)
+    assert names == ["verify_explicit"], (
+        f"the explicitly pathed library root must be read, got {names!r}"
+    )
+
+
+def test_reader_reads_a_multiline_path_attribute(tmp_path: Path) -> None:
+    """A ``#[path]`` spread over lines still names the file it wraps.
+
+    Rust permits the value to sit on its own line. A reader that stopped at the
+    closing bracket's line would lose the value and treat an ordinary module as
+    if it had no path at all.
+    """
+    crate_root = _write_package(
+        tmp_path,
+        '#[path =\n    "elsewhere.rs"\n]\nmod proofs;\n',
+    )
+    (crate_root.parent / "elsewhere.rs").write_text(
+        "#[kani::proof]\nfn verify_moved() {}\n", encoding="utf-8"
+    )
+    names = _names(discover(tmp_path))
+    assert names == ["proofs::verify_moved"], (
+        f"the multiline #[path] must be read, got {names!r}"
+    )
+
+
+def test_reader_finds_a_module_declared_after_a_same_line_attribute(
+    tmp_path: Path,
+) -> None:
+    """``#[path = "elsewhere.rs"] mod proofs;`` declares ``proofs``.
+
+    The attribute and the declaration share a line, so a pattern anchored at
+    the line start finds neither. The module is ordinary Rust and its proof
+    must be discovered.
+    """
+    crate_root = _write_package(
+        tmp_path, '#[path = "elsewhere.rs"] mod proofs;\n'
+    )
+    (crate_root.parent / "elsewhere.rs").write_text(
+        "#[kani::proof]\nfn verify_same_line() {}\n", encoding="utf-8"
+    )
+    names = _names(discover(tmp_path))
+    assert names == ["proofs::verify_same_line"], (
+        f"a same-line attribute must not hide the declaration, got {names!r}"
+    )
+
+
 def test_reader_keeps_a_module_file_without_a_proof_out_of_the_inventory(
     tmp_path: Path,
 ) -> None:

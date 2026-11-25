@@ -47,10 +47,17 @@ _ATTRIBUTE_PATH = re.compile(r"^#\[\s*(?P<path>[A-Za-z_][A-Za-z0-9_:]*)")
 #: A module declaration. ``mod name;`` names a file; ``mod name {`` opens an
 #: inline module. A visibility qualifier and indentation are both ordinary, and
 #: ``pub(crate)`` is matched without treating its parenthesis as indentation.
+#:
+#: The match starts at the ``mod`` keyword rather than at a line start, because
+#: an attribute on the same line is ordinary Rust:
+#: ``#[path = "alternate.rs"] mod first;`` declares ``first`` exactly as the
+#: two-line spelling does, and a line-anchored pattern finds nothing there.
+#:
+#: A word boundary keeps ``model`` and ``modular`` out. Comments and literals
+#: are blanked before this runs, so a mention in either has already gone.
 _MOD_ITEM = re.compile(
-    r"^[ \t]*(?:pub(?:\([^)]*\))?[ \t]+)?mod[ \t]+"
-    r"(?P<name>[A-Za-z_][A-Za-z0-9_]*)[ \t]*(?P<terminator>[;{])",
-    re.MULTILINE,
+    r"(?<![A-Za-z0-9_])mod[ \t]+"
+    r"(?P<name>[A-Za-z_][A-Za-z0-9_]*)[ \t]*(?P<terminator>[;{])"
 )
 
 #: The ``#[path = "..."]`` attribute on a module declaration. Only a plain
@@ -209,28 +216,127 @@ def _module_chain(
     )
 
 
+def _attribute_start(text: str, end: int) -> int | None:
+    """Return the offset of the ``#[`` opening the attribute ending at `end`.
+
+    The closing bracket is matched by counting backwards, so an attribute whose
+    body contains brackets -- a ``cfg_attr``, or a path value with one -- is
+    read whole rather than truncated at its first ``]``.
+    """
+    depth = 0
+    for offset in range(end - 1, -1, -1):
+        character = text[offset]
+        if character == "]":
+            depth += 1
+            continue
+        if character != "[":
+            continue
+        depth -= 1
+        # The depth reaching zero at a ``[`` is the bracket that opened the
+        # attribute; the ``#`` immediately before it is the attribute's sigil.
+        if depth == 0 and offset > 0 and text[offset - 1] == "#":
+            return offset - 1
+    return None
+
+
 def _attached_attributes(declarations: str, start: int) -> str:
     """Return the attributes attached to the item declared at `start`.
 
-    `_attributes_before` returns every preceding line, so joining all of it
-    would let a `#[path]` on an earlier item be read as this one's: after
-    `#[path = "alternate.rs"] mod first;`, an ordinary `mod second;` would
-    inherit `alternate.rs`, its real file would be reported unreachable, and a
-    valid module tree would fail the manifest contract.
+    Attributes are found by working backwards from the declaration, so an
+    attribute on the same line and one spread over several lines are both read.
+    A line-based walk fails both: it sees ``#[path = "x.rs"] mod first;`` as
+    code because the line does not start with ``#[``, and it stops at the first
+    continuation line of a multi-line attribute.
 
-    The walk therefore stops at the first preceding line that is not an
-    attribute or a blank line, which is the previous item's own code. Literals
-    are preserved in `declarations`, so the `#[path]` value survives.
+    The walk stops at the first non-whitespace that is not the end of an
+    attribute, which is the previous item's own code. Reading further would let
+    a `#[path]` on an earlier item be attached to this one, and a valid module
+    tree would fail the manifest contract.
+
+    A brace ends the walk too, because it separates items rather than
+    decorating one. Without that stop, the closing brace of an enclosing inline
+    module would be skipped and that module's `#[path]` adopted by its first
+    child -- which is how ``#[path = "dir"] mod outer { #[path = "x.rs"] mod
+    inner; }`` would give ``inner`` the directory meant for ``outer``.
     """
     attached: list[str] = []
-    for line in reversed(declarations[:start].splitlines()):
+    position = start
+    while True:
+        while position > 0 and declarations[position - 1].isspace():
+            position -= 1
+        if position == 0 or declarations[position - 1] in "{};":
+            break
+        end = position
+        opening = _attribute_start(declarations, end)
+        if opening is None:
+            break
+        attached.insert(0, declarations[opening:end])
+        position = opening
+    return " ".join(attached)
+
+
+def _proof_attributes(code: str, start: int) -> list[str]:
+    """Return the attributes above the declaration at `start`, innermost first.
+
+    Comments and literals are already blanked in `code`, so a mention in
+    either is not an attribute. The walk stops at the first line that is not
+    an attribute: that is the previous item's code, and nothing above it
+    belongs to this declaration.
+    """
+    found: list[str] = []
+    for line in _attributes_before(code[:start]):
         stripped = line.strip()
         if not stripped:
             continue
         if not stripped.startswith("#["):
             break
-        attached.insert(0, stripped)
-    return " ".join(attached)
+        found.append(_normalised(stripped))
+    return found
+
+
+def _proof_kind(attributes: typ.Iterable[str]) -> str | None:
+    """Return what registers a function as a proof, or None.
+
+    ``proof`` covers both accepted attribute forms, ``kani::proof`` and
+    ``kani::proof_for_contract``. ``cfg-attr`` reports a proof whose existence
+    depends on configuration.
+    """
+    for attribute in attributes:
+        path = _attribute_path(attribute)
+        if path in PROOF_ATTRIBUTES:
+            return "proof"
+        if path == "cfg_attr" and any(
+            proof in attribute for proof in PROOF_ATTRIBUTES
+        ):
+            return "cfg-attr"
+    return None
+
+
+def _macro_spans(code: str, depths: list[int]) -> tuple[tuple[int, int], ...]:
+    """Return the extents of macro definition bodies in `code`."""
+    spans: list[tuple[int, int]] = []
+    for match in _MACRO_DEFINITION.finditer(code):
+        opening = match.end() - 1
+        closing = _matching_brace(code, depths, opening)
+        if closing is not None:
+            spans.append((opening, closing))
+    return tuple(spans)
+
+
+def _inside(offset: int, spans: typ.Iterable[tuple[int, int]]) -> bool:
+    """Return whether `offset` lies inside one of `spans`."""
+    return any(start <= offset < end for start, end in spans)
+
+
+def _module_chain(
+    modules: typ.Iterable[_ModuleItem], offset: int
+) -> tuple[_ModuleItem, ...]:
+    """Return the inline modules enclosing `offset`, outermost first."""
+    return tuple(
+        module
+        for module in modules
+        if module.inline and module.start < offset < module.end
+    )
 
 
 def _parse(path: Path) -> _Source | None:

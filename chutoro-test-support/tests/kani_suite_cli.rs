@@ -84,26 +84,35 @@ struct Case {
 
 impl Case {
     /// Write the fixture into a directory named after the test.
+    ///
+    /// The `Case` is built before anything is written, so a failed write still
+    /// returns a value whose `Drop` removes the partially written directory.
+    /// Building it afterwards would leak every failed setup into the temporary
+    /// directory, because no owner would exist to clean it up.
     fn create(name: &str) -> Result<Self, FixtureError> {
         let sequence = NEXT_FIXTURE.fetch_add(1, Ordering::Relaxed);
         let directory = std::env::temp_dir().join(format!(
             "chutoro-kani-suite-cli-{}-{sequence}-{name}",
             std::process::id()
         ));
-        required(
-            fs::create_dir_all(&directory),
-            "create the fixture directory",
-        )?;
         let manifest = directory.join("harnesses.toml");
-        required(fs::write(&manifest, MANIFEST), "write the fixture manifest")?;
         let verifier = directory.join("cargo-kani-fake");
-        required(fs::write(&verifier, FAKE), "write the fake verifier")?;
-        set_executable(&verifier)?;
-        Ok(Self {
+        let case = Self {
             directory,
             manifest,
             verifier,
-        })
+        };
+        required(
+            fs::create_dir_all(&case.directory),
+            "create the fixture directory",
+        )?;
+        required(
+            fs::write(&case.manifest, MANIFEST),
+            "write the fixture manifest",
+        )?;
+        required(fs::write(&case.verifier, FAKE), "write the fake verifier")?;
+        set_executable(&case.verifier)?;
+        Ok(case)
     }
 
     /// Run the checker with the supplied extra arguments and selectors.

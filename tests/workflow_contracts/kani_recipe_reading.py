@@ -81,6 +81,27 @@ PACKAGE_ARGUMENT_RE = re.compile(
 #: for the shell.
 SWALLOWING_SUFFIXES = ("|| true", "||true", "|| :", "||:")
 
+#: A shell comment, which ends the command before anything written after it.
+_SHELL_COMMENT = re.compile(r"(?:^|\s)#.*$")
+
+
+def _terminal_command(arguments: str) -> str:
+    """Return the command text with any trailing shell comment removed.
+
+    A masking suffix is judged at the end of the command the shell runs, and a
+    comment is not part of it: `... || true # belt and braces` masks a failure
+    exactly as `... || true` does, but ends with the comment rather than the
+    suffix. Quote-aware enough for a recipe line, which carries no comment
+    characters inside its quoted arguments in this repository.
+    """
+    without_comment = _SHELL_COMMENT.sub("", arguments)
+    return without_comment.rstrip()
+
+
+def _masked(command: str) -> bool:
+    """Report whether `command` swallows its own failure."""
+    return command.endswith(SWALLOWING_SUFFIXES)
+
 
 class RecipeError(ValueError):
     """Raised when a tier recipe cannot be read as a set of Kani selections."""
@@ -146,7 +167,7 @@ def selections(text: str) -> list[tuple[str, list[str]]]:
                 f"a Kani recipe line is prefixed with '-' so its failure is "
                 f"ignored: {arguments.strip()!r}"
             )
-        if arguments.rstrip().endswith(SWALLOWING_SUFFIXES):
+        if _masked(_terminal_command(arguments)):
             raise RecipeError(
                 f"a Kani recipe line swallows its failure: {arguments.strip()!r}"
             )
@@ -184,6 +205,20 @@ FORBIDDEN_FLAGS = (
 )
 
 
+def _spells(word: str, flag: str) -> bool:
+    """Report whether `word` is `flag`, in any spelling the child accepts.
+
+    `-j`, `-j8` and `-j=8` are one option. The checker refuses all three, so
+    the contract must read them as one; matching the bare flag alone would let
+    an attached short-option value pass as an ordinary argument.
+    """
+    if word == flag or word.startswith(f"{flag}="):
+        return True
+    if len(flag) == 2 and flag.startswith("-") and not flag.startswith("--"):
+        return word.startswith(flag) and len(word) > 2
+    return False
+
+
 def violations(arguments: str) -> list[str]:
     """Return the refused options in one Kani command's arguments, in order.
 
@@ -194,7 +229,9 @@ def violations(arguments: str) -> list[str]:
     """
     words = arguments.split()
     found = [
-        word for word in words if word.split("=", 1)[0] in FORBIDDEN_FLAGS
+        word
+        for word in words
+        if any(_spells(word, flag) for flag in FORBIDDEN_FLAGS)
     ]
     for index, word in enumerate(words):
         if word == "--output-format":

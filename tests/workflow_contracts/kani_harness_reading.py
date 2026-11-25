@@ -176,18 +176,32 @@ def _child_directory(location: _Location) -> Path:
     return location.file.with_suffix("")
 
 
+def _inline_directory(item: _ModuleItem) -> str:
+    """Return the directory name an inline module contributes to its children.
+
+    Normally that is the module's own name. A ``#[path]`` on the inline module
+    replaces the directory instead: for
+    ``#[path = "thread_files"] mod thread { #[path = "tls.rs"] mod local_data; }``,
+    Rust loads ``thread_files/tls.rs``, so the module contributes
+    ``thread_files`` and keeps ``thread`` only for its harness identity.
+    """
+    if item.path_value is None:
+        return item.name
+    return item.path_value.rstrip("/")
+
+
 def _path_base(location: _Location, chain: tuple[_ModuleItem, ...]) -> Path:
     """Return the directory a ``#[path]`` value is relative to.
 
     Rust resolves a path attribute on a declaration outside an inline module
     block relative to the containing file's directory, and one inside an
     inline block relative to the module directory with the inline blocks as
-    directories.
+    directories. An inline block's own ``#[path]`` renames that directory.
     """
     if not chain:
         return location.file.parent
     return _child_directory(location).joinpath(
-        *(item.name for item in chain)
+        *(_inline_directory(item) for item in chain)
     )
 
 
@@ -202,7 +216,7 @@ def _child_file(
         candidate = _path_base(location, chain) / path_value
         return candidate if candidate.is_file() else None
     directory = _child_directory(location).joinpath(
-        *(item.name for item in chain)
+        *(_inline_directory(item) for item in chain)
     )
     for candidate in (directory / f"{name}.rs", directory / name / "mod.rs"):
         if candidate.is_file():
@@ -250,7 +264,16 @@ class _Reader:
         """
         resolved = file.resolve()
         if resolved in self._visited:
-            if self._visited[resolved] != module:
+            # Only a proof-bearing file can lose an identity by being read
+            # once. Sharing a test-only source between two `#[path]` modules is
+            # ordinary Rust and declares no harness, so reporting it would fail
+            # the contract on a valid tree.
+            source = _parse(file)
+            if (
+                self._visited[resolved] != module
+                and source is not None
+                and _holds_proof(source)
+            ):
                 self._report(
                     "repeated-source",
                     file.relative_to(self._repo_root).as_posix(),
@@ -376,28 +399,81 @@ def _manifests(root: Path) -> list[Path]:
     return sorted(found)
 
 
-def _package_directories(root: Path) -> list[tuple[str, Path]]:
-    """Return each package's name and directory under `root`."""
-    found: list[tuple[str, Path]] = []
+class _ManifestPackage(typ.NamedTuple):
+    """One package manifest and the crate roots it declares.
+
+    Attributes
+    ----------
+    name
+        The package name.
+    directory
+        The package directory.
+    roots
+        The crate roots to read, in declaration order: an explicit
+        ``[lib] path`` or the default ``src/lib.rs``, then the binary root.
+    """
+
+    name: str
+    directory: Path
+    roots: tuple[Path, ...]
+
+
+def _declared_roots(
+    document: dict[str, typ.Any], directory: Path
+) -> tuple[Path, ...]:
+    """Return the crate roots a manifest declares.
+
+    Cargo lets a library live wherever ``[lib] path`` points, so a package with
+    no ``src`` directory at all is still a package whose proofs compile. Its
+    explicit path is honoured; otherwise the conventional ``src/lib.rs`` and
+    ``src/main.rs`` are used. Skipping such a package would omit its proofs
+    without a report, which is the failure the inventory contract exists to
+    prevent.
+    """
+    roots: list[Path] = []
+    library = document.get("lib")
+    if isinstance(library, dict) and isinstance(library.get("path"), str):
+        roots.append(directory / library["path"])
+    else:
+        roots.append(directory / "src" / "lib.rs")
+    roots.append(directory / "src" / "main.rs")
+    return tuple(roots)
+
+
+def _package_directories(root: Path) -> list[_ManifestPackage]:
+    """Return each package under `root` and the roots it declares."""
+    found: list[_ManifestPackage] = []
     for manifest in _manifests(root):
         document = tomllib.loads(manifest.read_text(encoding="utf-8"))
         package = document.get("package")
-        if isinstance(package, dict) and (manifest.parent / "src").is_dir():
-            found.append((package["name"], manifest.parent))
+        if not isinstance(package, dict):
+            continue
+        roots = _declared_roots(document, manifest.parent)
+        if any(candidate.is_file() for candidate in roots):
+            found.append(
+                _ManifestPackage(
+                    name=package["name"],
+                    directory=manifest.parent,
+                    roots=tuple(
+                        candidate for candidate in roots if candidate.is_file()
+                    ),
+                )
+            )
     return found
 
 
 def _packages(root: Path) -> list[_Package]:
-    """Return each package that has a library or binary crate root."""
+    """Return each package whose crate root can be read."""
     packages: list[_Package] = []
-    for name, directory in _package_directories(root):
-        for candidate in ("lib.rs", "main.rs"):
-            crate_root = directory / "src" / candidate
-            if crate_root.is_file():
-                packages.append(
-                    _Package(name=name, root=crate_root, directory=directory)
+    for package in _package_directories(root):
+        for crate_root in package.roots:
+            packages.append(
+                _Package(
+                    name=package.name,
+                    root=crate_root,
+                    directory=package.directory,
                 )
-                break
+            )
     return packages
 
 
@@ -448,12 +524,16 @@ def discover(root: Path = ROOT) -> Inventory:
     """
     proofs: list[ProofDeclaration] = []
     unresolved: list[UnresolvedDeclaration] = []
+    by_package: dict[str, list[_Package]] = {}
     for package in _packages(root):
-        reader = _Reader(package.name, root)
-        reader.visit(package.root, (), is_crate_root=True)
+        by_package.setdefault(package.name, []).append(package)
+    for name, roots in by_package.items():
+        reader = _Reader(name, root)
+        for package in roots:
+            reader.visit(package.root, (), is_crate_root=True)
         proofs.extend(reader.proofs)
         unresolved.extend(reader.unresolved)
-        for path in _unreached(package, reader.visited):
+        for path in _unreached(roots[0], reader.visited):
             unresolved.append(
                 UnresolvedDeclaration(
                     kind="unreachable",
