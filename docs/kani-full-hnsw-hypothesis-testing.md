@@ -404,14 +404,17 @@ concern recorded for the nightly workflow did not reappear on this tree.
 
 ### Revision-bound confirmation
 
-Both required warning-denied commands were rerun on the rebased branch head
-`85205b1` after the review strengthened the entry-point assertion:
+Both required warning-denied commands were rerun on rebased branch heads after
+the review strengthened the entry-point assertion: first on `85205b1`, which
+still asserted only the entry node identifier, and again on `6729ae8`, which
+asserts the complete entry point. The reruns below are the `6729ae8` pair; the
+healing-harness figures in the section above are the earlier `85205b1` pair.
 
 - `RUSTFLAGS="-D warnings" make kani`: 7 of 7 harnesses, exit 0.
 - `RUSTFLAGS="-D warnings" make kani-full`: 18 of 18 `chutoro-core` harnesses
   and both `chutoro-providers-dense` harnesses, exit 0. The healing harness
   reported `0 of 1281 failed (23 unreachable)` with 2 of 2 covers satisfied in
-  27.16 s.
+  6.33 s.
 
 ### Conclusion
 

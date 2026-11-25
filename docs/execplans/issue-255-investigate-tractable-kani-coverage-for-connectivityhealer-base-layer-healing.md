@@ -228,9 +228,10 @@ commands, exit codes, elapsed times, and path counts.
 - D4. Decision: retain only the concrete two-node rung; delete the three-node
   symbolic sibling. Rationale: the concrete rung verifies in 9.57 s with zero
   aborted paths, while the sibling exceeded 600 s with more than 6,400 aborted
-  paths. Keeping a harness that fails the budget would weaken the gate or force
-  a nightly-only proof with poor value per minute. Date/Author: 2026-11-21,
-  implementing agent.
+  paths. The probe was stopped before this plan's 20-minute single-harness
+  limit, so the decision rests on its cost trend rather than on a completed
+  budget breach; keeping it would have risked the pull-request gate and offered
+  poor value per minute. Date/Author: 2026-11-21, implementing agent.
 - D5. Decision: add the harness to the `kani:` fast-tier recipe. Rationale: it
   costs about ten seconds of verification, far below the existing 69 to 191 s
   harnesses, and the pull-request gate has a 30-minute timeout. Date/Author:
@@ -592,13 +593,16 @@ permitted.
   and the documentation is updated. Remaining work is the final gate run, the
   commit, and the draft pull request.
 - 2026-11-24 tolerance exception: the documentation budget in `Tolerances` was
-  120 net lines across the ADR and the hypothesis-testing document. The ADR
-  adds 42 net lines and the hypothesis document 92, so the combined change
-  exceeds the budget by 14 lines. The exception is accepted because the
-  branching instructions require both a dated ADR finding and a short evidence
-  section in the hypothesis document, and the measured-limit record is the
-  deliverable the issue asks for when a design is bounded. No plan milestone or
-  acceptance item was dropped to stay inside the budget.
+  120 net lines across the ADR and the hypothesis-testing document. Measured
+  against the current base `ddf3be7`, the ADR adds 50 net lines and the
+  hypothesis document 115, a combined 165 lines, or 45 above the budget.
+  Earlier figures in this note were measured against the first rebase base and
+  are superseded; the review rounds account for the difference. The exception
+  is accepted because the branching instructions require both a dated ADR
+  finding and an evidence section in the hypothesis document, and the
+  measured-limit record is the deliverable the issue asks for when a design is
+  bounded. No plan milestone or acceptance item was dropped to stay inside the
+  budget.
 - 2026-11-24 review qualification: three deviations from this plan are
   recorded rather than left implicit. The earlier timed-out harness was not
   reconstructed, so the plan's unchanged warning-denied baselines were not
