@@ -162,7 +162,7 @@ jobs:
         uses: leynos/shared-actions/.github/actions/install-whitaker@b50fd9a2b2f2a096d64fe44593805dd2da7f9148 # action default whitaker-installer 0.2.12
       - name: Install uv for the docstring-coverage gate
         # `make lint` runs interrogate through `uv tool run`.
-        uses: astral-sh/setup-uv@68559e99cc807c1eb7e9238fd43a15bba460eec2
+        uses: astral-sh/setup-uv@1db35dd8eee11c5894872e0b383ae6c406cf738d
         with:
           # Some repositories hold each cached path to exactly one owner; this step only needs the binary.
           enable-cache: false
@@ -174,7 +174,7 @@ jobs:
         # HNSW constructors and insert paths stay checked against the API.
         run: make test-doc
       - name: Setup uv
-        uses: astral-sh/setup-uv@68559e99cc807c1eb7e9238fd43a15bba460eec2
+        uses: astral-sh/setup-uv@1db35dd8eee11c5894872e0b383ae6c406cf738d
         with:
           python-version: '3.14'
           # Setup Rust already invoked setup-uv with caching enabled, so it
@@ -285,7 +285,7 @@ jobs:
       # ~/.cache/uv; enabling the cache again here would give that path a
       # second owner with a competing key.
       - name: Setup uv for the prover tooling
-        uses: astral-sh/setup-uv@68559e99cc807c1eb7e9238fd43a15bba460eec2
+        uses: astral-sh/setup-uv@1db35dd8eee11c5894872e0b383ae6c406cf738d
         with:
           python-version: '3.14'
           enable-cache: false
