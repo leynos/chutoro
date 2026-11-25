@@ -166,7 +166,7 @@ issue text and the repository's documentation are the authority.
       `@` and `+` recipe prefixes, kept blank and comment recipe lines, reused
       one continuation joiner across two modules, reported an unreadable source,
       derived the inline-module count and the tier call counts from their
-      sources, parameterised the checker's rejection cases, and corrected the
+      sources, parameterized the checker's rejection cases, and corrected the
       guide's checker path and the enforcement test's proof tier.
 - [x] Third CodeRabbit review, all 13 findings actioned. The substantive one
       was a `#[path]` resolution bug: Rust gives a path-loaded file the
@@ -180,7 +180,7 @@ issue text and the repository's documentation are the authority.
       forms and names the file on a genuine error; the package walk prunes
       ignored directories instead of filtering after traversing them; the
       wrapper and dry-run contracts accept make's recipe prefixes and derive
-      their counts; the duplicated fast/full tests are one parameterised table;
+      their counts; the duplicated fast/full tests are one parameterized table;
       the failure-propagation test runs both tiers; bare asserts carry failure
       messages; and the draft keeps Kani's enforcement explicitly pending.
       Whitaker then caught the runner module at 405 lines from the `+toolchain`
