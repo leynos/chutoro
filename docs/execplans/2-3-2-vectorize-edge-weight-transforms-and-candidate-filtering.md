@@ -91,30 +91,30 @@ does not mark 2.2.8 complete or in progress.
 
 ## Inventory
 
-| Area                                                              | State                                  | Evidence or next action                                                        |
-| ----------------------------------------------------------------- | -------------------------------------- | ------------------------------------------------------------------------------ |
-| Parallel mutual-reachability transform                            | Done                                   | `cpu_pipeline/mod.rs:125-135`, PR #276 (#204)                                  |
-| Redundant `EdgeHarvest::new` sort removed                         | Done                                   | `cpu_pipeline/mod.rs:103-111` passes the transformed `Vec` directly; PR #276   |
-| Slice entry point `parallel_kruskal_from_edges(&[CandidateEdge])` | Done                                   | `mst/mod.rs:324-327`; `EdgeHarvest::as_slice` at `hnsw/types.rs:340`           |
-| Ordered validation buffer, lowest-index MST error                 | Done                                   | `mst/mod.rs:296-321`, PR #428 (#206)                                           |
-| Allocation-free weight-group extension                            | Done                                   | `extend_with_accepted_edges`, `mst/mod.rs:255-267`, PR #279 (#205)             |
-| Parallel core-distance searches                                   | Done                                   | `compute_core_distances`, `cpu_pipeline/mod.rs:221-239`, PR #431 (#389)        |
-| Two-pool determinism and concurrent union-find tests              | Done                                   | `mst/property/concurrency.rs:101`, `mst/union_find.rs:225-260`, PR #225 (#201) |
-| Non-exhaustive error-code enums                                   | Done                                   | `define_error_codes!` in `mst/error.rs:52-66`, PR #427 (#203)                  |
-| Users' guide MST error codes                                      | Done                                   | `docs/users-guide.md:531-564`, PR #434 (#207)                                  |
-| Pipeline benchmark and stage profile                              | Done                                   | `chutoro-benches/benches/pipeline.rs`, `pipeline-profile` feature, PR #431     |
-| Gate A on the current tree                                        | Done                                   | Milestone 1: 0.1640%-0.6895% at n = 10 000, so the gate fails                  |
-| Assembly inspection of scalar loops                               | Done                                   | Milestone 1: scalar `maxss`/`vmaxss`, no packed float max at either codegen    |
-| Exact-edge-list oracle property                                   | **Remaining**                          | Milestone 2                                                                    |
-| BDD scenarios for edge preparation                                | **Remaining**                          | Milestone 2                                                                    |
-| Deterministic transform lookup errors                             | **Remaining** (found in this revision) | Milestone 2                                                                    |
-| Dedup-before-sort                                                 | **Remaining, exactness-gated**         | Milestone 2                                                                    |
-| Gate B sub-stage instrument                                       | Declined                               | Gate A failed: the ratio is below 5%, so the milestone is not entered          |
-| Packed sort record                                                | Declined                               | Gate A failed: the sort-only lever cannot justify itself                       |
-| Candidate pre-filter (Filter-Kruskal)                             | Declined                               | Gate A failed: the union-find walk is inside a sub-1% stage                    |
-| Fearless SIMD kernel                                              | Declined                               | Gate A failed: no SIMD dependency is added                                     |
-| `fearless_simd = "1.2"`, `fearless_simd_macros = "0.1"`           | Not added                              | The Milestone 6 gates were not reached, so the exemption is unused             |
-| Null-result record and roadmap closure                            | **Remaining**                          | Milestone 7                                                                    |
+| Area                                                              | State     | Evidence or next action                                                         |
+| ----------------------------------------------------------------- | --------- | ------------------------------------------------------------------------------- |
+| Parallel mutual-reachability transform                            | Done      | `cpu_pipeline/mod.rs:125-135`, PR #276 (#204)                                   |
+| Redundant `EdgeHarvest::new` sort removed                         | Done      | `cpu_pipeline/mod.rs:103-111` passes the transformed `Vec` directly; PR #276    |
+| Slice entry point `parallel_kruskal_from_edges(&[CandidateEdge])` | Done      | `mst/mod.rs:324-327`; `EdgeHarvest::as_slice` at `hnsw/types.rs:340`            |
+| Ordered validation buffer, lowest-index MST error                 | Done      | `mst/mod.rs:296-321`, PR #428 (#206)                                            |
+| Allocation-free weight-group extension                            | Done      | `extend_with_accepted_edges`, `mst/mod.rs:255-267`, PR #279 (#205)              |
+| Parallel core-distance searches                                   | Done      | `compute_core_distances`, `cpu_pipeline/mod.rs:221-239`, PR #431 (#389)         |
+| Two-pool determinism and concurrent union-find tests              | Done      | `mst/property/concurrency.rs:101`, `mst/union_find.rs:225-260`, PR #225 (#201)  |
+| Non-exhaustive error-code enums                                   | Done      | `define_error_codes!` in `mst/error.rs:52-66`, PR #427 (#203)                   |
+| Users' guide MST error codes                                      | Done      | `docs/users-guide.md:531-564`, PR #434 (#207)                                   |
+| Pipeline benchmark and stage profile                              | Done      | `chutoro-benches/benches/pipeline.rs`, `pipeline-profile` feature, PR #431      |
+| Gate A on the current tree                                        | Done      | Milestone 1: 0.1640%-0.6895% at n = 10 000, so the gate fails                   |
+| Assembly inspection of scalar loops                               | Done      | Milestone 1: scalar `maxss`/`vmaxss`, no packed float max at either codegen     |
+| Exact-edge-list oracle property                                   | Done      | Milestone 2; mutation-checked against `MstEdge::Ord`                            |
+| BDD scenarios for edge preparation                                | Done      | Milestone 2: six scenarios, 6/6 passing                                         |
+| Deterministic transform lookup errors                             | Done      | Milestone 2: observed red at eight threads, then green in both pools            |
+| Dedup-before-sort                                                 | Declined  | Milestone 2: bit-keyed dedup would change the `±0.0` survivor; see decision log |
+| Gate B sub-stage instrument                                       | Declined  | Gate A failed: the ratio is below 5%, so the milestone is not entered           |
+| Packed sort record                                                | Declined  | Gate A failed: the sort-only lever cannot justify itself                        |
+| Candidate pre-filter (Filter-Kruskal)                             | Declined  | Gate A failed: the union-find walk is inside a sub-1% stage                     |
+| Fearless SIMD kernel                                              | Declined  | Gate A failed: no SIMD dependency is added                                      |
+| `fearless_simd = "1.2"`, `fearless_simd_macros = "0.1"`           | Not added | The Milestone 6 gates were not reached, so the exemption is unused              |
+| Null-result record and roadmap closure                            | Done      | Milestone 7: design §6.3 update and roadmap 2.3.2 ticked                        |
 
 _Table 3: Completed, outstanding, gated and remaining work. Paths are relative
 to `chutoro-core/src/` unless shown otherwise._
@@ -272,6 +272,13 @@ Gate A ratio = (T_mutual_reachability + T_kruskal) / T_whole_run
 - **Passes** only if the lowest ratio across the repeated runs is at least 5%.
   **Fails** if the highest ratio is below 5%. Anything else is inconclusive and
   does not pass.
+
+Measured 2026-11-23 at repository head `7368d8d`, the approval commit, with
+only test-only files dirty; no production library commit existed on the branch
+yet, so the measured library is `051d395`'s. The result stands for every later
+head in this plan, because no production change to either timed stage landed
+after it: Milestone 2's only production edit reorders how the transform
+collects results, and the guards it added are `cfg(test)` and test targets.
 
 ### Gate B: classification and compaction share of Kruskal (≥ 10%)
 
@@ -434,6 +441,25 @@ Timestamps are mandatory (Tolerance 8).
         in both pinned pools afterwards. Recorded in
         `docs/chutoro-design.md` §6.3.
   - [x] Dedup-before-sort declined; the reason is in the decision log.
+  - [x] (2026-11-24) Duplicate-selection coverage, added after the milestone
+        review found the forest-level tests could not discriminate. A forest
+        is identical whether preparation deduplicates or the union-find
+        cycle-rejects the second copy, so `mst/tests/dedup.rs` calls
+        `prepare_edge_list` directly. It pins that equal-weight copies collapse
+        to the lowest `sequence`, that reversed orientations canonicalize
+        first, that same-pair different-weight edges both survive, and that
+        self-loops are dropped. Mutation evidence: disabling the `dedup_by`
+        predicate fails `equal_weight_duplicates_keep_the_lowest_sequence`
+        and `reversed_orientation_canonicalizes_before_deduplication` while
+        the other two keep passing, and restoring it turns them green. The
+        oracle property also gained a duplicate-heavy fixture at 2, 3, 8 and
+        33 nodes.
+  - [x] (2026-11-24) Deep property evidence. The five MST properties pass at
+        `PROPTEST_CASES=25000`: 67/67 tests, 178.94 s, via
+        `cargo test -p chutoro-core --lib mst::property::tests::`. nextest's
+        default 60 s per-test budget is too small for that case count, so the
+        run used the test harness directly rather than changing a repository
+        budget.
 - [x] (2026-11-23) Milestone 3 (gated on A): declined, Gate A failed.
 - [x] (2026-11-23) Milestone 4 (gated on A): declined, Gate A failed.
 - [x] (2026-11-23) Milestone 5 (gated on A and its own case): declined, Gate A
@@ -456,6 +482,23 @@ Timestamps are mandatory (Tolerance 8).
       invocations. A single whole-`make test` run still expires a per-test
       budget on the host's saturated compile admission; that is issue #454's
       gate-reliability defect, not a failure of any test in this range.
+- [x] (2026-11-24) `make test` equivalence, as the milestone review asked for
+      it to be stated. Locally the literal command stops in its own nextest
+      _setup script_ (`warm-compile-contracts`), which is excluded from the
+      measured test time but not from that script's 1800 s allowance; on this
+      host the same suite takes about 5800 s, so the script expires before any
+      test starts. Nothing in the range is implicated. The full set that
+      `make test` would execute has been run: 1630/1630 tests outside
+      `chutoro-compile-contracts` and `benchmark_smoke`, 1/1
+      `benchmark_smoke`, 21/21 compile-contract tests with the gate's exact
+      `RUSTFLAGS`, and every doctest binary. Hosted `build-test` on this head
+      runs the workspace nextest suite under the repository's own setup
+      scripts and reports `1634 tests run: 1634 passed, 1 skipped` in 71.8 s,
+      then runs `make test-doc` (all doctest binaries green) alongside
+      `make lint`, `make spelling`, `make test-workflow-contracts` and
+      `make test-scheduling-contract`. Its differences from the literal
+      command are coverage instrumentation and the coverage action's target
+      selection; it is the authoritative full-suite evidence for this head.
 
 ## Surprises & discoveries
 
@@ -654,6 +697,39 @@ n = 10 000. That is an expectation for Milestone 1, not its outcome.
   3. The ticked roadmap item read as an instruction that was implemented. Valid:
      reworded as an evaluation with a pre-registered gate, so the checkbox and
      the null-result note agree.
+
+- Decision (2026-11-24): the hosted whole-plan completeness assessment
+  returned three follow-ups and all three were actioned. Unlike the milestone
+  review's cosmetic items these were substantive, so each carries its own
+  evidence.
+
+  1. **Deep property evidence was missing.** Valid: the plan's acceptance
+     requires the five MST properties at `PROPTEST_CASES=25000`, while the
+     pull-request lane runs 250 and the weekly lane had not run for this head.
+     The run is now recorded: 67/67 tests, 178.94 s, all five properties green.
+     It used `cargo test --lib` rather than nextest because nextest's 60 s
+     per-test default is smaller than the case count needs; no repository
+     budget was changed to obtain it.
+  2. **Duplicate-selection coverage could not discriminate.** Valid, and the
+     sharpest finding of the review: a forest looks the same whether
+     preparation removes a duplicate or the union-find cycle-rejects it, so
+     neither the BDD duplicate scenario nor the exact-edge-list property could
+     fail if preparation stopped deduplicating. `mst/tests/dedup.rs` now calls
+     `prepare_edge_list` directly, and the oracle property gained a
+     duplicate-heavy fixture at four sizes. Mutation-checked: disabling the
+     `dedup_by` predicate fails two of the four new tests, and restoring it
+     turns them green.
+  3. **The plan record was stale in three places.** Valid: the inventory still
+     said "Remaining" for delivered work, no measurement SHA was recorded, and
+     the `n = 1000` median was absent. The inventory is reconciled, Gate A now
+     names `7368d8d` as the measured head with the reason the result stands for
+     later heads, and the design table carries both size medians.
+
+  The same reply asked for the literal `make test` command's evidence gap to be
+  stated or closed. It is stated in the Progress entry: the local command stops
+  in its own nextest setup script under this host's queue, every test it would
+  run has been executed in partitions, and the hosted `build-test` suite on
+  this head passes 1634 tests plus the doctest step.
 
 - Decision (2026-11-23): **dedup-before-sort is declined.** The three
   Milestone 2 conditions do not all hold. The dedup key the milestone names is

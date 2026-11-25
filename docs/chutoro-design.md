@@ -1371,8 +1371,9 @@ Five profiled runs on four pinned cores measured:
 | 4   | 1.3785%  | 0.1812%    |
 | 5   | 1.0050%  | 0.6895%    |
 
-_Table: Gate A ratios, minimum 0.1640% and maximum 0.6895% at the decision
-size._
+_Table: Gate A ratios. At the decision size the minimum is 0.1640%, the median
+0.2345% and the maximum 0.6895%; at n = 1000 they are 0.7130%, 1.3785% and
+2.4731%._
 
 Single supplementary runs give 0.2706% at one thread and 0.1499% at eight
 threads, both at `n = 10 000`. The host was under heavy unrelated compile load

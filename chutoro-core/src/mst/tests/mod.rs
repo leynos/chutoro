@@ -227,6 +227,7 @@ fn undirected_edges_are_canonicalized_and_deduplicated() {
     assert_eq!(edge.sequence(), 10);
 }
 
+mod dedup;
 mod error_selection;
 mod forests;
 
