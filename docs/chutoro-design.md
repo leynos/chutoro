@@ -1371,16 +1371,37 @@ Five profiled runs on four pinned cores measured:
 | 4   | 1.3785%  | 0.1812%    |
 | 5   | 1.0050%  | 0.6895%    |
 
-_Table: Gate A ratios. At the decision size the minimum is 0.1640%, the median
-0.2345% and the maximum 0.6895%; at n = 1000 they are 0.7130%, 1.3785% and
-2.4731%._
+_Table: Gate A ratios at head `7368d8d`, the first measurement. At the decision
+size the minimum is 0.1640%, the median 0.2345% and the maximum 0.6895%; at n =
+1000 they are 0.7130%, 1.3785% and 2.4731%._
 
 Single supplementary runs give 0.2706% at one thread and 0.1499% at eight
 threads, both at `n = 10 000`. The host was under heavy unrelated compile load
 throughout, so the absolute times are noisy — `pipeline/n=10000` Criterion
-intervals span 43 s to 80 s — but the ratio cannot reach the 5% threshold from
+intervals span 43 s to 96 s — but the ratio cannot reach the 5% threshold from
 any run. The harvest carries 340,465 edges at `n = 10 000` and 32,966 at
 `n = 1000`, roughly 34 per point.
+
+The measurement was repeated at head `4e96416` because the transform's
+collection changed between the heads: it now stages per-edge results in an
+intermediate buffer and folds it serially, which is a production change to a
+timed stage even though it cannot alter accepted output. Five profiled runs on
+the same workload give:
+
+| Run | n = 1000 | n = 10 000 |
+| --- | -------- | ---------- |
+| 1   | 0.1732%  | 0.1063%    |
+| 2   | 0.3312%  | 0.0512%    |
+| 3   | 0.3480%  | 0.0769%    |
+| 4   | 0.1927%  | 0.3024%    |
+| 5   | 0.1518%  | 0.1417%    |
+
+_Table: Gate A ratios at head `4e96416`. At the decision size the minimum is
+0.0512%, the median 0.1063% and the maximum 0.3024%; at n = 1000 they are
+0.1518%, 0.1927% and 0.3480%._
+
+The gate fails by a wider margin on the later head than on the earlier one, so
+the decline does not depend on which measurement is used.
 
 The emitted assembly explains why a portable-vector kernel had no headroom to
 recover: the transform's per-edge loop compiles to two scalar `maxss`

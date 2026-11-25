@@ -23,9 +23,9 @@ use super::types::{MstFixture, WeightDistribution};
 ///
 /// For every adjacent node pair it supplies one weight carried by three
 /// differently oriented and ordered copies, plus a second distinct weight on
-/// the same pair. For example, the `0`-`1` pair appears as `(0, 1, 2.0, 3)`,
-/// `(1, 0, 2.0, 7)` and `(0, 1, 2.0, 11)`, which must collapse to the
-/// `sequence == 3` record, alongside `(0, 1, 5.0, 19)`, which must survive
+/// the same pair. For example, the `0`-`1` pair appears as `(0, 1, 2.0, 0)`,
+/// `(1, 0, 2.0, 4)` and `(0, 1, 2.0, 8)`, which must collapse to the
+/// `sequence == 0` record, alongside `(0, 1, 5.0, 16)`, which must survive
 /// separately.
 fn duplicate_heavy_fixture(node_count: usize) -> MstFixture {
     let mut edges = Vec::new();

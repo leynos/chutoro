@@ -273,12 +273,26 @@ Gate A ratio = (T_mutual_reachability + T_kruskal) / T_whole_run
   **Fails** if the highest ratio is below 5%. Anything else is inconclusive and
   does not pass.
 
-Measured 2026-11-23 at repository head `7368d8d`, the approval commit, with
-only test-only files dirty; no production library commit existed on the branch
-yet, so the measured library is `051d395`'s. The result stands for every later
-head in this plan, because no production change to either timed stage landed
-after it: Milestone 2's only production edit reorders how the transform
-collects results, and the guards it added are `cfg(test)` and test targets.
+Measured twice, because one production change landed between the runs.
+
+- **First measurement, 2026-11-23 at head `7368d8d`** (the approval commit),
+  with only test-only files dirty. No production library commit existed on the
+  branch yet, so the measured library was `051d395`'s. Five four-thread runs
+  gave 0.1640%, 0.1812%, 0.2345%, 0.5458% and 0.6895% at n = 10 000.
+- **Re-measurement, 2026-11-25 at head `4e96416`**, after Milestone 2 changed
+  `mutual_reachability_edges` to collect through `collect_ordered_results`.
+  That change _is_ a production change to a timed stage: it stages the per-edge
+  results in an intermediate buffer and folds it serially, where the previous
+  code collected straight into a `Result`. It cannot alter accepted output, but
+  it can alter `T_mutual_reachability`, so the first result is not transferred
+  to the later head. Five four-thread runs on the same workload give 0.0512%,
+  0.0769%, 0.1063%, 0.1417% and 0.3024% at n = 10 000 — minimum 0.0512%, median
+  0.1063%, maximum 0.3024% — and 0.1518% to 0.3480% at n = 1000. The gate fails
+  on the later head by a wider margin than on the earlier one, so the decline
+  does not depend on which measurement is used.
+
+Both measurement sets are recorded in `Outcomes & retrospective` and in
+`docs/chutoro-design.md` §6.3.
 
 ### Gate B: classification and compaction share of Kruskal (≥ 10%)
 
@@ -482,6 +496,12 @@ Timestamps are mandatory (Tolerance 8).
       invocations. A single whole-`make test` run still expires a per-test
       budget on the host's saturated compile admission; that is issue #454's
       gate-reliability defect, not a failure of any test in this range.
+- [x] (2026-11-25) Gate A re-measured at head `4e96416` after the transform's
+      collection changed. Five four-thread runs give 0.0512%, 0.0769%,
+      0.1063%, 0.1417% and 0.3024% at n = 10 000 (minimum, median and maximum
+      0.0512%, 0.1063% and 0.3024%), and 0.1518% to 0.3480% at n = 1000. The
+      gate fails by a wider margin than at `7368d8d`, so the decline does not
+      depend on the earlier measurement.
 - [x] (2026-11-24) `make test` equivalence, as the milestone review asked for
       it to be stated. Locally the literal command stops in its own nextest
       _setup script_ (`warm-compile-contracts`), which is excluded from the
@@ -491,14 +511,19 @@ Timestamps are mandatory (Tolerance 8).
       `make test` would execute has been run: 1630/1630 tests outside
       `chutoro-compile-contracts` and `benchmark_smoke`, 1/1
       `benchmark_smoke`, 21/21 compile-contract tests with the gate's exact
-      `RUSTFLAGS`, and every doctest binary. Hosted `build-test` on this head
-      runs the workspace nextest suite under the repository's own setup
-      scripts and reports `1634 tests run: 1634 passed, 1 skipped` in 71.8 s,
-      then runs `make test-doc` (all doctest binaries green) alongside
-      `make lint`, `make spelling`, `make test-workflow-contracts` and
-      `make test-scheduling-contract`. Its differences from the literal
-      command are coverage instrumentation and the coverage action's target
-      selection; it is the authoritative full-suite evidence for this head.
+      `RUSTFLAGS`, and every doctest binary. Hosted `build-test` runs the
+      workspace nextest suite under the repository's own setup scripts and
+      then `make test-doc`, alongside `make lint`, `make spelling`,
+      `make test-workflow-contracts` and `make test-scheduling-contract`. Its
+      differences from the literal command are coverage instrumentation and
+      the coverage action's target selection. Two heads have their own
+      results, and neither should be read for the other: head `42f9e8c`,
+      run [45646271217 job
+      139317999331](https://github.com/leynos/chutoro/actions/runs/45646271217/job/139317999331),
+      `1634 tests run: 1634 passed, 1 skipped`; and head `4e96416`, run
+      [45673781589 job
+      139415750440](https://github.com/leynos/chutoro/actions/runs/45673781589/job/139415750440),
+      `1642 tests run: 1642 passed, 1 skipped` in 123.5 s.
 
 ## Surprises & discoveries
 
@@ -749,7 +774,11 @@ n = 10 000. That is an expectation for Milestone 1, not its outcome.
   highest ratio is below 5%. Tolerance 5 requires recording the null result
   beside the roadmap item and continuing with the applicable remaining work,
   which is Milestone 2 and Milestone 7. Open questions Q1 and Q2 close as moot,
-  as the 2026-11-23 authorization decision provided.
+  as the 2026-11-23 authorization decision provided. Confirmed on 2026-11-25 by
+  a re-measurement at the final head, `4e96416`, whose ratios are 0.0512% to
+  0.3024% at the decision size: Milestone 2's change to the transform's
+  collection was a production change to a timed stage, so the first measurement
+  was not transferred to later heads without being repeated.
 
 - Decision (2026-11-23): record the assembly-inspection method substitution.
   `cargo rustc -p chutoro-core --profile bench --lib -- --emit=asm` was used
@@ -1454,12 +1483,15 @@ anywhere in the crate. What remains is the Milestone 2 guards and the Milestone
 
 Close (2026-11-23). **Roadmap item 2.3.2 closes as a measured null result.**
 
-- **Gate A:** failed. Decision-size ratios across five four-thread runs were
-  0.2345%, 0.5458%, 0.1640%, 0.1812% and 0.6895% — minimum 0.1640%, median
-  0.2345%, maximum 0.6895%. At `n = 1000` the same ratio ran 0.7130% to
-  2.4731%. Supplementary runs gave 0.2706% at one thread and 0.1499% at eight.
-  The Criterion `pipeline/n=10000` intervals spanning 43 s to 80 s set the
-  noise band; it cannot close a four-point gap.
+- **Gate A:** failed, on two measurements at different heads. At `7368d8d`,
+  decision-size ratios across five four-thread runs were 0.2345%, 0.5458%,
+  0.1640%, 0.1812% and 0.6895% — minimum 0.1640%, median 0.2345%, maximum
+  0.6895% — with 0.7130% to 2.4731% at `n = 1000` and supplementary runs at
+  0.2706% (one thread) and 0.1499% (eight). At `4e96416`, after the transform's
+  collection changed, the five runs gave 0.0512%, 0.0769%, 0.1063%, 0.1417% and
+  0.3024% — minimum 0.0512%, median 0.1063%, maximum 0.3024% — with 0.1518% to
+  0.3480% at `n = 1000`. The Criterion `pipeline/n=10000` intervals spanning 43
+  s to 96 s set the noise band; it cannot close a four-point gap on either set.
 - **Gate B:** not measured. It is gated on Gate A, which failed.
 - **Assembly:** the transform's per-edge loop is scalar. Two `maxss` per edge
   at the SSE2 baseline, two `vmaxss` under `-C target-cpu=x86-64-v3`, and no
