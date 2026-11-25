@@ -180,11 +180,14 @@ KANI_MANIFEST ?= tools/kani/harnesses.toml
 # build directory would otherwise leave the proofs executing a path Cargo never
 # wrote; the default is the profile directory every other target uses.
 #
-# `CARGO_BUILD_TARGET` is cleared for this one build. A configured target
-# triple makes Cargo write `target/<triple>/debug/` instead, and the recipe
-# below would then run a path that build never wrote -- or, worse, a stale
-# binary left at the assumed path. The checker has no target-specific code, so
-# the host build is both correct and the one whose path is known.
+# `CARGO_BUILD_TARGET` is unset for this one build. A configured target triple
+# makes Cargo write `target/<triple>/debug/` instead, and the recipe below would
+# then run a path that build never wrote -- or, worse, a stale binary left at
+# the assumed path. An empty assignment is not the same thing: Cargo reads it
+# as an empty triple and fails with "target was empty", so the variable is
+# removed from the environment rather than blanked. The checker has no
+# target-specific code, so the host build is both correct and the one whose
+# path is known.
 CARGO_TARGET_DIR ?= target
 override KANI_SUITE_TARGET_DIR := $(CARGO_TARGET_DIR)
 # Quoted because the directory comes from the environment and may contain a
@@ -205,7 +208,7 @@ endif
 
 .PHONY: kani-suite-build
 kani-suite-build: ## Build the Kani suite checker
-	CARGO_TARGET_DIR="$(KANI_SUITE_TARGET_DIR)" CARGO_BUILD_TARGET= \
+	@env -u CARGO_BUILD_TARGET CARGO_TARGET_DIR="$(KANI_SUITE_TARGET_DIR)" \
 		$(CARGO) build --package chutoro-test-support --bin kani_suite
 
 # The development build standard (concordat rule `rust-build-defaults`):
