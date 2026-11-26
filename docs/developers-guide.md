@@ -2969,6 +2969,10 @@ and `#[kani::proof_for_contract]` declaration out of the sources by module path
 — including an inline `#[cfg(kani)] mod kani_proofs` block, which a
 filename-based inventory never saw — and compares the package/path multiset
 with the manifest in both directions.
+`tests/workflow_contracts/kani_reader_fixtures_test.py` holds that reader's
+adversarial cases: a proof in a comment or a string, a `#[path]` that resolves,
+one that does not, one in a raw string and one in a shape the reader cannot
+read, a shared parent reaching a proof-bearing child, and a binary-only package.
 `tests/workflow_contracts/kani_fast_tier_test.py` compares the exact fast
 selectors and package-scoped full sweeps in the `Makefile` with the manifest.
 

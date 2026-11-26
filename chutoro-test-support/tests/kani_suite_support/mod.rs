@@ -83,7 +83,15 @@ pub struct Case {
 }
 
 impl Case {
-    /// Write the fixture into a directory named after the test.
+    /// Write the fixture into a directory this case creates exclusively.
+    ///
+    /// `create_dir` rather than `create_dir_all`: an interrupted run leaves its
+    /// directory behind, and a later run whose process id and sequence happen
+    /// to repeat would otherwise adopt that directory, complete with the marker
+    /// an earlier case wrote, and then delete it in `Drop`. Exclusive creation
+    /// fails instead, and the test reports a stale directory rather than
+    /// behaving differently for a reason that has nothing to do with the
+    /// checker.
     ///
     /// The `Case` is built before anything is written, so a failed write still
     /// returns a value whose `Drop` removes the partially written directory.
@@ -103,8 +111,8 @@ impl Case {
             verifier,
         };
         required(
-            fs::create_dir_all(&case.directory),
-            "create the fixture directory",
+            fs::create_dir(&case.directory),
+            "create the fixture directory exclusively",
         )?;
         required(
             fs::write(&case.manifest, MANIFEST),

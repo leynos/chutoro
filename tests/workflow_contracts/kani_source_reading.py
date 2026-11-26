@@ -21,8 +21,13 @@ import re
 import typing as typ
 from pathlib import Path
 
-from rust_declaration_reading import _brace_depths, _matching_brace
-from rust_source_reading import _FUNCTION, _attributes_before, _blank, _regions
+from rust_source_reading import (
+    _FUNCTION,
+    _blank,
+    _brace_depths,
+    _matching_brace,
+    _regions,
+)
 
 #: Directories the sweep never enters. They hold build output, caches, or
 #: another repository's checkout rather than this workspace's sources.
@@ -62,9 +67,21 @@ _MOD_ITEM = re.compile(
     r"(?P<name>[A-Za-z_][A-Za-z0-9_]*)[ \t]*(?P<terminator>[;{])"
 )
 
-#: The ``#[path = "..."]`` attribute on a module declaration. Only a plain
-#: string literal is resolvable; anything else is reported.
-_PATH_ATTRIBUTE = re.compile(r'#\[\s*path\s*=\s*"(?P<value>[^"]*)"\s*\]')
+#: The ``#[path = "..."]`` attribute on a module declaration. Rust accepts an
+#: ordinary string or a raw string for the value, and both name the file; any
+#: other shape is matched by :data:`_ANY_PATH_ATTRIBUTE` and reported rather
+#: than read as an absent attribute, because an unread value would send the
+#: reader to the default location and hide a proof that moved.
+_PATH_ATTRIBUTE = re.compile(
+    r'#\[\s*path\s*=\s*(?:'
+    r'"(?P<value>[^"]*)"'
+    r'|r(?P<hashes>#*)"(?P<raw>.*?)"(?P=hashes)'
+    r')\s*\]',
+    re.DOTALL,
+)
+
+#: Every ``#[path ...]`` attribute, whatever its value's shape.
+_ANY_PATH_ATTRIBUTE = re.compile(r"#\[\s*path\b")
 
 #: A macro definition whose body might contain proof declarations. Kani cannot
 #: see a harness that only exists after expansion in a way this reader can
@@ -98,6 +115,11 @@ class _ModuleItem:
         The ``#[path = "..."]`` value, or None when the declaration carries
         none. A path attribute names the file that provides the module; it
         does not change the module's own name.
+    path_unreadable
+        Whether the declaration carries a ``#[path]`` whose value this reader
+        cannot read. Such a declaration is reported rather than resolved by
+        the default rule, because guessing would look for the module in a
+        place the attribute does not name.
     """
 
     name: str
@@ -105,6 +127,7 @@ class _ModuleItem:
     end: int
     inline: bool
     path_value: str | None
+    path_unreadable: bool = False
 
 
 @dataclasses.dataclass(frozen=True)
@@ -229,40 +252,30 @@ def _proof_attributes(code: str, start: int) -> list[str]:
     """Return the attributes above the declaration at `start`, innermost first.
 
     Comments and literals are already blanked in `code`, so a mention in
-    either is not an attribute. The walk stops at the first line that is not
-    an attribute: that is the previous item's code, and nothing above it
-    belongs to this declaration.
+    either is not an attribute. The walk works backwards by offset rather than
+    by line, because Rust does not require an attribute to occupy a line of its
+    own: ``mod proofs { #[kani::proof]`` puts one after the module's opening
+    brace, and a line-based walk stops at the ``mod`` and loses the proof.
 
-    One line may carry several attributes, and each is returned on its own.
-    ``#[cfg(kani)] #[kani::proof]`` declares a proof exactly as the two-line
-    spelling does; reading the line whole sees only ``cfg``, because that is
-    the path the first attribute names.
+    The walk stops at the first non-whitespace that is not an attribute's
+    closing ``]``, and then at that attribute's ``#``. A brace ends it too:
+    a brace separates items rather than decorating one, so the enclosing
+    module's own attribute cannot be adopted by its first child.
     """
     found: list[str] = []
-    for line in _attributes_before(code[:start]):
-        stripped = line.strip()
-        if not stripped:
-            continue
-        if not stripped.startswith("#["):
-            break
-        found.extend(_attribute_texts(stripped))
-    return found
-
-
-def _attribute_texts(text: str) -> list[str]:
-    """Return each attribute in `text`, in source order."""
-    found: list[str] = []
-    offset = 0
+    position = start
     while True:
-        opening = text.find("#[", offset)
-        if opening < 0:
-            return found
-        closing = _attribute_end(text, opening + 1)
-        if closing is None:
-            found.append(text[opening:])
-            return found
-        found.append(_normalised(text[opening:closing]))
-        offset = closing
+        while position > 0 and code[position - 1].isspace():
+            position -= 1
+        if position == 0 or code[position - 1] in "{};":
+            break
+        end = position
+        opening = _attribute_start(code, end)
+        if opening is None:
+            break
+        found.insert(0, _normalised(code[opening:end]))
+        position = opening
+    return found
 
 
 def _attribute_end(text: str, opening: int) -> int | None:
@@ -370,16 +383,25 @@ def _module_item(lexed: _Lexed, match: re.Match[str]) -> _ModuleItem | None:
     if _inside(match.start(), lexed.macros):
         return None
     inline = match["terminator"] == "{"
-    found = _PATH_ATTRIBUTE.search(
-        _attached_attributes(lexed.declarations, match.start())
-    )
+    attached = _attached_attributes(lexed.declarations, match.start())
+    found = _PATH_ATTRIBUTE.search(attached)
+    value = _path_value(found) if found is not None else None
     return _ModuleItem(
         name=match["name"],
         start=match.start(),
         end=_module_end(lexed, match) if inline else match.end(),
         inline=inline,
-        path_value=found["value"] if found else None,
+        path_value=value,
+        path_unreadable=(
+            found is None and _ANY_PATH_ATTRIBUTE.search(attached) is not None
+        ),
     )
+
+
+def _path_value(found: re.Match[str]) -> str:
+    """Return the path an attribute match carries, quoted or raw."""
+    value = found["value"]
+    return value if value is not None else found["raw"]
 
 
 def _module_end(lexed: _Lexed, match: re.Match[str]) -> int:

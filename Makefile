@@ -204,18 +204,35 @@ endif
 # keep building.
 .DEFAULT_GOAL := build
 
+# The build names the host triple explicitly, so its output path is the one
+# Cargo documents rather than one this file assumes: a `build.target` in a
+# user-level Cargo configuration, or a `CARGO_BUILD_TARGET` in the environment,
+# otherwise moves the artefact under `<target-dir>/<triple>/debug/`. The probe
+# runs here rather than at parse time, because a `$(shell ...)` in the variable
+# table would start a Cargo process for every target in this file, including
+# the ones whose contracts count Cargo invocations. The checker has no
+# target-specific code, so the host build is the correct one.
+#
+# Publication is a rename within the checker's own directory. Copying over the
+# destination would fail with ETXTBSY while another `make` is running the
+# checker there, and a reader could see a partial file; a rename replaces the
+# directory entry atomically and leaves a running process holding the old
+# inode. A failed copy therefore leaves the previous checker in place.
 .PHONY: kani-suite-build
 kani-suite-build: ## Build the Kani suite checker
-	@executable=$$(CARGO_TARGET_DIR="$(KANI_SUITE_TARGET_DIR)" \
-		$(CARGO) build --package chutoro-test-support --bin kani_suite \
-		--message-format=json-render-diagnostics \
-		| sed -n 's/.*"executable":"\([^"]*\)".*/\1/p' | tail -n 1); \
-	test -n "$$executable" || { \
-		printf 'kani-suite-build found no kani_suite executable\n' >&2; \
+	@set -eu; \
+	host=$$($(CARGO) -vV | sed -n 's/^host: //p'); \
+	test -n "$$host" || { \
+		printf 'kani-suite-build could not read the host triple\n' >&2; \
 		exit 1; \
 	}; \
+	CARGO_TARGET_DIR="$(KANI_SUITE_TARGET_DIR)" \
+		$(CARGO) build --package chutoro-test-support --bin kani_suite \
+		--target "$$host"; \
 	mkdir -p "$(KANI_SUITE_DIR)"; \
-	cp "$$executable" $(KANI_SUITE_BINARY)
+	cp "$(KANI_SUITE_TARGET_DIR)/$$host/debug/kani_suite" \
+		"$(KANI_SUITE_DIR)/kani_suite.$$$$"; \
+	mv -f "$(KANI_SUITE_DIR)/kani_suite.$$$$" $(KANI_SUITE_BINARY)
 
 # The development build standard (concordat rule `rust-build-defaults`):
 # the mold linker on Linux. The pin is stable, so the nightly-only parallel

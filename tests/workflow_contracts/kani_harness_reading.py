@@ -416,11 +416,22 @@ class _Reader:
     def _report_missing_path(
         self, location: _Location, source: _Source, item: _ModuleItem
     ) -> None:
-        """Report a ``#[path]`` declaration naming no readable file.
+        """Report a ``#[path]`` declaration this reader cannot follow.
 
         A plain ``mod name;`` that names no file is Rust's own compile error,
-        so only a ``#[path]`` is this reader's to explain.
+        so only a ``#[path]`` is this reader's to explain. A value in a shape
+        the reader cannot read is reported too: replacing it with the default
+        rule would look for the module where the attribute does not point.
         """
+        if item.path_unreadable:
+            self._report(
+                "path-attribute",
+                location.file.relative_to(self._repo_root).as_posix(),
+                _line_of(source.text, item.start),
+                "the #[path] value is in a form this reader cannot read, so "
+                "the module's file cannot be located",
+            )
+            return
         if item.path_value is None:
             return
         self._report(
@@ -447,7 +458,11 @@ def _declared_children(
         if item.inline:
             continue
         chain = _module_chain(source.modules, item.start)
-        child = _child_file(location, chain, item.name, item.path_value)
+        child = (
+            None
+            if item.path_unreadable
+            else _child_file(location, chain, item.name, item.path_value)
+        )
         child_location = (
             None
             if child is None
@@ -514,19 +529,45 @@ def _declared_roots(
 
     Cargo lets a library live wherever ``[lib] path`` points, so a package with
     no ``src`` directory at all is still a package whose proofs compile. Its
-    explicit path is honoured; otherwise the conventional ``src/lib.rs`` and
-    ``src/main.rs`` are used. Skipping such a package would omit its proofs
-    without a report, which is the failure the inventory contract exists to
-    prevent.
+    explicit path is honoured; otherwise the conventional ``src/lib.rs`` is
+    used. Binaries are read too: an explicit ``[[bin]] path``, the
+    conventional ``src/main.rs``, and each file under ``src/bin/``. Skipping
+    any of them would omit a package's proofs without a report, which is the
+    failure the inventory contract exists to prevent.
     """
-    roots: list[Path] = []
+    roots: list[Path] = [_library_root(document, directory)]
+    roots.extend(_binary_roots(document, directory))
+    return tuple(roots)
+
+
+def _library_root(document: dict[str, typ.Any], directory: Path) -> Path:
+    """Return the manifest's library root, explicit or conventional."""
     library = document.get("lib")
     if isinstance(library, dict) and isinstance(library.get("path"), str):
-        roots.append(directory / library["path"])
-    else:
-        roots.append(directory / "src" / "lib.rs")
-    roots.append(directory / "src" / "main.rs")
-    return tuple(roots)
+        return directory / library["path"]
+    return directory / "src" / "lib.rs"
+
+
+def _binary_roots(document: dict[str, typ.Any], directory: Path) -> list[Path]:
+    """Return every binary crate root the manifest implies.
+
+    An explicit ``[[bin]]`` may name its own path; a package may also declare
+    no binaries at all, in which case Cargo discovers ``src/main.rs`` and each
+    ``src/bin/*.rs``. Both are read, because a proof in a binary target is
+    compiled exactly as one in a library is.
+    """
+    declared = document.get("bin")
+    explicit = [
+        directory / entry["path"]
+        for entry in declared or []
+        if isinstance(entry, dict) and isinstance(entry.get("path"), str)
+    ]
+    discovered = [directory / "src" / "main.rs"]
+    binaries = directory / "src" / "bin"
+    if binaries.is_dir():
+        discovered.extend(sorted(binaries.glob("*.rs")))
+        discovered.extend(sorted(binaries.glob("*/main.rs")))
+    return [*explicit, *(root for root in discovered if root.is_file())]
 
 
 def _package_directories(root: Path) -> list[_ManifestPackage]:

@@ -252,22 +252,34 @@ def test_a_failing_checker_stops_the_tier(
         )
 
 
-def test_the_checker_path_comes_from_cargos_own_report() -> None:
-    """The build names the artefact Cargo wrote, not an assumed path.
+def test_the_checker_build_pins_the_host_triple() -> None:
+    """The build names its target, so the output path is the documented one.
 
-    A `build.target` in a user-level Cargo configuration moves the executable
-    under `<target-dir>/<triple>/debug/`, so a recipe that ran
-    `debug/kani_suite` would run a path the build never wrote, or a stale
-    binary left there by an earlier build. The build therefore reads Cargo's
-    JSON artefact report and copies the executable to the path the recipes
-    use.
+    A `build.target` in a user-level Cargo configuration, or a
+    `CARGO_BUILD_TARGET` in the environment, moves the executable under
+    `<target-dir>/<triple>/debug/`. Passing `--target` with the host triple
+    outranks both, so `<target-dir>/<host>/debug/kani_suite` is the path the
+    build just wrote rather than one it might not have.
     """
     makefile = MAKEFILE_PATH.read_text(encoding="utf-8")
-    assert "--message-format=json-render-diagnostics" in makefile, (
-        "the checker build must read Cargo's artefact report"
+    assert '--target "$$host"' in makefile, (
+        "the checker build must name its target triple"
     )
-    assert '"$(KANI_SUITE_DIR)/kani_suite"' in makefile, (
-        "the recipes must run the path the build records"
+    assert '$(KANI_SUITE_TARGET_DIR)/$$host/debug/kani_suite' in makefile, (
+        "the copy must read the path that triple's build writes"
+    )
+
+
+def test_the_checker_is_published_by_rename() -> None:
+    """A rename replaces the entry atomically; a direct copy would not.
+
+    Copying onto a checker another `make` is running fails with ETXTBSY, and a
+    reader could observe a partial file. The copy therefore lands beside the
+    destination and is renamed over it.
+    """
+    makefile = MAKEFILE_PATH.read_text(encoding="utf-8")
+    assert 'mv -f "$(KANI_SUITE_DIR)/kani_suite.$$$$"' in makefile, (
+        "the checker must be published by a rename within its own directory"
     )
 
 

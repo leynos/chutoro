@@ -239,6 +239,22 @@ issue text and the repository's documentation are the authority.
       manifest value is quoted; the design document's declaration count is 18;
       and the CLI test's fixture moved to `tests/kani_suite_support/mod.rs`,
       which puts the test file under 400 lines.
+- [x] Seventh review round, all eight findings actioned. Four were reader
+      defects: an attribute reader that stopped at a line beginning with
+      `mod`, losing `mod proofs { #[kani::proof]`; a `#[path]` in a raw string
+      that parsed as no attribute at all, silently falling back to the default
+      location; an unsupported `#[path]` shape that did the same, now reported
+      as `path-attribute`; and a crate-root inventory that read no binary
+      target, so a binary-only package's proofs vanished. Manifest validation
+      now accepts a root-level harness name, which is the identity the reader
+      reports for a proof at a crate's root. The checker build publishes by
+      rename, so a concurrent `make` cannot hit `ETXTBSY` or observe a partial
+      file; the CLI fixture creates its directory exclusively, so an
+      interrupted run's leftovers are never adopted; and `_brace_depths` and
+      `_matching_brace` moved into `rust_source_reading`, the suite's one Rust
+      lexer. The adversarial reader cases moved to
+      `kani_reader_fixtures_test.py`, which keeps both modules under the
+      file-length limit.
 - [ ] Push the branch and create the draft pull request.
 
 ## Surprises & discoveries
