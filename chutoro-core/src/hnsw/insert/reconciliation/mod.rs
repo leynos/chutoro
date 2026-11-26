@@ -114,18 +114,34 @@ impl<'graph> EdgeReconciler<'graph> {
 
     /// Ensures `target` links back to the origin, evicting if at capacity.
     ///
-    /// Returns `false` when the target is missing or lacks the level. An
+    /// Returns `false` when the target is missing, lacks the level, or is the
+    /// origin itself. A self-target is a caller bug: debug builds assert on it,
+    /// and other builds reject the request before mutating the graph. An
     /// eviction defers a scrub for the orphaned forward edge.
+    ///
+    /// # Panics
+    ///
+    /// Debug builds panic when `target` equals `ctx.origin`, because a
+    /// self-loop is never a valid reverse edge.
     pub(super) fn ensure_reverse_edge(&mut self, ctx: &UpdateContext, target: usize) -> bool {
-        let Some(target_node) = self.graph.node_mut(target) else {
-            return false;
-        };
-        if ctx.level >= target_node.level_count() {
+        // Kani rewrites an active `debug_assert!` into `assert!`, so the
+        // assertion is compiled out there: the two-node harnesses must explore
+        // the self-target branch to prove the mutation-free fallback. Those
+        // harnesses prove the fallback, while the debug-profile unit test
+        // proves the assertion fires.
+        #[cfg(not(kani))]
+        debug_assert!(
+            target != ctx.origin,
+            "ensure_reverse_edge requires target != origin; target {target}, origin {}, level {}",
+            ctx.origin,
+            ctx.level,
+        );
+        if target == ctx.origin {
             return false;
         }
 
-        let limit = compute_connection_limit(ctx.level, ctx.max_connections);
-        let Some(neighbours) = target_node.neighbours_mut(ctx.level) else {
+        let Some((neighbours, limit)) = Self::target_neighbours(&mut *self.graph, ctx, target)
+        else {
             return false;
         };
         if neighbours.contains(&ctx.origin) {
@@ -163,6 +179,27 @@ impl<'graph> EdgeReconciler<'graph> {
         }
 
         true
+    }
+
+    /// Returns the target's neighbour list at the update level and its limit.
+    ///
+    /// Returns `None` when the target is missing or does not expose the level.
+    /// Extracted from [`Self::ensure_reverse_edge`] so the entry point keeps a
+    /// single lookup path and a tractable cyclomatic complexity.
+    fn target_neighbours<'node>(
+        graph: &'node mut Graph,
+        ctx: &UpdateContext,
+        target: usize,
+    ) -> Option<(&'node mut Vec<usize>, usize)> {
+        let target_node = graph.node_mut(target)?;
+        if ctx.level >= target_node.level_count() {
+            return None;
+        }
+
+        let limit = compute_connection_limit(ctx.level, ctx.max_connections);
+        target_node
+            .neighbours_mut(ctx.level)
+            .map(|neighbours| (neighbours, limit))
     }
 
     /// Applies all deferred scrubs, removing one-way edges where the reverse
@@ -250,100 +287,4 @@ impl<'graph> EdgeReconciler<'graph> {
 }
 
 #[cfg(test)]
-mod tests {
-    //! Tests reverse-edge removal during insertion reconciliation.
-
-    use super::{EdgeReconciler, UpdateContext};
-    use crate::hnsw::{
-        error::HnswError,
-        graph::{Graph, NodeContext},
-        params::HnswParams,
-    };
-
-    fn graph_with_two_nodes(level: usize) -> Result<Graph, HnswError> {
-        let params = HnswParams::new(2, 4)?;
-        let mut graph = Graph::with_capacity(params, 2);
-        graph.insert_first(NodeContext {
-            node: 0,
-            level,
-            sequence: 0,
-        })?;
-        graph.attach_node(NodeContext {
-            node: 1,
-            level,
-            sequence: 1,
-        })?;
-        Ok(graph)
-    }
-
-    fn update_context(level: usize) -> UpdateContext {
-        UpdateContext {
-            origin: 0,
-            level,
-            max_connections: 2,
-        }
-    }
-
-    #[test]
-    fn remove_reverse_edge_reports_a_base_layer_target_it_isolates() {
-        let mut graph = graph_with_two_nodes(0).expect("test graph must be valid");
-        graph
-            .node_mut(1)
-            .expect("target node must be present")
-            .neighbours_mut(0)
-            .expect("target must have a base layer")
-            .push(0);
-
-        let mut reconciler = EdgeReconciler::new(&mut graph);
-
-        assert!(reconciler.remove_reverse_edge(&update_context(0), 1));
-        assert_eq!(
-            reconciler
-                .graph
-                .node(1)
-                .expect("target node must be present")
-                .neighbours(0),
-            [] as [usize; 0]
-        );
-    }
-
-    #[test]
-    fn remove_reverse_edge_does_not_report_an_upper_layer_target_as_isolated() {
-        let mut graph = graph_with_two_nodes(1).expect("test graph must be valid");
-        graph
-            .node_mut(1)
-            .expect("target node must be present")
-            .neighbours_mut(1)
-            .expect("target must have an upper layer")
-            .push(0);
-
-        let mut reconciler = EdgeReconciler::new(&mut graph);
-
-        assert!(!reconciler.remove_reverse_edge(&update_context(1), 1));
-        assert_eq!(
-            reconciler
-                .graph
-                .node(1)
-                .expect("target node must be present")
-                .neighbours(1),
-            [] as [usize; 0]
-        );
-    }
-
-    #[test]
-    fn remove_reverse_edge_returns_false_when_the_reverse_edge_is_missing() {
-        let mut graph = graph_with_two_nodes(0).expect("test graph must be valid");
-        let mut reconciler = EdgeReconciler::new(&mut graph);
-
-        assert!(!reconciler.remove_reverse_edge(&update_context(0), 1));
-    }
-
-    #[test]
-    fn remove_reverse_edge_returns_false_when_target_or_level_is_missing() {
-        let mut graph = graph_with_two_nodes(0).expect("test graph must be valid");
-        let mut reconciler = EdgeReconciler::new(&mut graph);
-
-        assert!(!reconciler.remove_reverse_edge(&update_context(0), 2));
-        assert!(!reconciler.remove_reverse_edge(&update_context(1), 1));
-    }
-}
+mod tests;

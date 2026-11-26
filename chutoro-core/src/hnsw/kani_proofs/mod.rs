@@ -33,6 +33,7 @@
 //! verification strategy.
 
 mod bidirectional;
+mod connectivity;
 mod invariants;
 
 use crate::hnsw::{graph::Graph, insert::test_helpers::add_edge_if_missing};

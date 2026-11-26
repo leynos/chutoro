@@ -1,4 +1,4 @@
-# Architectural decision record (ADR) 0009: Resumable download verification trust model
+# Architectural decision record (ADR) 0011: Resumable download verification trust model
 
 ## Status
 

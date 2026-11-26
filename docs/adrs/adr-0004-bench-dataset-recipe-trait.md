@@ -105,6 +105,16 @@ reports failures through `IntegrityFailure`, boxed in `RecipeError::Integrity`.
 deferred to roadmap item 10.1.2, so the `Consequences` statement above still
 describes the 10.1.1 milestone.
 
+## Addendum — 2026-11-24
+
+Issue #216 removed the `orphaned_cache_key` field from `PartialState`. The
+field was always `None` under `run_recipe`, and the driver has no record of the
+cache keys a recipe writes through `Storage`. The decision above is unchanged:
+cleanup remains a recipe-owned hook, and the driver still performs no automatic
+cache deletion. Recipes now record or derive their own `CacheKey` values and
+remove partial output through their own mechanism. See the
+[migration notes](../migration-notes.md#020).
+
 ## Related
 
 - [ADR 008: GloVe source and ZIP scope](adr-0008-glove-source-and-zip-scope.md)

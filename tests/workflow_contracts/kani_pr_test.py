@@ -183,8 +183,7 @@ def test_concurrency_cancels_superseded_runs(workflow: dict[str, object]) -> Non
 
     The group is the estate's, keyed on the pull-request number with the run
     identifier as its fallback, so each dispatch gets its own group and is
-    never replaced while pending. Cancellation is conditioned on the event, as
-    `pr_concurrency_test.py` requires of every pull-request workflow.
+    never replaced while pending. Cancellation is conditioned on the event.
     """
     concurrency = workflow.get("concurrency")
     assert isinstance(concurrency, dict), "the workflow must declare concurrency"

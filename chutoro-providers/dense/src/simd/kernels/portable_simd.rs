@@ -70,12 +70,12 @@ fn squared_l2_portable_simd(left: &[f32], right: &[f32]) -> f32 {
     let mut index = 0_usize;
     let mut acc = PortableF32x16::splat(0.0);
 
-    for (left_chunk, right_chunk) in left
-        .chunks_exact(PORTABLE_SIMD_LANES)
-        .zip(right.chunks_exact(PORTABLE_SIMD_LANES))
-    {
-        let left_lane = PortableF32x16::from_slice(left_chunk);
-        let right_lane = PortableF32x16::from_slice(right_chunk);
+    let (left_blocks, _) = left.as_chunks::<PORTABLE_SIMD_LANES>();
+    let (right_blocks, _) = right.as_chunks::<PORTABLE_SIMD_LANES>();
+
+    for (left_block, right_block) in left_blocks.iter().zip(right_blocks) {
+        let left_lane = PortableF32x16::from_slice(left_block);
+        let right_lane = PortableF32x16::from_slice(right_block);
         let delta = left_lane - right_lane;
         acc += delta * delta;
         index += PORTABLE_SIMD_LANES;

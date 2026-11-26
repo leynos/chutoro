@@ -1116,6 +1116,14 @@ staging, and the separately compiled CI gate binaries. Keep the rest of each
 workspace crate under `no_std_fs_operations` enforcement and add an explanatory
 comment whenever a new boundary is unavoidable.
 
+A capability root is not a filesystem exception. When `cap-std` lacks an
+operation, borrow the descriptor it already owns (`AsFd`) rather than
+recovering an ambient `std::fs::File` with `into_std()`. The staging lock's
+`rustix::fs::flock` call is the worked example: it needs a lock, declares a
+direct optional dependency whose version is already pinned in the lockfile, and
+keeps `chutoro-bench-datasets` out of the exclusion list. Reach for
+`dylint.toml` only when no capability-preserving route exists.
+
 ## Injected environment access
 
 Read environment values through `mockable::Env`, not ambient `std::env`
@@ -1140,6 +1148,31 @@ configure a child explicitly with `Command::env`, `Command::env_remove` or
 `Command::current_dir`; code that needs a directory takes it as an argument
 rather than changing the process's own.
 
+## Locating sibling binaries from integration tests
+
+An integration test that runs another binary from the same package must pass
+Cargo's compile-time `env!("CARGO_BIN_EXE_<name>")` value directly to
+`Command::new`. Cargo defines the variable for every binary target in the
+package, and the value names the finished executable for the selected profile
+whatever the target and build directories are.
+
+Do not reconstruct a sibling's path from `current_exe()`, and do not scan a
+`deps` directory for a matching file name. A compiled artefact's name carries a
+metadata hash, and that hash cannot distinguish a finished binary from its
+unit-test harness: both are `<name>-<hash>`. Running the harness in place of
+the gate exits successfully after printing `running 0 tests`, so the caller
+reads an empty result rather than a failure.
+
+Cargo 1.91 stabilized `build.build-dir` and its `CARGO_BUILD_BUILD_DIR`
+environment variable. That setting moves intermediate artefacts, test harnesses
+included, under the build directory while finished binaries stay in
+`<target-dir>/<profile>`. The gate suites therefore take their executable from
+`CARGO_BIN_EXE_<name>` rather than from path arithmetic, and
+`tests/workflow_contracts/gate_binary_split_build_dir_test.py` runs both suites
+with distinct temporary target and build directories. The contract asserts that
+each suite really executed and that the finished gates and hashed harnesses
+landed in their separate directories.
+
 ## Whitaker lint suite
 
 `make lint` first runs `make interrogate`, which requires a docstring on every
@@ -1163,6 +1196,14 @@ Individual lints are referenced elsewhere in this guide where they apply: the
 `no_expect_outside_tests`, and the
 [support-module boundaries](#support-module-boundaries) section covers the
 400-line `module_max_lines` cap.
+
+Cognitive complexity is not gated by Clippy. Clippy's `cognitive_complexity`
+scores code after macro expansion, so it counts branching a macro generated, and
+`clippy.toml` does not set `cognitive-complexity-threshold`. Whitaker's
+experimental `macro_aware_cognitive_complexity` gates it at
+`max_complexity = 9`, CodeScene's ceiling. `dylint.toml` opts in with
+`[whitaker] experimental = ["macro_aware_cognitive_complexity"]`. Fix a finding
+by extracting named helpers, never by raising the threshold.
 
 ### Installing Whitaker locally
 
@@ -1505,8 +1546,8 @@ The CI workflow files, the nextest configuration and this guide state the same
 facts in three places, and nothing but a contract notices when they drift.
 `make test-workflow-contracts` runs the Python suites under
 `tests/workflow_contracts/`, which is the standing guard for the runner
-placement, the tool installs, the cache ownership, the CodeScene rule set and
-the timeout tiers below.
+placement, the tool installs, the cache ownership, the CodeScene rule set, the
+gate-binary layout under a split build directory and the timeout tiers below.
 
 The target needs `uv` on the path for its Python harness: it obtains `pytest`,
 `PyYAML`, `pathspec` and `hypothesis` for the run through `uv run --with`, so
@@ -1519,6 +1560,13 @@ the workspace, which compiles the test binaries without running them. CI
 installs the pinned Nextest from `scripts/install-nextest.sh` before the
 contract step. The `build-test` job runs the same target, so a contract that
 passes here passes there.
+
+The target runs pytest with `-rs` as well as `--doctest-modules`. Skips are a
+normal outcome here because a contract whose prerequisite is absent declines
+rather than fails, so the reason report is what distinguishes a provisioned
+host from an unprovisioned one, and what lets a CI log show which contracts
+actually ran. A run that reports only a skip count has not said which contract
+it skipped.
 
 The target runs pytest with `--doctest-modules`, so every example in a
 docstring under `tests/workflow_contracts/` is executed as a test. That is not
@@ -1541,6 +1589,28 @@ naming the path, because a contract cannot say anything about a workflow it
 never saw, and `Path.glob` yields nothing for a missing directory rather than
 complaining about it: without the guard, every assertion passed having read no
 workflow at all.
+
+### Fixture lockfiles
+
+Each compile-contract fixture under
+`chutoro-compile-contracts/tests/fixtures/<name>/` keeps its own `Cargo.lock`,
+because each fixture is a standalone workspace. Every package version in a
+fixture lockfile must also appear in the workspace `Cargo.lock`, except the
+fixture's own package, which the contract excludes: CI fetches only the
+workspace lockfile, and the fixture checks then run
+`cargo check --offline --locked`, so a fixture-only version is unavailable and
+fails before compilation starts. Seed the fixture lock from the workspace one
+and let Cargo prune it:
+
+```sh
+cp Cargo.lock chutoro-compile-contracts/tests/fixtures/<name>/Cargo.lock
+cargo metadata --format-version 1 --offline \
+  --manifest-path chutoro-compile-contracts/tests/fixtures/<name>/Cargo.toml
+```
+
+`tests/workflow_contracts/fixture_locks_test.py` enforces the subset rule, so a
+fixture regenerated against a newer registry version fails the contract rather
+than the offline check.
 
 ### The development route's own contracts
 
@@ -1736,6 +1806,72 @@ invocation rather than the step's name, so deleting the fix while keeping the
 step fails it. Both correct spellings pass: a repeated flag, and one flag with
 a comma-separated list.
 
+#### The first run of the lane found two more gaps
+
+Fixing the installer was necessary and not sufficient. The lane had never
+reached the steps below it, so the first run that did found two further reasons
+it could not pass, neither visible to any earlier check.
+
+The first was `mold`. Every step after the toolchain install assigns
+`RUSTFLAGS: -D warnings -Clink-arg=-fuse-ld=mold`, which is the build
+standard's Linux linker flag, and an assigned `RUSTFLAGS` replaces
+`.cargo/config.toml`'s `rustflags`. A GitHub-hosted runner ships neither `mold`
+nor `ld.mold`, so the first link failed with
+`collect2: fatal error: cannot find 'ld'` while compiling a build script, long
+before a test ran. The lane does not use `setup-rust`, so it does not inherit
+that action's `install-mold` input; it now runs `scripts/install-mold.sh` and
+appends `${HOME}/.local/bin`, the installer's default prefix, to `GITHUB_PATH`.
+The step sits under the same `should_run` gate as the work it serves, so a
+skipped run still costs nothing.
+`test_nightly_lane_installs_the_pinned_mold_linker` pins the install, its gate
+and the `PATH` line, because the existing contracts read `RUSTFLAGS` and would
+happily agree with a step whose link is impossible.
+
+The second was the portable kernel itself. A module compiled only under
+`--features nightly_portable_simd` had never been measured against the
+workspace lint policy, and the first pass over it reported thirteen findings
+(issue #268): missing private-item documentation, `indexing_slicing` at the
+packed-view reads and the output writes, and one genuine `float_arithmetic`
+site. Those were fixed in #287, and the module now carries the same shape as
+its scalar and architecture-specific siblings.
+
+The newest nightly then found a further one that did not exist when #287 merged:
+`clippy::chunks_exact_to_as_chunks`, raised twice on the pairwise loop's
+`chunks_exact(PORTABLE_SIMD_LANES)` pair. That is the hazard of a lane that
+floats on `nightly` rather than a dated pin, and it is why the lane is not a
+merge gate. The loop now uses `as_chunks::<PORTABLE_SIMD_LANES>()` and zips the
+exact blocks, which is the same iteration in the same order with the same
+scalar tail, so accumulation order and every distance are unchanged.
+
+#### What a forced run must show
+
+The lane's gate skips the work unless there was a commit to `main` in the last
+24 hours, so a forced dispatch is the only way to check it on demand:
+
+```sh
+gh workflow run nightly-portable-simd.yml --ref BRANCH -f force_run=true
+```
+
+A green run is evidence only if the steps actually executed. Accept it when
+`should_run=true`, the installer, the `mold` install, all three test steps and
+the Clippy step each ran and passed, and the logs show the named tests rather
+than an empty harness: `portable_simd_pairwise_matches_scalar`,
+`portable_simd_query_points_matches_scalar`,
+`portable_simd_canonicalizes_non_finite_to_nan` and the `simd::tests::parity`
+properties in the dense step,
+`portable_simd_is_rejected_on_nightly_without_feature` in the no-feature
+contract step, and `portable_simd_compiles_with_feature` in the feature-enabled
+one. A run that reports success in seconds, or a step whose only line is
+`running 0 tests`, is the failure mode issue #262 recorded, not a pass.
+
+The first forced run to meet that bar is
+[run 44924723497](https://github.com/leynos/chutoro/actions/runs/44924723497),
+on commit `0da76322d205d2afc070e9cfad6a99ff5d5c2007`, under
+`rustc 1.102.0-nightly (c7d5ba59d 2026-11-20)`. It installed `mold` 2.41.0,
+reported `141 passed` and `2 passed` in the dense step, `1 passed` in each
+compile-contract step, and reached the end of the Clippy step with no
+diagnostics. Issues #262 and #268 close on that record.
+
 ## Cancelling superseded pull-request runs
 
 Every push to a pull request starts a fresh run of each gate. The run already
@@ -1775,7 +1911,7 @@ repository to carry a token, and the one here, `dependabot-automerge.yml`,
 merges Dependabot pull requests rather than building, so cancelling it
 mid-flight is a hazard with no minutes to win.
 
-### The cancellation contract
+### The pull-request workflows
 
 All four pull-request workflows carry the block above: `ci.yml`,
 `property-tests.yml`, `kani-pr.yml` and `benchmark-regressions.yml`. The last
@@ -1788,38 +1924,6 @@ four writes a trunk baseline or publishes, so none needs a ref-only group;
 `coverage-main.yml`, the coverage publisher, keeps its own queued
 `coverage-main-${{ github.ref }}` group and is outside this rule, since it has
 no `pull_request` trigger.
-
-`tests/workflow_contracts/pr_concurrency_test.py` holds the rule. It discovers
-every workflow declaring a `pull_request` trigger, reading `on:` as a mapping,
-a list or a bare name under both the quoted key and PyYAML's boolean `True`,
-and refuses a workflow declaring both, since GitHub would read one trigger set
-and the contract another. A floor of the four workflows above keeps discovery
-from emptying into a vacuous pass. For each workflow it then requires a group
-that, rendered by `pr_concurrency_groups.py`, keeps two pushes to one pull
-request together and keeps apart that pull request, a fork's pull request from
-a branch of the same name, two pushes to `main`, and two dispatches of another
-branch; and that uses `github.run_id` only as the fallback behind the
-pull-request number. A `github.ref` or `github.base_ref` fallback, a
-`github.head_ref`, `github.sha` or `github.run_id`-only group, the run
-identifier ahead of the number, or a constant group fails, and an expression
-the renderer does not model is refused rather than guessed at. It also requires
-exactly the event-conditioned `cancel-in-progress` expression, so the literal
-`true` fails. No two pull-request workflows may render the same group for one
-pull request, since whichever started last would cancel the others; each is
-rendered under its own name, and the groups are compared casefolded because
-GitHub treats group names case-insensitively. The files are read at test setup,
-not at import, through `workflow_support.all_workflow_documents`, whose parser
-refuses a duplicated mapping key because PyYAML keeps the last of two
-`concurrency:` blocks and says nothing; a file that cannot be read fails the
-tests that need it, with the reason, and a test drives the scope decision over
-a constructed directory. Each clause was proved by mutation: the cancel line
-removed, a literal `true`, a `ref` fallback, the run identifier ahead of the
-number, a constant group, a `head_ref` group, a `format()` group, the block
-removed, the trigger renamed to `pull_request_target`, a duplicated block, and
-an unquoted `on:` beside the quoted one each fail it. So do a renderer that
-lets a comparison through, a workflow renamed to a case-only variant of
-another, and a reader that stops reading `.yaml` files, all three of which the
-first version of the contract passed.
 
 ## Test timeouts: four tiers, outermost last
 
@@ -1899,6 +2003,22 @@ test runs nested release-mode `cargo bench` commands, so it also reserves eight
 slots and 1,800 seconds. Tests in `chutoro-core/tests/nextest_config.rs` pin
 the compile-contract and benchmark smoke allowances to the authoritative
 overrides in `.config/nextest.toml`.
+
+Those two groups no longer pay for their nested builds inside a timed test. The
+`default` profile (which `ci` inherits) runs setup scripts first: `warm-benches`
+(`cargo bench --no-run` for the benchmark crate) and `warm-compile-contracts`
+(the compile-contract tests, run once and serially, with all features as
+`make test` does), then `warm-compile-contracts-default` (the same suite with
+default features, so a direct run without `--all-features` finds its
+feature-negative fixtures built). Each runs only when a test it serves is
+selected and has its own allowance of 1,800 s, 1,800 s and 600 s. On a host
+whose shared compile pool is saturated, the wait for a compile slot is
+therefore spent in a setup script, where a timeout names the script, and not in
+a test that then reads as a defect. The three allowances sum to 4,200 s, which
+the 80 m `global-timeout` (4,800 s) stays above even with the 235 s a warm full
+run takes. Run a single nested test by hand with
+`cargo nextest run -E 'binary(benchmark_smoke)'` and the scripts run first, so
+no manual pre-warming is needed.
 
 ### The cargo watchdog is the tier nobody expects
 
@@ -2006,9 +2126,10 @@ invoking the shared coverage action to set the watchdog explicitly, since a
 step without it inherits the 1,800 s default, which is where this repository
 started. Both workflow extensions are scanned because a coverage lane in a
 `.yaml` file would otherwise inherit that default without failing anything. The
-readings it rests on live in `timeout_budgets.py`, `nextest_durations.py` and
-`coverage_lanes.py`, and are driven past this repository's own numbers in
-`timeout_derivation_test.py` and `duration_reading_test.py`.
+readings it rests on live in `timeout_budgets.py`, `profile_inheritance.py`,
+`nextest_durations.py` and `coverage_lanes.py`, and are driven past this
+repository's own numbers in `timeout_derivation_test.py`,
+`profile_inheritance_test.py` and `duration_reading_test.py`.
 
 Durations are read the way nextest reads them, with `humantime`'s grammar: a
 sequence of values each followed by a unit, summed, so `2h 37min` and `1m30s`
@@ -2161,14 +2282,18 @@ The PR job has a `timeout-minutes: 20` budget, sized to exceed the longest
 property phases do not consume the full budget. The weekly job retains a
 `timeout-minutes: 120` budget for deeper test runs.
 
-All test runs use the `nextest` CI profile (`--profile ci`). Benchmark targets
-require `threads-required = 8`; see `.config/nextest.toml`.
+Pull-request property runs use the `nextest` CI profile (`--profile ci`). The
+weekly and manual lane keeps `ci` for its HNSW, edge-harvest and MST legs and
+selects `property-heavy` for the dense SIMD leg only; see
+[Dense parity timeouts](#dense-parity-timeouts). Benchmark targets require
+`threads-required = 8`; see `.config/nextest.toml`.
 
 Compile-contract tests belong in the `chutoro-compile-contracts` package. Its
 package-level `nextest` override shares the `nested-cargo` serial group with
 other tests that start compilers, reserves four required threads, and sets a
 1,800-second `slow-timeout` in both profiles. Other tests retain the 60-second
-default per-test `slow-timeout`.
+default per-test `slow-timeout`. Fixture lockfiles follow the seed-and-prune
+procedure in [Fixture lockfiles](#fixture-lockfiles).
 
 The `Doctests` step runs `make test-doc` because the coverage action's
 `cargo nextest` invocation never runs doctests. The target compiles and runs
@@ -2294,8 +2419,7 @@ and workflow contract readers share duplicate-key rejection through
 `StrictYamlLoader` in `tests/workflow_contracts/strict_yaml.py`. The Dependabot
 contract uses that loader directly in `dependabot_config_test.py`. Workflow
 text is parsed by `parse_workflow_text`: `workflow_support.py` uses it when
-reading workflow documents, and `pr_concurrency_test.py` uses it for its own
-workflow input. Keep shared workflow document reads behind
+reading workflow documents. Keep shared workflow document reads behind
 `workflow_support.py`, and do not use this loader as an application YAML API.
 
 ### Arrow and Parquet family updates
@@ -2372,12 +2496,114 @@ When adding a new dense SIMD backend or Euclidean kernel:
    layout, lane width, or input hazard that the existing generators do not
    cover.
 4. Run `cargo nextest run -p chutoro-providers-dense simd::tests::parity::`
+   for the fast suite, then the weekly-sized workload with:
+
+   ```sh
+   PROPTEST_CASES=25000 CHUTORO_PBT_FORK=true \
+     cargo nextest run --profile property-heavy \
+     -p chutoro-providers-dense simd::tests::parity::
+   ```
+
    before the full `make check-fmt`, `make lint`, `make typecheck`, and
    `make test` gates.
 
 If proptest records a regression, keep the generated file under the relevant
 `proptest-regressions/` directory. That file is the shrunk counterexample and
 should be treated as a regression guard, not as disposable local output.
+
+### Dense parity timeouts
+
+The suite runs under two workloads: 250 cases in the pull-request property
+workflow, and 25,000 forked cases in the weekly and manual workflow. All three
+overrides in `.config/nextest.toml` use the filter
+`package(chutoro-providers-dense) & test(/simd::tests::parity::/)`.
+
+Table: the dense parity allowances and the lane each one serves.
+
+| Profile          | Allowance | Selected by                     |
+| ---------------- | --------- | ------------------------------- |
+| `default`        | 180 s     | local runs                      |
+| `ci`             | 180 s     | the pull-request property lane  |
+| `property-heavy` | 300 s     | the weekly and manual dense leg |
+
+`property-heavy` inherits `ci`, and its own override is consulted before an
+inherited one, which is `nextest`'s selected-profile-first rule.
+
+Only the `dense_simd` matrix leg selects `property-heavy`. The repository pins
+cargo-nextest 0.9.143, and until 0.9.145 only the selected profile's own
+overrides and `profile.default`'s were consulted; overrides in an intermediate
+profile were silently skipped. Selecting the heavy profile for the whole weekly
+job would therefore replace the HNSW leg's 1500-second allowance and the
+edge-harvest leg's 600-second one with the default profile's. The other legs
+stay on `ci` and keep the budgets they had.
+
+The 300-second allowance was measured, not guessed. Three forced
+`workflow_dispatch` runs of `property-tests.yml` (runs 44915040254, 44915045535
+and 44915050995) ran the suite on the x64 `ubuntu-latest` pool with
+`PROPTEST_CASES=25000`, `CHUTORO_PBT_FORK=true` and the fixed seed
+`0x600D_5EED_C047_0207`. Every run completed all four properties. Table: the
+slowest completed duration per property and the mean per-case cost, which
+includes fork overhead.
+
+| Property                                                          | Slowest | Per case |
+| ----------------------------------------------------------------- | ------- | -------- |
+| `pairwise::pairwise_backends_match_scalar_oracle`                 | 14.6 s  | 0.58 ms  |
+| `non_finite::pairwise_backends_canonicalize_non_finite_to_nan`    | 18.9 s  | 0.75 ms  |
+| `query_points::query_point_backends_match_scalar_oracle`          | 37.3 s  | 1.49 ms  |
+| `non_finite::query_point_backends_canonicalize_non_finite_to_nan` | 81.1 s  | 3.24 ms  |
+
+Three times the slowest completed duration is 243.4 s, rounded up to a whole
+minute is 300 s, about 3.7 times the slowest observed run and far below the
+4,800-second global timeout the heavy profile inherits. The properties declare
+no `prop_assume!` or `prop_filter`; the run-wide reject budget is 100,000
+(`max_global_rejects_for(25_000)`), and a passing run performs no shrinking.
+
+The forked weekly lane also carries explicit per-case and shrink bounds. The
+dense parity configuration sets a 20-second per-case timeout and a 60-second
+shrink-time bound when forking; proptest's defaults leave both at zero, so the
+weekly lane previously had no in-case bound and the 300-second nextest
+allowance bounded the whole property. The shrink bound is measured per forked
+child: a shrink candidate that hangs restarts the child and begins a new
+minute, so the 300-second nextest allowance remains the outer bound across
+restarts, and an overrun there is a timeout rather than a counterexample. The
+unforked pull-request and local lanes keep proptest's disabled timeout, because
+a non-zero per-case timeout implicitly enables forking. Proptest's shrink
+iteration bound stays its default of four times the case count.
+
+The logs record each property's duration and the configured 25,000 cases; the
+nextest summary for the three measurement runs was
+`4 tests run: 4 passed, 125 skipped` in 45.7 s, 81.3 s and 54.7 s. A passing
+forked run implies 25,000 successes per property, but proptest 1.12.0 prints
+the parent's success and reject counters only when a case fails, so the logs do
+not state those counts. The three measurement runs predate `PROPTEST_VERBOSE`
+and did not enable it. The weekly lane now sets `PROPTEST_VERBOSE=1`, which
+prints a line for each test-case rejection or failure; a strategy-local
+rejection uses a separate counter and does not print per case. Nextest displays
+a failed test's output but hides a passing test's by default, so this helps
+diagnose a failure rather than establishing a passing run's reject count. The
+repaired-head confirmation dispatch's dense job set `PROPTEST_VERBOSE=1` and
+passed in 46.2 s with its output hidden; the dispatch as a whole failed on the
+separate HNSW mutation timeout tracked in #332. Actual reject counts therefore
+remain unavailable, and structured inventory and progress reporting stays
+tracked in shared-actions#592. The per-case cost in the table includes fork
+overhead; a separate fork cost and in-test progress are not exposed by proptest
+1.12.0 in forked mode.
+
+A timeout is unresolved work. It says an allowance was too small or a runner
+too slow; it does not prove the suite passed, and it is not a numerical failure
+in a kernel. Timeouts are excluded from the table above and recorded as
+outstanding in the comment above the heavy override, alongside the run IDs and
+the sizing rule. The backend set each run exercised is whatever
+`dispatch::enabled_backends` detected at runtime; on the hosted x64 pool that
+is the scalar backend plus whichever of AVX2 and AVX-512 the runner exposes,
+and the measurement does not assume AVX-512.
+
+The declarations, the per-suite routing, the parent/child allowance ordering
+and the weekly job ceiling are pinned by
+`chutoro-core/tests/nextest_config/dense_parity_overrides.rs` and
+`tests/workflow_contracts/property_lane_profile_test.py`. Structured inventory,
+progress and budget reporting across the property suites is tracked in
+[shared-actions#592](https://github.com/leynos/shared-actions/issues/592).
 
 ## Dense SIMD Kani harnesses
 
@@ -2565,9 +2791,13 @@ only covers the version its own manifest pins, a matching `PROVER_TOOLS_SOURCE`
 bump.
 
 The two minimum-spanning-tree (MST) harnesses are fast-tier proofs and run in
-`make kani`. The full tier remains the package-wide sweep across every declared
-harness, including the distance and HNSW invariant proofs that are not in the
-fast list.
+`make kani`. The base-layer connectivity healing proof,
+`verify_base_layer_healing_links_isolated_node_2_nodes`, is fast-tier too: it
+drives the production `ConnectivityHealer::ensure_base_connectivity` on a
+concrete two-node graph and asserts the exact reciprocal base lists. It
+verifies in about ten seconds on the measurement host. The full tier remains
+the package-wide sweep across every declared harness, including the distance
+and HNSW invariant proofs that are not in the fast list.
 
 What the HNSW harnesses prove is bounded. The graph-structure obligations FV04
 and FV08 model graph state — adjacency, reciprocity, level membership, and the
@@ -2605,11 +2835,33 @@ removed-edge reconciliation, and deferred scrubs in one formula was intractable
 even on a two-node graph, while per-call proofs of `ensure_reverse_edge` verify
 in about a minute.
 
+The healer proof measures the same cliff. An all-concrete two-node harness
+verifies in about ten seconds with no aborted paths, while a three-node probe
+that also added one symbolic boolean for an optional spare neighbour and raised
+the unwind bound exceeded ten minutes of solving with more than six thousand
+aborted paths. The probe changed three factors together, so it does not
+separate their effects; it establishes that the tested wider configuration is
+not fast-tier material, and the concrete fixture remains the retained proof.
+
 Harness construction must avoid panic-capable paths such as `.expect(...)` and
 production errors that build messages with `format!` before an invariant
 assertion. Prefer
 `let Ok(value) = operation else { kani::assert(false, "..."); return; };` and
 lean `#[cfg(kani)]` constructors that return static reasons.
+
+Kani treats an active `debug_assert!` as `assert!`, so a debug assertion on a
+branch a proof must explore becomes an unsatisfiable obligation. The
+self-target guard in `EdgeReconciler::ensure_reverse_edge` is therefore
+compiled out under `cfg(kani)`. The two-node no-self-loop harnesses choose the
+target nondeterministically and prove that a self-target returns `false`
+without mutating either selected-level neighbour list, while the debug-profile
+unit test `ensure_reverse_edge_asserts_on_a_self_target` proves the assertion
+fires. Run the release-profile fallback test explicitly:
+
+```sh
+cargo test -p chutoro-core --lib --release \
+  ensure_reverse_edge_rejects_a_self_target_without_mutation
+```
 
 Where production code relies on concurrency that Kani models sequentially, a
 `#[cfg(kani)]` model must preserve the production ordering and selection
@@ -2622,7 +2874,10 @@ Standard hash collections must not appear on any Kani-reachable path. The
 default `HashMap`/`HashSet` hasher seeds symbolic SipHash state that makes even
 fully deterministic harnesses intractable. Substitute a bounded linear-scan
 structure under `#[cfg(kani)]`, as `ConnectivityHealer`'s visited set does in
-`chutoro-core/src/hnsw/insert/connectivity.rs`.
+`chutoro-core/src/hnsw/insert/connectivity.rs`. That substitute's insertion
+semantics are pinned by `rstest` equivalence cases, and the concrete two-node
+healing path itself is now proved by the fast-tier harness above; the
+substitute remains in use because the proof drives it.
 
 Keep each `#[kani::unwind(N)]` bound as tight as the harness permits; do not
 increase a default bound to compensate for proof cost. For a demonstrably slow
@@ -3253,11 +3508,22 @@ overwrite semantics, and `Publisher` is the final write-once sink. `CacheKey`
 and `ObjectKey` are opaque string newtypes: recipes treat them as identifiers,
 and any interpretation of a key as a filesystem path, object-store prefix, or
 other backend-specific address belongs to the `Storage` and `Publisher`
-adapters. Network download, archive extraction, object-store adapters,
-lockfiles, fetch-time checksum verification, and licence gates are deferred to
-later roadmap items. When roadmap 10.1.2 adds resumable downloads, verification
-follows
-[ADR 0009](adrs/adr-0009-resumable-download-verification-trust-model.md): an
+adapters. Network download, archive extraction, object-store adapters, the
+roadmap 10.1.5 cache lockfile, fetch-time checksum verification, and licence
+gates are deferred to later roadmap items.
+
+All filesystem access goes through `cap_std::fs_utf8` relative to a `Dir`
+capability root. Do not call `std::fs`, and do not call `into_std()` to recover
+an ambient handle. The staging lock in `src/transfer/lock.rs`, enabled by the
+`http` feature, opens its `.lock` file through the capability root and borrows
+the descriptor with `AsFd` for `rustix::fs::flock`; this is the sanctioned
+pattern for an operation `cap-std` does not expose. The lock is advisory, so
+the cache root must be a local filesystem: `flock` is unreliable on NFS and may
+be emulated on overlay mounts. See
+[`ADR-009`](adrs/adr-0009-staging-lock-via-rustix-flock.md).
+
+When roadmap 10.1.2 adds resumable downloads, verification follows
+[ADR 0011](adrs/adr-0011-resumable-download-verification-trust-model.md): an
 uninterrupted transfer hashes bytes as they are written and reads nothing back,
 as does a restart that streams again from offset zero and never later resumes,
 while a transfer that resumed from a non-zero durable offset re-hashes the
@@ -3278,7 +3544,26 @@ Enable the crate's `testing` feature for adapter contract tests. It exposes
 `InMemoryFetcher`, `InMemoryStorage`, `InMemoryPublisher`, `FilesystemFetcher`,
 and `StubRecipe`. The behavioural tests in
 `chutoro-bench-datasets/tests/recipe_bdd.rs` run the same fetcher contract
-against both in-memory and filesystem-backed adapters.
+against both in-memory and filesystem-backed adapters. The `http` feature
+exposes `StagingLock`, `StagingLockGuard`, `LockPolicy`, and their outcome
+types; it enables `cap-std` and `rustix` but changes neither `default` nor
+`testing`.
+
+### Cleanup contract
+
+`PartialState` carries only `highest_completed_phase`; the `orphaned_cache_key`
+field was removed by issue #216 because the driver never populated it.
+`DatasetRecipe::cleanup` receives the last phase that completed successfully,
+which is a lower bound on the side effects already present: a fetch failure
+reports `None`, and a prepare failure reports `Some(Phase::Validate)`, even
+though the failing prepare may have written intermediates.
+
+The driver neither tracks `Storage` writes nor supplies cache keys, and the
+`Storage` port has no deletion operation. Recipes that need to remove partial
+output must record the `CacheKey` values they write, or derive them
+deterministically from their inputs, and remove them through their own
+mechanism. The [0.2.0 migration notes](migration-notes.md#020) record the
+removal for downstream callers.
 
 The design rationale is recorded in
 [`ADR-004`](adrs/adr-0004-bench-dataset-recipe-trait.md). The broader dataset
@@ -3306,11 +3591,11 @@ repository different amounts at review time. The distinction that matters is
 not which tool is stronger but what each one actually checks and what runs
 before a merge.
 
-| Tool       | CI execution                                                                                                                  | Proof selection                                                | Standing pull-request cost                                                                             | What it checks                                           |
-| ---------- | ----------------------------------------------------------------------------------------------------------------------------- | -------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------ | -------------------------------------------------------- |
-| Verus      | Every pull request (`ci.yml`, no path filter)                                                                                 | Default `VERUS_PROOF_FILES` roots in the `Makefile`            | `verus-proofs` job runtime on every pull request; elapsed impact only while it is on the critical path | A specification model transcribed from production logic  |
-| Kani       | Path-filtered pull requests to `main` (`kani-pr.yml`); nightly full suite                                                     | Six harnesses in `make kani`; package list in `make kani-full` | Only when a path filter matches                                                                        | Executable Rust under `cfg(kani)`, within harness bounds |
-| `proptest` | Every pull request through the `build-test` coverage run; extra path-filtered suites in `property-tests.yml`; weekly deep run | Test targets in the property suites                            | Always, within the existing test run; extra cases only when a path filter matches                      | Shipped code at realistic sizes                          |
+| Tool       | CI execution                                                                                                                  | Proof selection                                                  | Standing pull-request cost                                                                             | What it checks                                           |
+| ---------- | ----------------------------------------------------------------------------------------------------------------------------- | ---------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------ | -------------------------------------------------------- |
+| Verus      | Every pull request (`ci.yml`, no path filter)                                                                                 | Default `VERUS_PROOF_FILES` roots in the `Makefile`              | `verus-proofs` job runtime on every pull request; elapsed impact only while it is on the critical path | A specification model transcribed from production logic  |
+| Kani       | Path-filtered pull requests to `main` (`kani-pr.yml`); nightly full suite                                                     | Seven harnesses in `make kani`; package list in `make kani-full` | Only when a path filter matches                                                                        | Executable Rust under `cfg(kani)`, within harness bounds |
+| `proptest` | Every pull request through the `build-test` coverage run; extra path-filtered suites in `property-tests.yml`; weekly deep run | Test targets in the property suites                              | Always, within the existing test run; extra cases only when a path filter matches                      | Shipped code at realistic sizes                          |
 
 *Table 1: Verification tools, what each checks, and what it costs at review
 time.*
@@ -3325,17 +3610,17 @@ past the longest parallel job. The `.verus` cache reduces the installation cost
 but does not remove it: a cache miss downloads and verifies the pinned release
 again.
 
-Kani is narrower. `make kani` runs six curated harnesses, and the path-filtered
-`kani-pr.yml` workflow runs it only for pull requests to `main` that touch a
-harness, its production module, the `Makefile` or the Cargo dependency graph. A
-new harness reaches that configured check only if it matches a path filter and
-is named in the `make kani` list. Otherwise it runs only in the nightly
-`make kani-full` sweep, and only if its package is in that target's package
-list; the dataset crate is not. The nightly job can also skip with a green
-result when its commit-recency gate finds no recent `main` commits. A
-successful harness explores every reachable path within its unwind bound and
-stated assumptions, so its result is bounded and conditional rather than a
-general proof; incomplete unwinding leaves the property unproved. See
+Kani is narrower. `make kani` runs seven curated harnesses, and the
+path-filtered `kani-pr.yml` workflow runs it only for pull requests to `main`
+that touch a harness, its production module, the `Makefile` or the Cargo
+dependency graph. A new harness reaches that configured check only if it
+matches a path filter and is named in the `make kani` list. Otherwise it runs
+only in the nightly `make kani-full` sweep, and only if its package is in that
+target's package list; the dataset crate is not. The nightly job can also skip
+with a green result when its commit-recency gate finds no recent `main`
+commits. A successful harness explores every reachable path within its unwind
+bound and stated assumptions, so its result is bounded and conditional rather
+than a general proof; incomplete unwinding leaves the property unproved. See
 [Kani CI policy](#kani-ci-policy) for the tier details.
 
 `proptest` runs on every pull request as well, because `build-test` runs the
@@ -3404,7 +3689,7 @@ candidate proofs:
   cover that space, and Kani cannot prove it at that bound.
 
 The same `proptest` state machine is planned to carry the read-back budget from
-[ADR 0009](adrs/adr-0009-resumable-download-verification-trust-model.md).
+[ADR 0011](adrs/adr-0011-resumable-download-verification-trust-model.md).
 It will inject the verifier's read source alongside the scripted transfer
 outcomes and count read-back bytes, asserting `0` for an uninterrupted transfer,
 `0` for a restart that streams from offset zero and never later resumes, and

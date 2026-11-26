@@ -57,7 +57,7 @@ jobs:
         with:
           persist-credentials: false
       - name: Setup Rust
-        uses: leynos/shared-actions/.github/actions/setup-rust@3551a0bf76fe47d0cc5ff632c7796a8ddb23717e
+        uses: leynos/shared-actions/.github/actions/setup-rust@ab6505246c6b043b742a225e428e00448c0a37af
         with:
           install-mold: 'true'
           use-sccache: 'false'
@@ -66,7 +66,7 @@ jobs:
       # repository needs no Python project environment, pinned to a full commit
       # rather than a moving branch.
       - name: Setup uv for the prover tooling
-        uses: astral-sh/setup-uv@68559e99cc807c1eb7e9238fd43a15bba460eec2
+        uses: astral-sh/setup-uv@1db35dd8eee11c5894872e0b383ae6c406cf738d
         with:
           python-version: '3.14'
           # Setup Rust already invoked setup-uv with caching enabled, so it
@@ -74,7 +74,7 @@ jobs:
           # path a second owner with a competing key.
           enable-cache: false
       - name: Install Kani
-        uses: leynos/shared-actions/.github/actions/install-prover-tools@3551a0bf76fe47d0cc5ff632c7796a8ddb23717e
+        uses: leynos/shared-actions/.github/actions/install-prover-tools@ab6505246c6b043b742a225e428e00448c0a37af
         with:
           tools: kani
           runner-image: ubuntu2404

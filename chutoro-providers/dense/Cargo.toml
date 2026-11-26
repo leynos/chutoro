@@ -21,7 +21,6 @@ thiserror = "2.0.17"
 version = "0.1.0"
 path = "../../chutoro-core"
 default-features = false
-features = ["skeleton"]
 
 [build-dependencies]
 mockable = { workspace = true }

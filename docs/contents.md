@@ -66,10 +66,14 @@ open each document.
 - [ADR 008: GloVe source and ZIP scope](adrs/adr-0008-glove-source-and-zip-scope.md):
   accepted guidance for sourcing GloVe from ANN-Benchmarks HDF5 and keeping ZIP
   out of the download and dataset scope.
-- [ADR 0009: resumable download verification trust
-  model](adrs/adr-0009-resumable-download-verification-trust-model.md):
+- [ADR 009: staging-file locks via rustix
+  flock](adrs/adr-0009-staging-lock-via-rustix-flock.md): accepted guidance for
+  capability-scoped advisory staging locks and their bounded acquisition policy.
+- [ADR 0011: resumable download verification trust
+  model](adrs/adr-0011-resumable-download-verification-trust-model.md):
   proposed whole-file re-hash after an interruption, no hash state across
-  processes, and the rejection of chunk and midstate staging digests.
+  processes, the durable restart counter, and the rejection of chunk and
+  midstate staging digests.
 
 ## Requests for comments
 
@@ -126,6 +130,9 @@ open each document.
     execplans/2-2-7-kani-harnesses-for-tail-padding-and-dispatch-selection.md)
   - [2-3-1 HNSW neighbour evaluation using packed
     indices](execplans/2-3-1-hnsw-neighbour-evaluation-using-packed-indices.md)
+  - [Issue 255 tractable Kani coverage for connectivity
+    healing](execplans/issue-255-investigate-tractable-kani-coverage-for-connectivityhealer-base-layer-healing.md):
+    investigation and proof of the base-layer healing path.
   - [Phase 1 bounded Kani harness](execplans/phase-1-bounded-kani-harness.md)
   - [Phase 1 candidate edge harvest property suite](
     execplans/phase-1-candidate-edge-harvest-property-suite.md)

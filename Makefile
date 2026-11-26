@@ -292,6 +292,7 @@ kani-check: ## Check the installed Kani verifier against its pin
 kani: ## Run Kani practical harnesses
 	$(KANI_ENV) $(CARGO) kani -p chutoro-core --default-unwind 4 --harness verify_bidirectional_links_smoke_2_nodes_1_layer
 	$(KANI_ENV) $(CARGO) kani -p chutoro-core --default-unwind 4 --harness verify_bidirectional_links_reconciliation_2_nodes_1_layer
+	$(KANI_ENV) $(CARGO) kani -p chutoro-core --default-unwind 9 --harness verify_base_layer_healing_links_isolated_node_2_nodes
 	$(KANI_ENV) $(CARGO) kani -p chutoro-core --default-unwind 12 --harness verify_mst_structural_correctness_4_nodes
 	$(KANI_ENV) $(CARGO) kani -p chutoro-core --default-unwind 10 --harness verify_mst_minimality_3_nodes
 	$(KANI_ENV) $(CARGO) kani -p chutoro-providers-dense --default-unwind 4 --harness verify_dense_simd_dispatch_selection_respects_support_masks
@@ -313,11 +314,16 @@ bench: ## Run Criterion benchmarks
 # them, so `_fraction_nanoseconds` had shipped an example that does not
 # produce what it claims. An example nobody executes is a comment that
 # looks like evidence.
+#
+# `-rs` names every skip and its reason. These contracts skip when a
+# prerequisite is absent, so a bare count cannot tell a provisioned host from
+# an unprovisioned one, and a CI log with only "N skipped" cannot show which
+# contracts actually ran.
 test-workflow-contracts: ## Validate the CI workflow contracts
 	$(CV005_CONTRACTS) check --repository .
 	uv run --with 'pytest>=8' --with 'pyyaml>=6' --with 'pathspec>=0.12' \
 		--with 'hypothesis>=6' pytest tests/workflow_contracts \
-		--doctest-modules -q
+		--doctest-modules -q -rs
 
 # The two regressions are the runtime scheduling evidence for the insertion
 # critical section. A filter that matches nothing passes by default, so

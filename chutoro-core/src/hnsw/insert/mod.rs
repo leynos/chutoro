@@ -183,3 +183,35 @@ pub(crate) fn ensure_reverse_edge_for_kani(
     let mut reconciler = reconciliation::EdgeReconciler::new(graph);
     reconciler.ensure_reverse_edge(&update_ctx, target)
 }
+
+/// Ensures base-layer connectivity through the production healer for Kani.
+///
+/// This bridge gives a harness the production
+/// `ConnectivityHealer::ensure_base_connectivity` routine without duplicating
+/// healing logic in proof-only code. It adds no preconditions or side effects
+/// of its own; the caller supplies the graph, the node to heal, and the
+/// connection budget.
+///
+/// # Examples
+/// ```rust,ignore
+/// use crate::hnsw::{graph::{Graph, NodeContext}, params::HnswParams};
+///
+/// let params = HnswParams::new_for_kani(1, 1).expect("params must be valid");
+/// let mut graph = Graph::with_capacity(params, 2);
+/// graph
+///     .insert_first_for_kani(NodeContext { node: 0, level: 0, sequence: 0 })
+///     .expect("insert node 0");
+/// graph
+///     .attach_node_for_kani(NodeContext { node: 1, level: 0, sequence: 1 })
+///     .expect("attach node 1");
+/// ensure_base_connectivity_for_kani(&mut graph, 1, 1);
+/// ```
+#[cfg(kani)]
+pub(crate) fn ensure_base_connectivity_for_kani(
+    graph: &mut crate::hnsw::graph::Graph,
+    node: usize,
+    max_connections: usize,
+) {
+    let mut healer = connectivity::ConnectivityHealer::new(graph);
+    healer.ensure_base_connectivity(node, max_connections);
+}

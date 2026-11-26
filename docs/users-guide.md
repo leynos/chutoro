@@ -697,8 +697,6 @@ The crate exposes the following feature flags:
 - `metrics` exposes metrics emission from hot paths.
 - `gpu` prepares the GPU execution path selection surface (the accelerator
   implementation is not yet available).
-- `skeleton` is a legacy compatibility flag retained for early versions; it is
-  no longer required by the CPU backend.
 
 When the `metrics` feature is enabled, the distance cache emits four metrics:
 `distance_cache_hits` counts successful lookups, `distance_cache_misses` counts
@@ -749,6 +747,63 @@ chutoro-bench-datasets = "0.1.0"
 chutoro-bench-datasets = { version = "0.1.0", features = ["testing"] }
 ```
 
+### Staging download locks
+
+Enable the `http` feature when a recipe needs to stage a download behind an
+exclusive lock. The feature enables `cap-std` and `rustix`; it leaves both
+`default` and `testing` unchanged.
+
+```toml
+[dependencies]
+chutoro-bench-datasets = { version = "0.1.0", features = ["http"] }
+```
+
+`StagingLock` opens or creates a stable `.lock` file under a capability root,
+takes a non-blocking exclusive `flock`, and retries under a `LockPolicy` until
+the lock is granted or the timeout expires. The root must already exist; the
+lock creates the `.lock` file inside it. Keep the returned `StagingLockGuard`
+alive while the staging file is written; dropping it releases the lock, removes
+the in-process registry entry, and closes the descriptor. The lockfile itself
+is never removed or renamed.
+
+```rust
+use std::time::Duration;
+use chutoro_bench_datasets::{LockPolicy, RecipeError, StagingLock};
+
+let lock = StagingLock::new("target/bench-datasets");
+let policy =
+    LockPolicy::new(Duration::from_secs(30)).map_err(|error| RecipeError::other(error))?;
+let guard = lock.acquire("mnist.lock", policy)?;
+assert!(guard.path().ends_with("mnist.lock"));
+drop(guard);
+# Ok::<(), RecipeError>(())
+```
+
+`LockPolicy::new` requires a non-zero timeout and uses a 25 ms poll interval by
+default; `with_poll_interval` sets a longer interval and rejects one below 1
+ms. A contended acquisition fails with `RecipeError::StagingLockContended`
+after the timeout and logs one warning on first contention. The lock API
+returns four staging-lock errors:
+
+- `StagingLockInvalidName`: the name is not one relative UTF-8 `.lock`
+  component; pass a stable name such as `mnist.lock`.
+- `StagingLockContended`: this process already holds the lock, rejected
+  immediately with `waited_millis == 0`, or another holder outlasted the
+  timeout, where `waited_millis` is the bounded wait; retry later or raise the
+  timeout.
+- `StagingLockIo`: opening, creating, or locking the file failed; inspect the
+  source error.
+- `StagingLockUnsupportedPlatform`: the target has no `flock` binding; no
+  filesystem operation is attempted.
+
+The API exists on Windows and the `rustix`-excluded targets but returns
+`StagingLockUnsupportedPlatform` there. Advisory locks are also unreliable on
+NFS and overlay mounts, so the cache root must be a local filesystem. See
+[ADR-009: staging-file locks via rustix flock](adrs/adr-0009-staging-lock-via-rustix-flock.md)
+and the
+[staging lock semantics](benchmark-dataset-retrieval.md#staging-lock-semantics)
+in the retrieval reference for the full contract.
+
 ### Dataset recipe usage pattern
 
 Implement `DatasetRecipe` for each dataset. Its associated types model the four
@@ -788,6 +843,24 @@ assert_eq!(published.manifest_uri().as_str(), "manifests/example.json");
 
 For the design rationale behind the four-phase trait and port split, see
 [ADR-004: Benchmark dataset recipe trait](adrs/adr-0004-bench-dataset-recipe-trait.md).
+
+### Cleaning up partial recipe state
+
+`DatasetRecipe::cleanup` receives a `PartialState` that reports only the last
+phase that completed before the failure. A fetch failure reports `None`, and a
+prepare failure reports `Some(Phase::Validate)`. The failed phase may already
+have written output, so treat the reported phase as a lower bound on the side
+effects to remove.
+
+The driver does not track writes made through `Storage`, and it supplies no
+cache keys. `Storage` also has no deletion operation. A recipe that must remove
+partial output records the `CacheKey` values it writes, or derives them
+deterministically from its inputs, and removes them through its own mechanism.
+
+The `PartialState::orphaned_cache_key` field is removed. Code that branched on
+it never took the populated branch under `run_recipe`, so delete that branch.
+See the [0.2.0 migration notes](migration-notes.md#020) for the compatibility
+note.
 
 ### Identifying cache and object keys
 

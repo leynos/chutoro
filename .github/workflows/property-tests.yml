@@ -50,6 +50,9 @@ jobs:
         suite: [hnsw, edge_harvest, mst, dense_simd]
     env:
       CARGO_TERM_COLOR: always
+      # The 250-case lane keeps the base profile; the shared run step selects
+      # whichever profile this job names.
+      NEXTEST_PROFILE: "ci"
       PROGTEST_CASES: "250"
       PROPTEST_CASES: "250"
       CHUTORO_PBT_FORK: "false"
@@ -71,7 +74,7 @@ jobs:
       # leaving a server writing to a local directory nothing ever moves.
       - &setup_rust_step
         name: Setup Rust
-        uses: leynos/shared-actions/.github/actions/setup-rust@3551a0bf76fe47d0cc5ff632c7796a8ddb23717e
+        uses: leynos/shared-actions/.github/actions/setup-rust@ab6505246c6b043b742a225e428e00448c0a37af
         with:
           install-mold: 'true'
           use-sccache: 'false'
@@ -93,25 +96,25 @@ jobs:
           set -o pipefail
           case "${{ matrix.suite }}" in
             hnsw)
-              cargo nextest run --profile ci -p chutoro-core \
+              cargo nextest run --profile "$NEXTEST_PROFILE" -p chutoro-core \
                 hnsw::tests::property::tests::hnsw_search_matches_brute_force_proptest \
                 hnsw::tests::property::tests::hnsw_mutations_preserve_invariants_proptest \
                 hnsw::tests::property::tests::hnsw_idempotency_preserved_proptest \
                 2>&1 | tee /tmp/property-${{ matrix.suite }}.log
               ;;
             edge_harvest)
-              cargo nextest run --profile ci -p chutoro-core \
+              cargo nextest run --profile "$NEXTEST_PROFILE" -p chutoro-core \
                 hnsw::tests::property::edge_harvest_suite:: \
                 hnsw::tests::property::edge_harvest_output::suite:: \
                 2>&1 | tee /tmp/property-${{ matrix.suite }}.log
               ;;
             mst)
-              cargo nextest run --profile ci -p chutoro-core \
+              cargo nextest run --profile "$NEXTEST_PROFILE" -p chutoro-core \
                 mst::property::tests:: \
                 2>&1 | tee /tmp/property-${{ matrix.suite }}.log
               ;;
             dense_simd)
-              cargo nextest run --profile ci -p chutoro-providers-dense \
+              cargo nextest run --profile "$NEXTEST_PROFILE" -p chutoro-providers-dense \
                 simd::tests::parity:: \
                 2>&1 | tee /tmp/property-${{ matrix.suite }}.log
               ;;
@@ -142,9 +145,23 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        suite: [hnsw, edge_harvest, mst, dense_simd]
+        include:
+          - suite: hnsw
+            nextest_profile: ci
+          - suite: edge_harvest
+            nextest_profile: ci
+          - suite: mst
+            nextest_profile: ci
+          - suite: dense_simd
+            nextest_profile: property-heavy
     env:
       CARGO_TERM_COLOR: always
+      # Only the dense leg selects the heavy profile. The pinned
+      # cargo-nextest 0.9.143 consults only the selected profile's own
+      # overrides and `profile.default`'s, so a profile inheriting `ci`
+      # silently loses `ci`'s 1500s HNSW allowances. The other legs stay on
+      # `ci` and keep the budgets they had before #264.
+      NEXTEST_PROFILE: ${{ matrix.nextest_profile }}
       RUST_BACKTRACE: "1"
       PROGTEST_CASES: "25000"
       PROPTEST_CASES: "25000"
@@ -152,6 +169,14 @@ jobs:
       PROPTEST_FORK: "true"
       CHUTORO_HNSW_PBT_MIN_RECALL: "0.60"
       CHUTORO_HNSW_PBT_MIN_MAX_CONNECTIONS: "12"
+      # Level 1 prints a line for a test-case rejection or failure. A
+      # strategy-local rejection uses a separate counter and does not print
+      # per case. nextest displays a failed test's output but hides a passing
+      # test's by default, so this helps diagnose a failure; it does not
+      # establish a passing run's reject count. The dense per-case bound is
+      # set in code when forking; a shared PROPTEST_TIMEOUT would implicitly
+      # fork the unforked pull-request lane.
+      PROPTEST_VERBOSE: "1"
     steps:
       - *checkout_step
       - *setup_rust_step
