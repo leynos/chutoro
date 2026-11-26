@@ -48,15 +48,17 @@ _ATTRIBUTE_PATH = re.compile(r"^#\[\s*(?P<path>[A-Za-z_][A-Za-z0-9_:]*)")
 #: inline module. A visibility qualifier and indentation are both ordinary, and
 #: ``pub(crate)`` is matched without treating its parenthesis as indentation.
 #:
-#: The match starts at the ``mod`` keyword rather than at a line start, because
-#: an attribute on the same line is ordinary Rust:
-#: ``#[path = "alternate.rs"] mod first;`` declares ``first`` exactly as the
-#: two-line spelling does, and a line-anchored pattern finds nothing there.
+#: The match starts at the declaration's first word rather than at the ``mod``
+#: keyword, because both a visibility qualifier and an attribute may sit in
+#: front of the keyword: ``#[path = "alternate.rs"] pub mod first;`` puts
+#: ``pub`` between them, and a walk that starts at ``mod`` reads the qualifier
+#: as an unrelated token and scans back across the previous declaration's
+#: semicolon to an attribute that belongs to that earlier item.
 #:
 #: A word boundary keeps ``model`` and ``modular`` out. Comments and literals
 #: are blanked before this runs, so a mention in either has already gone.
 _MOD_ITEM = re.compile(
-    r"(?<![A-Za-z0-9_])mod[ \t]+"
+    r"(?<![A-Za-z0-9_])(?:pub(?:[ \t]*\([^)]*\))?[ \t]+)?mod[ \t]+"
     r"(?P<name>[A-Za-z_][A-Za-z0-9_]*)[ \t]*(?P<terminator>[;{])"
 )
 
@@ -199,6 +201,11 @@ def _attached_attributes(declarations: str, start: int) -> str:
     module would be skipped and that module's `#[path]` adopted by its first
     child -- which is how ``#[path = "dir"] mod outer { #[path = "x.rs"] mod
     inner; }`` would give ``inner`` the directory meant for ``outer``.
+
+    The walk also requires the character before the declaration to be an
+    attribute's closing ``]``. A declaration carries its visibility qualifier
+    in `start`, so anything else here is the previous item's own last token,
+    and scanning back from it would attach that item's attribute to this one.
     """
     attached: list[str] = []
     position = start
@@ -206,6 +213,8 @@ def _attached_attributes(declarations: str, start: int) -> str:
         while position > 0 and declarations[position - 1].isspace():
             position -= 1
         if position == 0 or declarations[position - 1] in "{};":
+            break
+        if declarations[position - 1] != "]":
             break
         end = position
         opening = _attribute_start(declarations, end)
@@ -223,6 +232,11 @@ def _proof_attributes(code: str, start: int) -> list[str]:
     either is not an attribute. The walk stops at the first line that is not
     an attribute: that is the previous item's code, and nothing above it
     belongs to this declaration.
+
+    One line may carry several attributes, and each is returned on its own.
+    ``#[cfg(kani)] #[kani::proof]`` declares a proof exactly as the two-line
+    spelling does; reading the line whole sees only ``cfg``, because that is
+    the path the first attribute names.
     """
     found: list[str] = []
     for line in _attributes_before(code[:start]):
@@ -231,8 +245,43 @@ def _proof_attributes(code: str, start: int) -> list[str]:
             continue
         if not stripped.startswith("#["):
             break
-        found.append(_normalised(stripped))
+        found.extend(_attribute_texts(stripped))
     return found
+
+
+def _attribute_texts(text: str) -> list[str]:
+    """Return each attribute in `text`, in source order."""
+    found: list[str] = []
+    offset = 0
+    while True:
+        opening = text.find("#[", offset)
+        if opening < 0:
+            return found
+        closing = _attribute_end(text, opening + 1)
+        if closing is None:
+            found.append(text[opening:])
+            return found
+        found.append(_normalised(text[opening:closing]))
+        offset = closing
+
+
+def _attribute_end(text: str, opening: int) -> int | None:
+    """Return one past the bracket closing the ``[`` at `opening`."""
+    depth = 0
+    for offset in range(opening, len(text)):
+        depth += _bracket_delta(text[offset])
+        if depth == 0 and text[offset] == "]":
+            return offset + 1
+    return None
+
+
+def _bracket_delta(character: str) -> int:
+    """Return how `character` changes the attribute's bracket depth."""
+    if character == "[":
+        return 1
+    if character == "]":
+        return -1
+    return 0
 
 
 def _proof_kind(attributes: typ.Iterable[str]) -> str | None:

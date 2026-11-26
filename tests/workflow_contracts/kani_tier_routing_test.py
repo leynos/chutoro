@@ -24,6 +24,7 @@ import pytest
 from kani_recipe_reading import (
     CHECKER_WRAPPER_RE,
     KANI_COMMAND_RE,
+    MAKEFILE_PATH,
     PACKAGE_ARGUMENT_RE,
     executable_commands,
     logical_lines,
@@ -251,6 +252,25 @@ def test_a_failing_checker_stops_the_tier(
         )
 
 
+def test_the_checker_path_comes_from_cargos_own_report() -> None:
+    """The build names the artefact Cargo wrote, not an assumed path.
+
+    A `build.target` in a user-level Cargo configuration moves the executable
+    under `<target-dir>/<triple>/debug/`, so a recipe that ran
+    `debug/kani_suite` would run a path the build never wrote, or a stale
+    binary left there by an earlier build. The build therefore reads Cargo's
+    JSON artefact report and copies the executable to the path the recipes
+    use.
+    """
+    makefile = MAKEFILE_PATH.read_text(encoding="utf-8")
+    assert "--message-format=json-render-diagnostics" in makefile, (
+        "the checker build must read Cargo's artefact report"
+    )
+    assert '"$(KANI_SUITE_DIR)/kani_suite"' in makefile, (
+        "the recipes must run the path the build records"
+    )
+
+
 def _joined_dry_run(stdout: str) -> list[str]:
     """Join a dry run's continued shell lines into whole commands."""
     return logical_lines(stdout)
@@ -275,13 +295,12 @@ def test_make_dry_run_shows_each_wrapped_call(fast_recipe: str) -> None:
         f"{commands!r}"
     )
     for line in commands:
-        # The path is quoted because it is derived from CARGO_TARGET_DIR, so
-        # the assertion matches the checker's name and manifest rather than a
-        # bare, unquoted prefix.
-        assert "kani_suite\" --manifest tools/kani/harnesses.toml" in line, (
+        # The binary path is quoted because it is derived from CARGO_TARGET_DIR
+        # and the host triple, and --manifest's value is quoted so a path with
+        # a space reaches the checker as one argument.
+        assert 'kani_suite" --manifest "tools/kani/harnesses.toml"' in line, (
             f"the dry run must show the checker: {line!r}"
         )
-        assert "--manifest tools/kani/harnesses.toml" in line, line
         assert " --scope fast " in line, line
         assert "--exact" in line, line
         assert "--harness " in line, line

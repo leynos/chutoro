@@ -263,8 +263,11 @@ class _Reader:
         silently under-report the inventory, so it is reported instead.
         """
         resolved = file.resolve()
+        location = _Location(
+            file=file, is_crate_root=is_crate_root, via_path=via_path
+        )
         if resolved in self._visited:
-            self._note_revisit(file, resolved, module)
+            self._note_revisit(resolved, module, location)
             return
         self._visited[resolved] = module
         source = _parse(file)
@@ -282,14 +285,10 @@ class _Reader:
             )
             return
         self._record_proofs(source, module, relative)
-        self._follow(
-            _Location(file=file, is_crate_root=is_crate_root, via_path=via_path),
-            source,
-            module,
-        )
+        self._follow(location, source, module)
 
     def _note_revisit(
-        self, file: Path, resolved: Path, module: tuple[str, ...]
+        self, resolved: Path, module: tuple[str, ...], location: _Location
     ) -> None:
         """Report a source reached again under a different module path.
 
@@ -297,20 +296,65 @@ class _Reader:
         Sharing a test-only source between two ``#[path]`` modules is ordinary
         Rust and declares no harness, so reporting it would fail the contract
         on a valid tree.
+
+        A proof-free file can still reach one, though: it may declare a child
+        module, and that child's harnesses are read only under the first path.
+        A repeat is therefore reported when either the file or a descendant of
+        it declares a proof.
         """
-        if self._visited[resolved] == module:
+        first = self._visited[resolved]
+        if first == module:
             return
-        source = _parse(file)
-        if source is None or not _holds_proof(source):
+        source = _parse(location.file)
+        if source is None:
+            return
+        held = _holds_proof(source) or bool(
+            self._descendant_proofs(location, source, module)
+        )
+        if not held:
             return
         self._report(
             "repeated-source",
-            file.relative_to(self._repo_root).as_posix(),
+            location.file.relative_to(self._repo_root).as_posix(),
             1,
-            f"the same source is reached as both "
-            f"{'::'.join(self._visited[resolved])} and "
-            f"{'::'.join(module)}, so one harness identity would be dropped",
+            "the same source is reached as both "
+            f"{'::'.join(first)} and {'::'.join(module)}, so a harness "
+            "identity below it would be dropped",
         )
+
+    def _descendant_proofs(
+        self,
+        location: _Location,
+        source: _Source,
+        module: tuple[str, ...],
+    ) -> list[str]:
+        """Return the harness paths a repeated file's subtree would declare.
+
+        The walk keeps its own set of resolved files rather than using
+        :meth:`visit`, because it must terminate on the cyclic ``#[path]``
+        graph Rust admits: a file that reaches itself would otherwise be
+        followed forever under a module path that grows by one segment each
+        time.
+        """
+        found: list[str] = []
+        seen = {location.file.resolve()}
+        pending = [(location, source, module)]
+        while pending:
+            current, current_source, current_module = pending.pop()
+            for _, child, child_module in _declared_children(
+                current, current_source, current_module
+            ):
+                if child is None or child.file.resolve() in seen:
+                    continue
+                seen.add(child.file.resolve())
+                child_source = _parse(child.file)
+                if child_source is None:
+                    continue
+                if _holds_proof(child_source):
+                    found.append("::".join(child_module))
+                    continue
+                pending.append((child, child_source, child_module))
+        return found
 
     def _record_proofs(
         self,
@@ -361,28 +405,13 @@ class _Reader:
         module: tuple[str, ...],
     ) -> None:
         """Follow each file-based module declaration in one file."""
-        for item in source.modules:
-            if not item.inline:
-                self._follow_item(location, source, module, item)
-
-    def _follow_item(
-        self,
-        location: _Location,
-        source: _Source,
-        module: tuple[str, ...],
-        item: _ModuleItem,
-    ) -> None:
-        """Follow one file-based module declaration."""
-        chain = _module_chain(source.modules, item.start)
-        child = _child_file(location, chain, item.name, item.path_value)
-        if child is None:
-            self._report_missing_path(location, source, item)
-            return
-        self.visit(
-            child,
-            (*module, *(parent.name for parent in chain), item.name),
-            via_path=item.path_value is not None,
-        )
+        for item, child, child_module in _declared_children(
+            location, source, module
+        ):
+            if child is None:
+                self._report_missing_path(location, source, item)
+                continue
+            self.visit(child.file, child_module, via_path=child.via_path)
 
     def _report_missing_path(
         self, location: _Location, source: _Source, item: _ModuleItem
@@ -401,6 +430,35 @@ class _Reader:
             f"#[path = {item.path_value!r}] does not resolve to a readable "
             "source file",
         )
+
+
+def _declared_children(
+    location: _Location,
+    source: _Source,
+    module: tuple[str, ...],
+) -> typ.Iterator[tuple[_ModuleItem, _Location | None, tuple[str, ...]]]:
+    """Yield each file-based module declaration's item, target and path.
+
+    ``child`` is None when the declaration names no readable file; the caller
+    decides whether that is a report (a ``#[path]``) or Rust's own error (a
+    plain ``mod name;``).
+    """
+    for item in source.modules:
+        if item.inline:
+            continue
+        chain = _module_chain(source.modules, item.start)
+        child = _child_file(location, chain, item.name, item.path_value)
+        child_location = (
+            None
+            if child is None
+            else _Location(
+                file=child,
+                is_crate_root=False,
+                via_path=item.path_value is not None,
+            )
+        )
+        child_module = (*module, *(parent.name for parent in chain), item.name)
+        yield item, child_location, child_module
 
 
 def _manifests(root: Path) -> list[Path]:

@@ -225,6 +225,20 @@ issue text and the repository's documentation are the authority.
       `words.rs` (what one argument spells) and `line.rs` (what one output line
       means), which leaves both under the threshold and each module with one
       job.
+- [x] Sixth review round, all eight findings actioned. Three were real
+      reader defects: adjacent attributes on one line (`#[cfg(kani)]
+      #[kani::proof]`) were read as one attribute, so the proof was missed;
+      a module's attribute lookup walked back past the previous item's
+      semicolon, so `pub mod second;` adopted the earlier declaration's
+      `#[path]`; and a repeated proof-free module that reaches a proof-bearing
+      child dropped that child's second identity without a report. Also: shell
+      comments are now stripped before `selections()` and `violations()` read
+      arguments; the checker's build names the host triple explicitly and runs
+      from that triple's directory, so a `build.target` in a user
+      configuration cannot leave the recipes running a stale binary; the
+      manifest value is quoted; the design document's declaration count is 18;
+      and the CLI test's fixture moved to `tests/kani_suite_support/mod.rs`,
+      which puts the test file under 400 lines.
 - [ ] Push the branch and create the draft pull request.
 
 ## Surprises & discoveries

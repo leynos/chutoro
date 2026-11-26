@@ -58,9 +58,11 @@ KANI_COMMAND_RE = re.compile(
 )
 
 #: The checker wrapper around one delegated command: the manifest, the
-#: package and the scope, in that order, then the argument separator.
+#: package and the scope, in that order, then the argument separator. The
+#: manifest's value is quoted in the recipes so a path containing a space
+#: reaches the checker as one argument, so the quotes are optional here.
 CHECKER_WRAPPER_RE = re.compile(
-    r"^\t[-@+]*\$\(KANI_SUITE\)\s+--manifest\s+\$\(KANI_MANIFEST\)\s+"
+    r"^\t[-@+]*\$\(KANI_SUITE\)\s+--manifest\s+\"?\$\(KANI_MANIFEST\)\"?\s+"
     r"--package\s+(?P<package>[A-Za-z0-9_-]+)\s+"
     r"--scope\s+(?P<scope>fast|full)\s+--\s+"
 )
@@ -88,11 +90,14 @@ _SHELL_COMMENT = re.compile(r"(?:^|\s)#.*$")
 def _terminal_command(arguments: str) -> str:
     """Return the command text with any trailing shell comment removed.
 
-    A masking suffix is judged at the end of the command the shell runs, and a
-    comment is not part of it: `... || true # belt and braces` masks a failure
-    exactly as `... || true` does, but ends with the comment rather than the
-    suffix. Quote-aware enough for a recipe line, which carries no comment
-    characters inside its quoted arguments in this repository.
+    A shell comment is not part of the command the shell runs, so nothing
+    written after one is a package, a harness selector or an option. The scan
+    therefore reads this text rather than the recipe's raw arguments: a
+    commented-out `--harness` or `--jobs=2` would otherwise be counted as a
+    selection or refused as a flag the command passes when it passes neither.
+
+    Quote-aware enough for a recipe line, which carries no comment characters
+    inside its quoted arguments in this repository.
     """
     without_comment = _SHELL_COMMENT.sub("", arguments)
     return without_comment.rstrip()
@@ -161,13 +166,13 @@ def selections(text: str) -> list[tuple[str, list[str]]]:
     """
     selected: list[tuple[str, list[str]]] = []
     for match in executable_commands(text):
-        arguments = match["arguments"]
+        arguments = _terminal_command(match["arguments"])
         if "-" in match["prefixes"]:
             raise RecipeError(
                 f"a Kani recipe line is prefixed with '-' so its failure is "
                 f"ignored: {arguments.strip()!r}"
             )
-        if _masked(_terminal_command(arguments)):
+        if _masked(arguments):
             raise RecipeError(
                 f"a Kani recipe line swallows its failure: {arguments.strip()!r}"
             )
@@ -232,11 +237,12 @@ def violations(arguments: str) -> list[str]:
     """Return the refused options in one Kani command's arguments, in order.
 
     `--output-format` is refused unless its value is ``regular``; every other
-    refused option is refused whatever its value. The scan is token-wise, so a
-    flag in a comment or a quoted argument has already been excluded by
-    :func:`executable_commands`.
+    refused option is refused whatever its value. The scan is token-wise over
+    the command the shell runs, so a flag written after a shell comment is not
+    read as one: the checker never receives it, and reporting it would fail a
+    recipe for an option it does not pass.
     """
-    words = arguments.split()
+    words = _terminal_command(arguments).split()
     found = [
         word
         for word in words

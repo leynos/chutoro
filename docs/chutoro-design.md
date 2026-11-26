@@ -1547,7 +1547,7 @@ required merge check. Three properties replace the older arrangement. First, the
 `kani` job runs on every pull request to `main`, so the required context is
 never absent; a path filter had made the job conditional on a list that could
 not enumerate every input to the proof build, and an absent required check is
-not a passing one. Second, `tools/kani/harnesses.toml` classifies all 17
+not a passing one. Second, `tools/kani/harnesses.toml` classifies all 18
 declarations, the workflow contracts bind that inventory to the Rust sources
 and the Makefile, and every `cargo kani` invocation runs through the
 `kani_suite` checker, which requires the exact multiset of successfully

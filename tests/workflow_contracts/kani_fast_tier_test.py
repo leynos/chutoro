@@ -79,6 +79,23 @@ def test_masked_recipe_lines_are_rejected(recipe: str, forbidden: str) -> None:
     )
 
 
+def test_a_shell_comment_ends_the_read_command() -> None:
+    """Nothing after a ``#`` reaches the shell, so nothing after it is read.
+
+    A commented-out selector and a commented-out refused flag are both text
+    the checker never receives. Counting the first would require a harness the
+    command does not run; refusing the second would fail a recipe for an
+    option it does not pass.
+    """
+    command = (
+        "\t$(KANI_SUITE) --manifest $(KANI_MANIFEST) --package chutoro-core "
+        "--scope fast -- $(CARGO) kani -p chutoro-core --lib --exact "
+        "--harness a::verify_one # --harness b::verify_two --jobs=4\n"
+    )
+    assert selections(command) == [("chutoro-core", ["a::verify_one"])]
+    assert violations("-p chutoro-core --lib --harness a::verify_one # -j4") == []
+
+
 def test_fast_recipe_runs_only_executable_kani_commands(fast_recipe: str) -> None:
     """Every fast-tier line is an executable Kani command with one package."""
     selected = selections(fast_recipe)

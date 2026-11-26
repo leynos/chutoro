@@ -567,6 +567,122 @@ def test_reader_keeps_a_module_file_without_a_proof_out_of_the_inventory(
     assert kinds == [], f"nothing must be reported, got {kinds!r}"
 
 
+def test_reader_reads_two_attributes_sharing_a_line(tmp_path: Path) -> None:
+    """``#[cfg(kani)] #[kani::proof]`` on one line still declares a proof.
+
+    Rust gives no meaning to the line break between two outer attributes, so
+    the two spellings are one declaration. Reading the line as a single
+    attribute sees only ``cfg`` and loses the proof.
+    """
+    _write_package(
+        tmp_path,
+        "#[cfg(kani)] #[kani::proof]\nfn verify_same_line() {}\n",
+    )
+    names = _names(discover(tmp_path))
+    assert names == ["verify_same_line"], (
+        f"two attributes on one line must both be read, got {names!r}"
+    )
+
+
+def test_reader_does_not_carry_an_attribute_past_an_item_boundary(
+    tmp_path: Path,
+) -> None:
+    """A ``#[path]`` belongs to the declaration it precedes, not the next one.
+
+    ``#[path = "one.rs"] mod first;`` followed by ``pub mod second;`` gives
+    ``first`` the file and leaves ``second`` without one. A scan that starts
+    after ``second``'s visibility qualifier and walks back past the semicolon
+    attaches the earlier item's attribute to it, so a valid tree would fail
+    the manifest contract.
+    """
+    crate_root = _write_package(
+        tmp_path,
+        '#[path = "one.rs"] mod first;\npub mod second;\n',
+    )
+    directory = crate_root.parent
+    (directory / "one.rs").write_text("", encoding="utf-8")
+    (directory / "second.rs").write_text("", encoding="utf-8")
+    inventory = discover(tmp_path)
+    kinds = _kinds(inventory)
+    assert kinds == [], (
+        f"both declarations resolve, so nothing may be reported, got {kinds!r}"
+    )
+
+
+def test_reader_reports_a_proof_below_a_repeated_proof_free_module(
+    tmp_path: Path,
+) -> None:
+    """A shared parent's child keeps one identity, so the second is reported.
+
+    Two declarations share a ``#[path]`` to a file holding no proof of its
+    own, but that file's child module holds one. The child is read once, under
+    the first path, so its second identity is lost; the repeat is reported
+    rather than silently dropping it. Sharing a parent whose subtree holds no
+    proof stays accepted, which the negative control below covers.
+    """
+    crate_root = _write_package(
+        tmp_path,
+        '#[path = "shared.rs"] mod first;\n#[path = "shared.rs"] mod second;\n',
+    )
+    # A `#[path]`-loaded file resolves its own children from its directory,
+    # so `shared.rs`'s `mod proofs;` reads `src/proofs.rs`.
+    (crate_root.parent / "shared.rs").write_text(
+        "mod proofs;\n", encoding="utf-8"
+    )
+    (crate_root.parent / "proofs.rs").write_text(
+        "#[kani::proof]\nfn verify_shared() {}\n", encoding="utf-8"
+    )
+    kinds = _kinds(discover(tmp_path))
+    assert kinds == ["repeated-source"], (
+        f"a lost identity below a repeated parent must be reported, got {kinds!r}"
+    )
+
+
+def test_reader_accepts_a_repeated_proof_free_subtree(tmp_path: Path) -> None:
+    """The negative control for the repeat above: no proof, no report.
+
+    Sharing a test-only source between two ``#[path]`` modules is ordinary
+    Rust, and a subtree that declares no harness loses no identity when it is
+    read once.
+    """
+    crate_root = _write_package(
+        tmp_path,
+        '#[path = "shared.rs"] mod first;\n#[path = "shared.rs"] mod second;\n',
+    )
+    (crate_root.parent / "shared.rs").write_text(
+        "mod helper;\n", encoding="utf-8"
+    )
+    (crate_root.parent / "helper.rs").write_text(
+        "pub fn work() -> bool { true }\n", encoding="utf-8"
+    )
+    inventory = discover(tmp_path)
+    assert _kinds(inventory) == [], (
+        f"a proof-free repeat must stay accepted, got {inventory.unresolved!r}"
+    )
+
+
+def test_reader_terminates_on_a_self_referential_path_module(
+    tmp_path: Path,
+) -> None:
+    """A shared module that declares itself is Rust, and must not loop.
+
+    Two declarations share a file whose only child is itself, so the module
+    graph is cyclic. The repeat walk keeps its own visited set, because the
+    module path grows on each visit and would otherwise never repeat.
+    """
+    crate_root = _write_package(
+        tmp_path,
+        '#[path = "loop.rs"] mod first;\n#[path = "loop.rs"] mod second;\n',
+    )
+    (crate_root.parent / "loop.rs").write_text(
+        '#[path = "loop.rs"] mod inner;\n', encoding="utf-8"
+    )
+    inventory = discover(tmp_path)
+    assert _names(inventory) == [], (
+        f"a self-referential module declares no proof, got {inventory.proofs!r}"
+    )
+
+
 def test_unresolved_report_names_the_file_and_line(tmp_path: Path) -> None:
     """A report without a location would not be actionable in review."""
     _write_package(
