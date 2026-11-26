@@ -309,7 +309,7 @@ Call `refresh()` to turn the buffered candidate edges into a published label
 snapshot, and read the result through `labels()`:
 
 The complete program is published as
-[the session-refresh example](https://github.com/leynos/chutoro/blob/main/chutoro-core/docs/session-refresh-example.md)
+[the session-refresh example](../chutoro-core/docs/session-refresh-example.md)
 and is compiled and run by the test suite: the shared tested-example loader
 extracts the fence marked `session-refresh` during the build, so editing that
 file changes what the tests execute. The runnable doctest on

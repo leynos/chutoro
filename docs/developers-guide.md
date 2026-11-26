@@ -1527,8 +1527,14 @@ The example document lives inside the crate so that a packaged build reads only
 files the package ships: `cargo package -p chutoro-core` runs the same build
 script and must not need the repository's `docs/` tree. The users' guide links
 to the example rather than inlining it, which is what removes the copy in the
-first place. Adding another tested example means adding its marker and document
-under `chutoro-core/docs/`, then including the generated module from a test.
+first place.
+
+`build.rs` currently generates that one example: it hard-codes the identifier
+`session-refresh`, reads `docs/session-refresh-example.md`, and writes
+`users_guide_session_refresh.rs`. Adding another tested example therefore means
+adding its marker and document under `chutoro-core/docs/`, extending `build.rs`
+with its identifier and output file (or generalizing the script to walk every
+marked document), and including the generated module from a test.
 
 ### Graph-lock test helpers
 

@@ -6,9 +6,10 @@
 //! returns its body so the build script can compile the shipped text instead of
 //! a copy.
 //!
-//! Every fence in a loaded document must be marked. The loader rejects an
-//! unmarked fence, a malformed or empty identifier, a marker with no fence
-//! beneath it, an unterminated fence, and a duplicate identifier. It is shared
+//! Every fence in a loaded document must be marked, whether it is delimited by
+//! backticks or tildes. The loader rejects an unmarked fence, a malformed or
+//! empty identifier, a marker with no fence beneath it, an unterminated fence,
+//! and a duplicate identifier. It is shared
 //! by the build script and by `tests/users_guide_loader.rs`, so the rejection
 //! rules are tested on the same code that generates the compiled example.
 
@@ -18,8 +19,8 @@ use std::{collections::BTreeSet, error::Error, fmt};
 const MARKER_PREFIX: &str = "<!-- tested-example:";
 /// Closing text of a tested-example marker.
 const MARKER_SUFFIX: &str = "-->";
-/// Opening text of a Markdown fenced code block.
-const FENCE: &str = "```";
+/// Shortest run of backticks or tildes that opens a fence.
+const MINIMUM_FENCE_LENGTH: usize = 3;
 
 /// One marked example loaded from a document.
 #[derive(Debug, Eq, PartialEq)]
@@ -153,42 +154,36 @@ struct Loader {
 impl Loader {
     /// Consumes one line, returning the first contract violation.
     fn accept(&mut self, line: SourceLine<'_>) -> Result<(), ExampleError> {
-        if self.open.is_some() {
-            self.accept_inside_fence(line);
+        if let Some(open) = self.open.as_mut() {
+            if !is_closing_fence(line, open.delimiter) {
+                open.body.push_str(line.text);
+                open.body.push('\n');
+                return Ok(());
+            }
+            if let Some(finished) = self.open.take() {
+                self.examples.push(MarkedExample {
+                    id: finished.id,
+                    body: finished.body,
+                });
+            }
             return Ok(());
         }
         if line.text.trim().starts_with(MARKER_PREFIX) {
             return self.accept_marker(line);
         }
-        if is_opening_fence(line) {
+        if let Some(delimiter) = opening_fence(line) {
             let Some((identifier, _)) = self.pending.take() else {
                 return Err(ExampleError::UnmarkedFence { line: line.number });
             };
             self.open = Some(OpenFence {
                 id: identifier,
                 line: line.number,
+                delimiter,
                 body: String::new(),
             });
             return Ok(());
         }
         self.require_no_pending()
-    }
-
-    /// Consumes a line while a fence is open, closing the fence when it ends.
-    fn accept_inside_fence(&mut self, line: SourceLine<'_>) {
-        if !is_closing_fence(line) {
-            if let Some(fence) = self.open.as_mut() {
-                fence.body.push_str(line.text);
-                fence.body.push('\n');
-            }
-            return;
-        }
-        if let Some(finished) = self.open.take() {
-            self.examples.push(MarkedExample {
-                id: finished.id,
-                body: finished.body,
-            });
-        }
     }
 
     /// Records a marker and rejects a detached or duplicate one.
@@ -227,12 +222,27 @@ impl Loader {
     }
 }
 
+/// The delimiter that opened a fence.
+///
+/// Markdown closes a fence only with the same character and at least the same
+/// run length, so a longer delimiter protects a body that itself contains a
+/// shorter run.
+#[derive(Clone, Copy)]
+struct Delimiter {
+    /// Backtick or tilde.
+    character: char,
+    /// Number of characters in the opening run.
+    length: usize,
+}
+
 /// A fence currently being read.
 struct OpenFence {
     /// Identifier from the preceding marker.
     id: String,
     /// One-based line number of the opening fence.
     line: usize,
+    /// Delimiter that must close this fence.
+    delimiter: Delimiter,
     /// Body accumulated so far.
     body: String,
 }
@@ -250,12 +260,32 @@ fn parse_identifier(line: SourceLine<'_>) -> Result<&'_ str, ExampleError> {
     Ok(trimmed)
 }
 
-/// Reports whether `line` opens a fenced block, with or without a language.
-fn is_opening_fence(line: SourceLine<'_>) -> bool {
-    line.text.trim_start().starts_with(FENCE)
+/// Returns the delimiter when `line` opens a fenced block.
+///
+/// The info string that may follow the run is not interpreted; only the
+/// delimiter character and its length matter here.
+fn opening_fence(line: SourceLine<'_>) -> Option<Delimiter> {
+    let trimmed = line.text.trim_start();
+    let character = trimmed.chars().next()?;
+    if character != '`' && character != '~' {
+        return None;
+    }
+    let length = trimmed
+        .chars()
+        .take_while(|candidate| *candidate == character)
+        .count();
+    (length >= MINIMUM_FENCE_LENGTH).then_some(Delimiter { character, length })
 }
 
-/// Reports whether `line` is a bare closing fence.
-fn is_closing_fence(line: SourceLine<'_>) -> bool {
-    line.text.trim() == FENCE
+/// Reports whether `line` closes a fence opened with `delimiter`.
+///
+/// A closing fence is a run of the opening character at least as long as the
+/// opening run, with nothing but whitespace after it.
+fn is_closing_fence(line: SourceLine<'_>, delimiter: Delimiter) -> bool {
+    let trimmed = line.text.trim();
+    let run = trimmed
+        .chars()
+        .take_while(|candidate| *candidate == delimiter.character)
+        .count();
+    run >= delimiter.length && run == trimmed.chars().count()
 }

@@ -8,6 +8,7 @@
 #[path = "../build_support/users_guide_examples.rs"]
 mod users_guide_examples;
 
+use rstest::rstest;
 use users_guide_examples::{ExampleError, extract_example};
 
 /// The published document the build script reads.
@@ -32,16 +33,21 @@ fn the_guide_publishes_the_session_refresh_example() {
     );
 }
 
-#[test]
-fn an_unmarked_fence_is_rejected() {
-    let markdown = concat!(
+/// A marked example followed by an unmarked fence of either delimiter.
+///
+/// Markdown accepts backticks and tildes as fences, so the marker contract
+/// must reject both rather than letting a tilde block slip through untested.
+#[rstest]
+#[case::backticks("```rust\nfn main() {}\n```\n")]
+#[case::tildes("~~~rust\nfn main() {}\n~~~\n")]
+fn an_unmarked_fence_is_rejected(#[case] unmarked: &str) {
+    let markdown = String::from(concat!(
         "<!-- tested-example: marked -->\n",
         "```rust\nfn main() {}\n```\n",
-        "```rust\nfn main() {}\n```\n",
-    );
+    )) + unmarked;
 
     assert_eq!(
-        extract_example(markdown, "marked"),
+        extract_example(&markdown, "marked"),
         Err(ExampleError::UnmarkedFence { line: 5 })
     );
 }
@@ -103,5 +109,37 @@ fn a_marker_without_an_identifier_is_rejected() {
     assert_eq!(
         extract_example(markdown, "empty"),
         Err(ExampleError::MalformedMarker { line: 1 })
+    );
+}
+
+#[test]
+fn a_longer_delimiter_can_contain_a_shorter_run() {
+    let markdown = concat!(
+        "<!-- tested-example: nested -->\n",
+        "````markdown\n",
+        "```rust\n",
+        "inner\n",
+        "```\n",
+        "````\n",
+    );
+
+    assert_eq!(
+        extract_example(markdown, "nested"),
+        Ok(String::from("```rust\ninner\n```\n"))
+    );
+}
+
+#[test]
+fn a_shorter_closing_delimiter_leaves_the_fence_unterminated() {
+    let markdown = concat!(
+        "<!-- tested-example: short -->\n",
+        "````rust\n",
+        "fn main() {}\n",
+        "```\n",
+    );
+
+    assert_eq!(
+        extract_example(markdown, "short"),
+        Err(ExampleError::UnterminatedFence { line: 2 })
     );
 }
