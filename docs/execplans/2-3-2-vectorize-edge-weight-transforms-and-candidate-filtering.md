@@ -20,10 +20,12 @@ it. Its setup script expires under this host's saturated compile queue, which
 the developers' guide classes as a budget rather than a defect. Every test it
 would run passed in local partitions, whose scope is stated with them. The
 hosted `build-test` job, which runs the same nextest suite plus the doctest
-step, was green on heads `42f9e8c` and `4e96416` and red on `9cc610e`; no
-result is claimed for a head that has not finished. "Gate disposition for the
-literal `make test`" under Validation and acceptance records the detail and the
-one step a reader needs if they require the literal command.
+step, was green on heads `42f9e8c`, `4e96416` and `f09f3cc`, the last with
+1,644 tests passed and 1 skipped, and red on `9cc610e` and `6be75ac` for the
+two pinned-set reasons recorded below. Every figure names its head. "Gate
+disposition for the literal `make test`" under Validation and acceptance
+records the detail and the one step a reader needs if they require the literal
+command.
 
 Roadmap item: 2.3.2 (Phase 2, "Hot-path optimizations"), `docs/roadmap.md`
 lines 400-402. Design: `docs/chutoro-design.md` §6.3 "SIMD utilization".
@@ -1525,8 +1527,11 @@ than green ones, because adding the nested-build test
 
 The lesson is recorded rather than smoothed over: neither pin was covered by
 the partition run that had already passed, because both were added after it.
-The broad partition now passes 1,639 of 1,639 on the fixing tree. Any later
-head's result belongs to that head.
+The broad partition now passes 1,639 of 1,639 on the fixing tree.
+
+Head `f09f3cc` is green: `build-test` reports 1,644 tests passed and 1 skipped
+in 102 s, alongside `kani`, all four property shards, `verus-proofs`, CodeScene
+and Gecko. Any later head's result belongs to that head.
 
 A reader who requires the literal command has one remaining step: run
 `make test` on a host whose compile pool is not saturated. Nothing in this
