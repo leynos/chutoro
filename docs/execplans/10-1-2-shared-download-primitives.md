@@ -992,10 +992,12 @@ test against the scripted server, not a comment.
 file is named by **expected digest**, so two incompatible partials cannot
 collide. The sidecar records
 `{url, expected_digest, expected_size, validator, durable_offset,
-clean_restarts, created_at, last_progress_at}`.
+clean_restarts, transition, created_at, last_progress_at}`.
 It deliberately carries no hash state: see the trust boundary below. The
-`clean_restarts` counter is durable and survives downloader recreation, so the
-one-restart limit holds across processes.
+`clean_restarts` counter and the `transition` marker (`None` or `CleanRestart`)
+are durable and survive downloader recreation, so the one-restart limit holds
+across processes without mistaking an unrelated short file for an interrupted
+restart.
 
 Three durability invariants, all load-bearing:
 
@@ -1006,24 +1008,23 @@ Three durability invariants, all load-bearing:
    to the recorded offset. Resume must `set_len(recorded_offset)` **before**
    appending, or a partially written tail is silently incorporated. This is the
    single most important line in the feature.
-3. The clean restart truncates and fsyncs the staged data **first**, then
-   atomically updates the sidecar to `durable_offset = 0`,
-   `clean_restarts + 1`, and the current validator, then continues from zero.
-   The counter is not written before the truncation: a crash between those
-   writes would otherwise mark a restart spent that never began, wedging the
-   download. The restart window exists only while `clean_restarts` is zero,
-   because the order truncates before it increments. A recreated downloader
-   that observes `staged_len < durable_offset` with `clean_restarts = 0`
-   completes the interrupted transition by applying the full sidecar update in
-   one write before touching any byte: `durable_offset = 0`,
-   `clean_restarts = 1`, and the current validator. It then streams from zero
-   with no read-back. Recording the validator is load-bearing, because a
-   restart is usually earned by an expectation change that includes a validator
-   change; a stale value would make a later non-zero resume reject a prefix
-   written under the current pin. A short file observed with the counter
-   already at one cannot be that window; it is a truncated or tampered slot, so
-   the transfer fails rather than restarting again. A mismatch with the counter
-   already at one is fatal even when the restart was interrupted.
+3. The clean restart records intent **first**: atomically set the sidecar's
+   `transition` to `CleanRestart` and fsync it. Then truncate and fsync the
+   staged data. Then atomically set `durable_offset = 0`, `clean_restarts + 1`,
+   the current validator, and `transition = None`, and continue from zero.
+   Recording intent before the data shrinks is what lets a recreated downloader
+   distinguish an interrupted restart from an unrelated short file. Recovery
+   applies step 3 in full when it sees `transition = CleanRestart`, spending
+   the restart even if no byte had been rewritten. When it sees
+   `transition = None` and `staged_len < durable_offset`, the slot was
+   shortened without recorded intent: that is local corruption or tampering, so
+   it discards the prefix without spending the budget and streams fresh. A
+   later full-length mismatch can still use the one clean restart. Recording
+   the validator is load-bearing, because a restart is usually earned by an
+   expectation change that includes a validator change; a stale value would
+   make a later non-zero resume reject a prefix written under the current
+   representation. A mismatch with the counter already at one is fatal even
+   when the restart was interrupted.
 
 The trust boundary: bytes hashed in-process as they are written are trusted;
 bytes read back from disk after an interruption are not. A transfer that starts
@@ -1064,21 +1065,24 @@ and the clean restart then succeeds; a clean restart that streams from zero,
 completes, and never later resumes — no read-back, asserted through the read
 counter; a clean restart interrupted after some bytes become durable and then
 resumed from that offset — `expected_size` read-back bytes on completion; a
-crash simulated between the truncation and the sidecar update, followed by
-recreation — the offset resets to zero, `clean_restarts` reads one, the current
-validator is recorded, and the transfer streams from zero; a verification pass
-that completes its read but stops before the rename, followed by recreation —
-the next process reads the whole staged file again and the total is charged as
-two passes; a short staged file observed while `clean_restarts` is already one
-— the transfer fails instead of streaming from zero; a transient error inside a
-live process, followed by a retry — the attempt releases the lock, the retry
-reacquires it, and a resumed retry still pays exactly one read-back; an
-interrupted clean restart followed by recreation and a further mismatch —
-publication is refused and no second restart is granted; an interruption during
-verification followed by recreation — the next attempt reads the whole staged
-file again; an uninterrupted transfer performs no read-back; and at least two
-interruptions with the downloader recreated between attempts, which must still
-produce one verification pass and one read-back of `expected_size` bytes.
+crash after the `CleanRestart` marker is recorded but before truncation,
+followed by recreation — the restart is spent, the offset resets to zero, the
+current validator is recorded, and the transfer streams from zero; a crash
+after truncation but before the closing sidecar update — step 3 is applied in
+full and the transfer streams from zero; a verification pass that completes its
+read but stops before the rename, followed by recreation — the next process
+reads the whole staged file again and the total is charged as two passes; a
+short staged file with no `transition` marker — the prefix is discarded, the
+restart budget is not spent, and a later mismatch can still use the one clean
+restart; a transient error inside a live process, followed by a retry — the
+attempt releases the lock, the retry reacquires it, and a resumed retry still
+pays exactly one read-back; an interrupted clean restart followed by recreation
+and a further mismatch — publication is refused and no second restart is
+granted; an interruption during verification followed by recreation — the next
+attempt reads the whole staged file again; an uninterrupted transfer performs
+no read-back; and at least two interruptions with the downloader recreated
+between attempts, which must still produce one verification pass and one
+read-back of `expected_size` bytes.
 
 Locking uses `rustix::fs::flock` on the borrowed file descriptor from
 `cap_std::fs::Dir` — `cap-std` has no `lock`, and `into_std()` returns the
