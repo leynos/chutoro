@@ -1,19 +1,23 @@
 """Contract for the status checks that must block a merge to ``main``.
 
-The live ``main-required-checks`` ruleset requires three pull-request
-contexts: ``build-test``, ``verus-proofs`` and ``kani``. A required context is
-matched against a job's reported name, which is the job identifier unless a
-``name`` override renames it. For the required set to mean anything, each
-context must therefore correspond to exactly one pull-request job whose
-identifier is the context, and that job must be unable to disappear or report
-a conclusion without doing its work.
+Three pull-request contexts are intended to gate ``main``: ``build-test``,
+``verus-proofs`` and ``kani``. ``build-test`` and ``verus-proofs`` are
+enforced by the live ``main-required-checks`` ruleset; adding ``kani`` is the
+administrator action recorded in the developer's guide, and until it happens
+that job reports on every pull request without blocking a merge.
 
-This module holds the repository side of that contract: exactly one job per
-context, no display-name override, no matrix, no job-level condition, no
+A required context is matched against a job's reported name, which is the job
+identifier unless a ``name`` override renames it. For the set to mean
+anything, each context must therefore correspond to exactly one
+pull-request job whose identifier is the context, and that job must be unable
+to disappear or report a conclusion without doing its work.
+
+This module is the policy check behind that: exactly one job per context, no
+display-name override, no matrix, no job-level condition, no
 reusable-workflow call, and no path filter on the owning workflow's
-pull-request trigger. The live ruleset is an administrator action recorded in
-the developer's guide; the static list here is compared against that guide, so
-the documented enforcement and the configured enforcement cannot drift apart.
+pull-request trigger. It compares that list with the one the developer's
+guide states, so the documented policy and the local contract cannot drift
+apart. The guide, not this test, records which of the three is already live.
 
 Run via ``make test-workflow-contracts``.
 """

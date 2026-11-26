@@ -80,8 +80,10 @@ _PATH_ATTRIBUTE = re.compile(
     re.DOTALL,
 )
 
-#: Every ``#[path ...]`` attribute, whatever its value's shape.
-_ANY_PATH_ATTRIBUTE = re.compile(r"#\[\s*path\b")
+#: A ``path`` assignment inside another attribute, as ``cfg_attr`` writes it.
+#: The value a conditional path names depends on configuration this reader does
+#: not evaluate, so a declaration carrying one is reported rather than resolved.
+_CONDITIONAL_PATH = re.compile(r"\bpath\s*=")
 
 #: A macro definition whose body might contain proof declarations. Kani cannot
 #: see a harness that only exists after expansion in a way this reader can
@@ -205,7 +207,7 @@ def _attribute_start(text: str, end: int) -> int | None:
     return None
 
 
-def _attached_attributes(declarations: str, start: int) -> str:
+def _attached_attributes(declarations: str, start: int) -> list[str]:
     """Return the attributes attached to the item declared at `start`.
 
     Attributes are found by working backwards from the declaration, so an
@@ -229,6 +231,12 @@ def _attached_attributes(declarations: str, start: int) -> str:
     attribute's closing ``]``. A declaration carries its visibility qualifier
     in `start`, so anything else here is the previous item's own last token,
     and scanning back from it would attach that item's attribute to this one.
+
+    Each attribute is returned on its own rather than joined: an attribute's
+    value may itself contain text shaped like another attribute -- a
+    ``#[doc]`` string naming ``#[path = "x.rs"]`` is the ordinary way to write
+    documentation about one -- and a search across the joined text would read
+    that mention as the declaration's own path.
     """
     attached: list[str] = []
     position = start
@@ -245,7 +253,7 @@ def _attached_attributes(declarations: str, start: int) -> str:
             break
         attached.insert(0, declarations[opening:end])
         position = opening
-    return " ".join(attached)
+    return attached
 
 
 def _proof_attributes(code: str, start: int) -> list[str]:
@@ -383,19 +391,38 @@ def _module_item(lexed: _Lexed, match: re.Match[str]) -> _ModuleItem | None:
     if _inside(match.start(), lexed.macros):
         return None
     inline = match["terminator"] == "{"
-    attached = _attached_attributes(lexed.declarations, match.start())
-    found = _PATH_ATTRIBUTE.search(attached)
-    value = _path_value(found) if found is not None else None
+    value, unreadable = _declared_path(
+        _attached_attributes(lexed.declarations, match.start())
+    )
     return _ModuleItem(
         name=match["name"],
         start=match.start(),
         end=_module_end(lexed, match) if inline else match.end(),
         inline=inline,
         path_value=value,
-        path_unreadable=(
-            found is None and _ANY_PATH_ATTRIBUTE.search(attached) is not None
-        ),
+        path_unreadable=unreadable,
     )
+
+
+def _declared_path(attributes: typ.Iterable[str]) -> tuple[str | None, bool]:
+    """Return a declaration's ``#[path]`` value and whether it is unreadable.
+
+    Only an attribute whose own path is ``path`` is read, so a ``#[doc]``
+    string that mentions one is not mistaken for a real assignment. A path in
+    a shape the reader cannot read is reported as unreadable rather than
+    treated as absent, because the default rule would look for the module where
+    the attribute does not point.
+    """
+    for attribute in attributes:
+        found = _PATH_ATTRIBUTE.match(attribute)
+        if found is not None:
+            return _path_value(found), False
+        path = _attribute_path(attribute)
+        if path == "path":
+            return None, True
+        if path == "cfg_attr" and _CONDITIONAL_PATH.search(attribute):
+            return None, True
+    return None, False
 
 
 def _path_value(found: re.Match[str]) -> str:

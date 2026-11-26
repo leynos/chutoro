@@ -255,6 +255,19 @@ issue text and the repository's documentation are the authority.
       lexer. The adversarial reader cases moved to
       `kani_reader_fixtures_test.py`, which keeps both modules under the
       file-length limit.
+- [x] Eighth review round, all six findings actioned. Three were reader
+      defects in the module path: `#[cfg_attr(kani, path = "...")]` was read
+      as no path at all, so discovery fell back to the default location and
+      could miss a proof outside `src`, and a doc string naming
+      `#[path = "x.rs"]` was read as a real path attribute. Both now inspect
+      each outer attribute's own path: a conditional path is reported, and a
+      mention inside another attribute is ignored. The orphan sweep now covers
+      a custom `[lib] path` directory, not only `src`. The delegated command
+      accepts Cargo's global options before the subcommand (`cargo --config
+      net.offline=true kani`), the CLI fixture creates its directory before
+      constructing the cleanup owner so an existing directory is never
+      removed, and the required-context contract's description separates the
+      policy it checks from the live enforcement the guide records.
 - [ ] Push the branch and create the draft pull request.
 
 ## Surprises & discoveries

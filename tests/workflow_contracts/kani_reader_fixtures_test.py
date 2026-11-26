@@ -528,6 +528,82 @@ def test_reader_terminates_on_a_self_referential_path_module(
     )
 
 
+def test_reader_reports_a_conditional_path_attribute(tmp_path: Path) -> None:
+    """A ``cfg_attr`` path applies only under the named configuration.
+
+    Whether the module's file moves depends on configuration this reader does
+    not evaluate, so the declaration is reported rather than resolved by the
+    default rule. The proof below sits outside ``src``, which is exactly where
+    the default rule would never look.
+    """
+    directory = tmp_path / "conditional"
+    (directory / "src").mkdir(parents=True)
+    (directory / "Cargo.toml").write_text(
+        '[package]\nname = "conditional"\nversion = "0.1.0"\n',
+        encoding="utf-8",
+    )
+    (directory / "src" / "lib.rs").write_text(
+        '#[cfg_attr(kani, path = "../proofs.rs")]\nmod proofs;\n',
+        encoding="utf-8",
+    )
+    (directory / "proofs.rs").write_text(
+        "#[kani::proof]\nfn verify_conditional() {}\n", encoding="utf-8"
+    )
+    kinds = _kinds(discover(tmp_path))
+    assert kinds == ["path-attribute"], (
+        f"a conditional #[path] must be reported, got {kinds!r}"
+    )
+
+
+def test_reader_ignores_a_path_mentioned_in_a_doc_attribute(
+    tmp_path: Path,
+) -> None:
+    """Documentation may name a ``#[path]`` without declaring one.
+
+    The doc string is an attribute's value, not an outer attribute of the
+    declaration, so it neither provides a path nor makes the real module
+    unresolvable.
+    """
+    crate_root = _write_package(
+        tmp_path,
+        '#[doc = r#"#[path = \\"absent.rs\\"]"#]\nmod proofs;\n',
+    )
+    (crate_root.parent / "proofs.rs").write_text(
+        "#[kani::proof]\nfn verify_documented() {}\n", encoding="utf-8"
+    )
+    inventory = discover(tmp_path)
+    assert _names(inventory) == ["proofs::verify_documented"], (
+        f"a doc mention must not redirect the module, got {inventory.proofs!r}"
+    )
+    assert _kinds(inventory) == [], (
+        f"a doc mention must not be reported, got {inventory.unresolved!r}"
+    )
+
+
+def test_reader_reports_an_orphan_beside_a_custom_root(tmp_path: Path) -> None:
+    """The orphan sweep covers custom source directories, not only ``src``.
+
+    A library at ``[lib] path = "proofs/root.rs"`` keeps its sources outside
+    ``src``; a proof-bearing file beside it that no module reaches is reported
+    by the same sweep as one under ``src``.
+    """
+    directory = tmp_path / "custom"
+    (directory / "proofs").mkdir(parents=True)
+    (directory / "Cargo.toml").write_text(
+        '[package]\nname = "custom"\nversion = "0.1.0"\n\n'
+        '[lib]\npath = "proofs/root.rs"\n',
+        encoding="utf-8",
+    )
+    (directory / "proofs" / "root.rs").write_text("", encoding="utf-8")
+    (directory / "proofs" / "orphan.rs").write_text(
+        "#[kani::proof]\nfn verify_orphan() {}\n", encoding="utf-8"
+    )
+    kinds = _kinds(discover(tmp_path))
+    assert kinds == ["unreachable"], (
+        f"an orphan beside a custom root must be reported, got {kinds!r}"
+    )
+
+
 def test_unresolved_report_names_the_file_and_line(tmp_path: Path) -> None:
     """A report without a location would not be actionable in review."""
     _write_package(

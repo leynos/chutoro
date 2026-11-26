@@ -93,27 +93,26 @@ impl Case {
     /// behaving differently for a reason that has nothing to do with the
     /// checker.
     ///
-    /// The `Case` is built before anything is written, so a failed write still
-    /// returns a value whose `Drop` removes the partially written directory.
-    /// Building it afterwards would leak every failed setup into the temporary
-    /// directory, because no owner would exist to clean it up.
+    /// The directory is created before the `Case` exists, so a directory that
+    /// already exists is rejected without a `Drop` removing someone else's
+    /// files. The `Case` is then built before the first write, so a failed
+    /// write still returns a value whose `Drop` removes the partially written
+    /// directory; building it afterwards would leak every failed setup.
     pub fn create(name: &str) -> Result<Self, FixtureError> {
         let sequence = NEXT_FIXTURE.fetch_add(1, Ordering::Relaxed);
         let directory = std::env::temp_dir().join(format!(
             "chutoro-kani-suite-cli-{}-{sequence}-{name}",
             std::process::id()
         ));
-        let manifest = directory.join("harnesses.toml");
-        let verifier = directory.join("cargo-kani-fake");
-        let case = Self {
-            directory,
-            manifest,
-            verifier,
-        };
         required(
-            fs::create_dir(&case.directory),
+            fs::create_dir(&directory),
             "create the fixture directory exclusively",
         )?;
+        let case = Self {
+            manifest: directory.join("harnesses.toml"),
+            verifier: directory.join("cargo-kani-fake"),
+            directory,
+        };
         required(
             fs::write(&case.manifest, MANIFEST),
             "write the fixture manifest",

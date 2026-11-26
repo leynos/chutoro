@@ -616,15 +616,32 @@ def _holds_proof(source: _Source) -> bool:
 
 
 def _unreached(package: _Package, visited: frozenset[Path]) -> list[Path]:
-    """Return proof-bearing sources under `package` that no module reached."""
+    """Return proof-bearing sources under `package` that no module reached.
+
+    The sweep covers the package's own source directories, not only ``src``.
+    A library may live at a custom ``[lib] path``, and an unreferenced file
+    beside it would otherwise be read by nothing and reported by nothing, so a
+    proof that stopped being declared would leave the inventory in silence.
+    """
     found: list[Path] = []
-    for path in sorted((package.directory / "src").rglob("*.rs")):
-        if path.resolve() in visited:
-            continue
-        source = _parse(path)
-        if source is not None and _holds_proof(source):
-            found.append(path)
+    for directory in _source_directories(package):
+        for path in sorted(directory.rglob("*.rs")):
+            if path.resolve() in visited:
+                continue
+            source = _parse(path)
+            if source is not None and _holds_proof(source):
+                found.append(path)
     return found
+
+
+def _source_directories(package: _Package) -> list[Path]:
+    """Return the directories to sweep for a package, without duplicates."""
+    directories = [package.directory / "src", package.root.parent]
+    unique: dict[Path, None] = {}
+    for directory in directories:
+        if directory.is_dir():
+            unique.setdefault(directory.resolve(), None)
+    return list(unique)
 
 
 def discover(root: Path = ROOT) -> Inventory:
