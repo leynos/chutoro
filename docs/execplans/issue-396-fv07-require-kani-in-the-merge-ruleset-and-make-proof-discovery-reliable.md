@@ -574,3 +574,10 @@ constraint.
 
 Revised 2026-11-25: recorded the rebase onto a trunk that added a seventh fast
 harness, and the fifth review round's CodeScene refusals and their fixes.
+
+Revised 2026-11-26: recorded the sixth to ninth review rounds, whose findings
+were the shapes the reader and the checker could not see: adjacent and
+non-line-anchored attributes, raw and conditional `#[path]` values, binary
+targets, repeated proof-free parents, multi-valued `-p`, and Cargo's global
+options. The checker's build now names its target and publishes by rename, and
+the artefacts' documentation follows.
