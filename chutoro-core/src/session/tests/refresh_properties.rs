@@ -229,18 +229,25 @@ mod round_cut_tests {
     fn cuts_are_strictly_increasing_and_end_at_total() {
         for total in 1usize..=64 {
             for rounds in 2usize..=3 {
-                let cuts = round_cuts(total, rounds);
-                assert_eq!(*cuts.last().unwrap_or(&0), total);
-                let mut previous = 0;
-                for (index, cut) in cuts.iter().copied().enumerate() {
-                    assert!(
-                        cut > previous,
-                        "round {index} of {rounds} over {total} points repeated a cut: {cuts:?}"
-                    );
-                    assert!(cut <= total, "cut {cut} exceeds {total}");
-                    previous = cut;
-                }
+                assert_strict_increase(&round_cuts(total, rounds), total, rounds);
             }
+        }
+    }
+
+    /// Asserts one split's cuts are strictly increasing and end at `total`.
+    ///
+    /// Extracted so the sweep above stays a two-level loop; the checks
+    /// themselves are a flat walk over one split.
+    fn assert_strict_increase(cuts: &[usize], total: usize, rounds: usize) {
+        assert_eq!(cuts.last().copied().unwrap_or(0), total);
+        let mut previous = 0;
+        for (index, cut) in cuts.iter().copied().enumerate() {
+            assert!(
+                cut > previous,
+                "round {index} of {rounds} over {total} points repeated a cut: {cuts:?}"
+            );
+            assert!(cut <= total, "cut {cut} exceeds {total}");
+            previous = cut;
         }
     }
 }

@@ -138,3 +138,48 @@ fn warm_up_pool_order_is_independent_of_buffer_overlap() {
         "an earlier-buffer duplicate must not reorder the pool"
     );
 }
+
+/// Reversed orientations of one undirected edge must collapse to one pool entry.
+///
+/// `CandidateEdge`'s derived equality includes its endpoint order, so the same
+/// undirected edge written as `(1, 0, 1, 7)` and as `(0, 1, 1, 7)` is two
+/// distinct values. Retaining the first arrival would keep whichever
+/// orientation happened to come first, and duplicating the opposite-oriented
+/// copy into an earlier buffer would change the pool. Canonicalizing on
+/// retention makes the result depend only on the edge's identity.
+#[test]
+fn warm_up_pool_is_independent_of_endpoint_orientation() {
+    let core_distances = [1.0_f32, 1.0, 1.0, 1.0];
+    let forward = CandidateEdge::new(0, 1, 1.0, 7);
+    let reversed = CandidateEdge::new(1, 0, 1.0, 7);
+    let other = CandidateEdge::new(1, 2, 1.0, 8);
+
+    let reversed_first = [reversed, forward, other];
+    let baseline = rebuild_mst_labels(
+        "refresh-test",
+        &inputs(4, &reversed_first, &core_distances, 5),
+    )
+    .expect("the orientation fixture must publish");
+    assert_eq!(
+        baseline.mst_backbone.len(),
+        2,
+        "one undirected edge must contribute one pool entry"
+    );
+
+    // The forward copy also reaches the merge through the earlier buffer.
+    let duplicated = RefreshInputs {
+        node_count: 4,
+        mst_backbone: &[forward],
+        historical_edges: &[],
+        pending_edges: &reversed_first,
+        core_distances: &core_distances,
+        min_cluster_size: min_cluster_size(5),
+    };
+    let actual = rebuild_mst_labels("refresh-test", &duplicated)
+        .expect("the orientation fixture must publish");
+
+    assert_eq!(
+        actual.mst_backbone, baseline.mst_backbone,
+        "an orientation duplicate must not change the pool"
+    );
+}

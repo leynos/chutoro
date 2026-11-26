@@ -103,14 +103,17 @@ fn backbone_recovery_matches_the_forest_for_canonical_inputs() {
         .expect("the fixture must cluster");
 
     assert_eq!(outcome.mst_backbone.len(), 2);
+    // The input edges are written with reversed orientation on purpose; the
+    // backbone stores them canonically, because orientation is not part of an
+    // undirected edge's meaning but *is* part of its derived equality.
     assert_eq!(
         outcome.mst_backbone.first(),
-        Some(&CandidateEdge::new(1, 0, 1.0, 7)),
-        "the retained edge keeps its raw orientation and raw distance"
+        Some(&CandidateEdge::new(0, 1, 1.0, 7)),
+        "the retained edge keeps its raw distance and canonical orientation"
     );
     assert_eq!(
         outcome.mst_backbone.get(1),
-        Some(&CandidateEdge::new(2, 1, 2.0, 8))
+        Some(&CandidateEdge::new(1, 2, 2.0, 8))
     );
     assert!(
         !outcome.mst_backbone.iter().any(|edge| edge.sequence() == 9),

@@ -1362,7 +1362,8 @@ Acceptance (behaviour a human can verify), matching RM-11.2.1:
 
 1. After `session.append(&[0..N])` then `session.refresh()`,
    `session.labels()` returns a vector of length `N` (`= point_count`).
-2. `session.snapshot_version()` increases by exactly one per `refresh` call.
+2. `session.snapshot_version()` increases by exactly one per `refresh` call,
+   saturating at `u64::MAX` (see OBL-4's representational-limit note).
 3. Incremental labels are partition-equivalent to `Chutoro::run` on the same
    contiguous dataset (ARI `== 1.0` on the deterministic single-refresh test).
 4. `pending_edges` is empty after `refresh`; a failed `refresh` leaves

@@ -226,7 +226,10 @@ fn recover_raw_backbone(
         if let Some(index) = chosen {
             claimed.insert(index);
             if let Some(edge) = combined.get(index) {
-                backbone.push(*edge);
+                // Canonical orientation keeps the backbone's element equality
+                // independent of which buffer supplied the candidate; the edge
+                // is undirected, so the orientation carries no meaning.
+                backbone.push(edge.canonicalize());
             }
         }
     }
@@ -244,14 +247,22 @@ fn recover_raw_backbone(
 /// raw distance, so two same-key candidates that differ only in distance both
 /// survive; Kruskal decides between them at the first real rebuild.
 ///
+/// Retained edges are stored in canonical orientation (`source <= target`).
+/// The edge is undirected, so orientation carries no meaning, but it *is* part
+/// of `CandidateEdge`'s derived equality. Without canonicalizing, the pool
+/// would keep whichever orientation happened to arrive first, and duplicating
+/// the opposite-oriented copy into an earlier buffer would change the pool —
+/// a violation of OBL-7 on element equality.
+///
 /// The retained pool is sorted by the same rule the rebuild uses, so a
 /// duplicate in an earlier buffer cannot reorder it either.
 fn dedup_raw_candidates(combined: Vec<CandidateEdge>) -> Vec<CandidateEdge> {
     let mut seen = BTreeSet::new();
     let mut retained = Vec::with_capacity(combined.len());
     for edge in combined {
-        if seen.insert((canonical_key(edge), edge.distance().to_bits())) {
-            retained.push(edge);
+        let canonical = edge.canonicalize();
+        if seen.insert((canonical_key(canonical), canonical.distance().to_bits())) {
+            retained.push(canonical);
         }
     }
     sort_raw_candidates(&mut retained);
