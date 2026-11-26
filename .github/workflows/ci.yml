@@ -335,6 +335,10 @@ jobs:
       - name: Setup Rust
         uses: leynos/shared-actions/.github/actions/setup-rust@ab489303d8b0f0175bd334335b696ca48e0e7586
         with:
+          # The build standard installs the linker on Linux for every
+          # `setup-rust` step, even one whose job never links anything; the
+          # repository's build-standard contract requires it.
+          install-mold: 'true'
           # `cargo deny` shells out to `cargo metadata`; it never compiles the
           # workspace, so a compiler cache would only add a writer for a path
           # this job never reads.
