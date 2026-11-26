@@ -521,9 +521,11 @@ retrieval cost by provider._
 - DEEP1B or BigANN should use chunked transfers — separately pinned source
   shards, or multipart object-store uploads under roadmap 10.1.4 and 10.3.13 —
   then sharded object keys to avoid very large single-object retries. Chunking
-  does not replace the pinned whole-file SHA-256: each shard carries its own
-  pin, or the assembled artefact is still verified against the whole-file
-  digest.
+  does not replace the pinned whole-file SHA-256. Every assembled artefact is
+  verified against that digest before use, because per-shard pins cannot detect
+  shards assembled in the wrong order. Per-shard pins are sufficient only when
+  the shards are consumed as separate artefacts, each with its own object key,
+  and a manifest defines their order.
 - For recurring benchmark jobs, retrieval cost is dominated by egress. Request
   charges are usually negligible compared with transfer.
 

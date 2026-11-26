@@ -3690,12 +3690,13 @@ candidate proofs:
 
 The same `proptest` state machine is planned to carry the read-back budget from
 [ADR 0011](adrs/adr-0011-resumable-download-verification-trust-model.md).
-It will inject the verifier's read source alongside the scripted transfer
-outcomes and count read-back bytes, asserting `0` for an uninterrupted transfer,
-`0` for a restart that streams from offset zero and never later resumes, and
-the bytes each verification attempt actually reads for a transfer resumed from
-a non-zero durable offset. An interruption inside verification restarts the
-pass instead of resuming it, so the property bounds read-back by verification
+It will count every staged-file read alongside the scripted transfer outcomes,
+including reads the data-transfer path performs, and assert that resuming a
+transfer adds none. It will also assert `0` for an uninterrupted transfer, `0`
+for a restart that streams from offset zero and never later resumes, and the
+bytes each verification attempt actually reads for a transfer resumed from a
+non-zero durable offset. An interruption inside verification restarts the pass
+instead of resuming it, so the property bounds read-back by verification
 attempts, not transfer resumes. Once it lands, expressing the budget as a
 property rather than a benchmark will keep it enforced on every pull request: a
 change that resumes by re-reading the prefix will fail the suite instead of

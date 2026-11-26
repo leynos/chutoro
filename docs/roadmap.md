@@ -892,8 +892,9 @@ ______________________________________________________________________
   `docs/benchmark-dataset-retrieval.md` §7.13.
   - Requires 10.1.2, 10.1.3, 10.1.4, and 10.2.1. Per-shard checksum manifests
     are published artefacts of this item, not transient download-staging
-    sidecars; each shard carries its own pin, or the assembled artefact is
-    still verified against its whole-file SHA-256 under
+    sidecars. Every assembled artefact is verified against its pinned
+    whole-file SHA-256; per-shard pins are sufficient only when the shards are
+    consumed separately under a manifest that defines their order. See
     [ADR 0011](adrs/adr-0011-resumable-download-verification-trust-model.md).
 
 ______________________________________________________________________

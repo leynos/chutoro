@@ -199,24 +199,28 @@ Large single-object retries are addressed by publication structure, not by a
 staging digest vector. Prepared shards carry per-shard checksum manifests under
 roadmap 10.1.3 and 10.3.13, and object-store transfers use multipart uploads
 under roadmap 10.1.4 and 10.3.13.[^4] A chunked transfer is a set of separately
-pinned source shards or a multipart object-store operation. Neither replaces
-the pinned whole-file SHA-256: each shard carries its own pin, or the assembled
-artefact is still verified against the whole-file digest.
+pinned source shards or a multipart object-store operation. Every assembled
+artefact is verified against the pinned whole-file SHA-256 before use, because
+per-shard pins cannot detect shards assembled in the wrong order. Per-shard
+pins are sufficient only when the shards are consumed as separate artefacts,
+each with its own object key, and a manifest defines their order.
 
 ## Verification and acceptance
 
-The planned `proptest` resume state machine injects the verifier's read source
-and counts read-back bytes. It asserts `0` for an uninterrupted transfer and
-for a transfer that restarts from offset zero and never later resumes from a
-non-zero durable offset, including one interrupted before any non-zero offset
-became durable. It asserts `expected_size` for a transfer resumed from a
-non-zero durable offset whose verification completes, for any interruption
-sequence that falls in the data-transfer phase. For a sequence that also
-interrupts the verification window, it asserts the sum of the bytes each
-attempt actually read, and that the sum never exceeds
-`verification_attempts * expected_size`. It includes a stop after a completed
-pass and before the rename, which must charge that pass plus its replacement.
-This runs against the shipped functions, not a transcription.
+The planned `proptest` resume state machine counts every staged-file read,
+including reads performed by the data-transfer path, not only the verifier's
+read source. It asserts that resuming a transfer adds no staged-file reads. It
+also asserts `0` for an uninterrupted transfer and for a transfer that restarts
+from offset zero and never later resumes from a non-zero durable offset,
+including one interrupted before any non-zero offset became durable. It asserts
+`expected_size` for a transfer resumed from a non-zero durable offset whose
+verification completes, for any interruption sequence that falls in the
+data-transfer phase. For a sequence that also interrupts the verification
+window, it asserts the sum of the bytes each attempt actually read, and that
+the sum never exceeds `verification_attempts * expected_size`. It includes a
+stop after a completed pass and before the rename, which must charge that pass
+plus its replacement. This runs against the shipped functions, not a
+transcription.
 
 Behavioural scenarios must cover:
 
