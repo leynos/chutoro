@@ -97,36 +97,43 @@ resumed transfer: after it completes, it pays one full read-back of
 `expected_size` bytes rather than a streaming hash, because its streamed digest
 no longer covers the whole file. A mismatch on the restart is fatal. The spent
 restart is recorded durably in the staging sidecar as a `clean_restarts`
-counter that survives downloader recreation, and the clean restart's durable
-updates have a fixed order:
+counter, and restart _intent_ is recorded separately as a `transition` marker.
+Both survive downloader recreation. The clean restart's durable updates have a
+fixed order:
 
-1. Truncate the staged data to zero and fsync it.
-2. Atomically update the sidecar to `durable_offset = 0`,
-   `clean_restarts = clean_restarts + 1`, and the current validator, via
+1. Atomically set the sidecar's `transition` to `CleanRestart`, via
    temp-and-rename followed by a directory fsync.
-3. Continue the transfer from offset zero.
+2. Truncate the staged data to zero and fsync it.
+3. Atomically set `durable_offset = 0`,
+   `clean_restarts = clean_restarts + 1`, the current representation's
+   validator, and `transition = None`.
+4. Continue the transfer from offset zero.
 
-A process that stops between steps 1 and 2 leaves a data file shorter than the
-sidecar's recorded offset. The sidecar is the authority for the counter, not
-the file, and the counter decides whether that short file is the authorized
-restart window or a fault. The restart window exists only while
-`clean_restarts` is zero, because the documented order truncates before it
-increments. A recreated downloader that observes `staged_len < durable_offset`
-with `clean_restarts = 0` completes the interrupted transition by applying step
-2 in full: in one sidecar update it sets `durable_offset = 0`,
-`clean_restarts = 1`, and the current validator, before writing any byte. It
-then streams from zero with no read-back. Recording the validator matters
-because a restart is typically earned by an expectation change, which includes
-a validator change; leaving the stale value behind would make a later non-zero
-resume reject a prefix written under the current representation, discarding it
-again. If the counter is already one, a short file cannot be that window: it is
-a truncated or tampered slot, and the transfer fails rather than restarting
-again. The opposite update order is unsafe: incrementing the counter before
-truncating would let a crash in between wedge a transfer that never began its
-restart. Step 2 completing before step 1 cannot occur under this order. Without
-a durable counter, a process started after an interrupted restart could spend a
-second one, breaking the limit and the cost bound. A mismatch observed with the
-counter already at one is fatal even if the restart itself was interrupted.
+Recording intent before the data shrinks is what lets a recreated downloader
+tell an interrupted restart from an unrelated short file. On recovery:
+
+- `transition = CleanRestart`: apply step 3 in full, then stream from zero. The
+  restart is spent because the intent is durable, even if no byte of the
+  rewrite had been written.
+- `transition = None` with `staged_len < durable_offset`: the slot was
+  shortened without a recorded transition. That is local corruption or
+  tampering, not a restart. Do not consume the budget: truncate to zero, record
+  `durable_offset = 0` and the current validator, and stream fresh. A later
+  full-length mismatch can still use the one clean restart. Publication remains
+  guarded by the pinned digest, so this recovery cannot publish unverified
+  bytes.
+
+Recording the validator in step 3 matters because a restart is typically earned
+by an expectation change, which includes a validator change; leaving the stale
+value behind would make a later non-zero resume reject a prefix written under
+the current representation, discarding it again. Incrementing the counter
+before recording intent would mark a restart spent that never began; recording
+intent first, but incrementing only after truncation, keeps the counter tied to
+a completed transition while still letting a recreated downloader finish an
+interrupted one. Without a durable counter, a process started after an
+interrupted restart could spend a second one, breaking the limit and the cost
+bound. A mismatch observed with the counter already at one is fatal even if the
+restart itself was interrupted.
 
 ### Full-response fallback
 
@@ -245,10 +252,13 @@ Behavioural scenarios must cover:
   then mismatches again: publication is refused with `IntegrityFailure`, and no
   second clean restart is granted. The scenario must show the `clean_restarts`
   sidecar counter persisting across the recreation.
-- A crash simulated between truncation and the sidecar update, with a
-  recreated downloader: `durable_offset` is reset to zero, `clean_restarts`
-  reads one, the current validator is recorded, and the transfer streams from
-  zero.
+- A crash after the `CleanRestart` marker is recorded but before any
+  truncation, with a recreated downloader: the restart is spent,
+  `durable_offset` is reset to zero, the current validator is recorded, and the
+  transfer streams from zero.
+- A crash after truncation but before step 3 completes, with a recreated
+  downloader: step 3 is applied in full, the restart is spent, and the transfer
+  streams from zero.
 - A verification pass that completes its read but stops before the publishing
   rename, followed by recreation: the next process reads the whole staged file
   again, and the total is charged as two passes.
@@ -266,9 +276,10 @@ Behavioural scenarios must cover:
 - A resume attempt whose recorded and current entity tags are equal but weak:
   no merge of the staged prefix occurs, the transfer starts fresh, and the
   fallback does not consume a restart.
-- A short staged file observed while `clean_restarts` is already one: the
-  transfer fails instead of streaming from zero, and no further restart is
-  granted.
+- A short staged file with no `transition` marker: the prefix is discarded, the
+  restart budget is not spent, and the transfer streams fresh. With
+  `clean_restarts = 0`, a later full-length mismatch still grants one clean
+  restart; with `clean_restarts = 1`, that mismatch is fatal.
 - A transient error inside a live process, followed by a retry: the attempt
   releases the lock, the retry reacquires it before touching the slot, and a
   resumed retry still pays exactly one read-back.
