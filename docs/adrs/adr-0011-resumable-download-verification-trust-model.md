@@ -74,7 +74,11 @@ streamed digest and the rename would make the published bytes differ from the
 ones the digest covered, and no read-back would expose that.
 
 A transfer that resumes from a non-zero durable offset discards streaming
-continuity. Resume itself re-hashes no prefix: it needs only the sidecar's
+continuity. Resume requires an eligible strong validator. Equal weak entity
+tags do not establish byte identity, so a weak or absent validator, or one that
+differs from the recorded value, starts a fresh transfer instead of reusing the
+staged prefix; that is the full-response fallback described below. Given a
+strong validator, resume re-hashes no prefix: it needs only the sidecar's
 `durable_offset`, truncation of the staged file to that offset, and a check of
 the recorded validator against the current representation's validator. The
 pinned whole-file digest remains the only integrity check, applied before
@@ -148,9 +152,12 @@ recorded offset: before step 2 it is longer, and the ordinary resume rule
 truncates it to zero. A process that stops between steps 1 and 2 is therefore
 classified as a zero-offset transfer, not as a short or tampered slot, and it
 reads nothing back. A process that stops between steps 2 and 3 starts from zero
-with an empty file. Neither interruption touches the counter. Once the rewrite
-completes, a later full-length mismatch still follows the clean-restart rule
-with the counter at zero, so the fallback has not spent the one restart.
+with an empty file. Neither interruption touches the counter, so the fallback
+preserves whatever `clean_restarts` value the slot already had. Once the
+rewrite completes, a later full-length mismatch follows the clean-restart rule
+at that value: with the counter at zero it grants the one clean restart, and
+with the counter at one it is fatal. The fallback has not spent a restart
+itself.
 
 The read-back budget is stated per verification attempt. An attempt that
 streams from offset zero reads back `0` bytes, and so does a transfer that
@@ -253,8 +260,12 @@ Behavioural scenarios must cover:
 - A full-response fallback that stops between its truncation and its rewrite,
   then a recreated downloader: the transfer starts from zero, the counter is
   unchanged, and the rewrite completes.
-- A full-length mismatch after a completed fallback: the fallback did not spend
-  the clean restart, so exactly one clean restart is still granted.
+- A full-length mismatch after a completed fallback: the fallback preserved the
+  counter, so with `clean_restarts = 0` exactly one clean restart is still
+  granted, and with `clean_restarts = 1` the mismatch is fatal.
+- A resume attempt whose recorded and current entity tags are equal but weak:
+  no merge of the staged prefix occurs, the transfer starts fresh, and the
+  fallback does not consume a restart.
 - A short staged file observed while `clean_restarts` is already one: the
   transfer fails instead of streaming from zero, and no further restart is
   granted.
