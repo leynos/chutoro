@@ -1630,8 +1630,9 @@ rebuild the Arrow schema or record batch. Keep `RunCommand` builders in CLI
 test helpers because their types and defaults belong to the CLI boundary.
 
 Test modules split remaining local fixtures into dedicated support modules when
-the test file approaches Whitaker's 400-line `module_max_lines` cap, keeping
-the test file focused on the behaviour under test. Current examples:
+the test file approaches Whitaker's 400-line `module_max_lines` cap, or when
+two test targets need the same fixture, keeping the test file focused on the
+behaviour under test. Current examples:
 
 - `chutoro-core/src/session/tests/common.rs` — session builder setup and
   batch-oracle helpers, composed with `NumericTestSource` from `test_utils.rs`.
