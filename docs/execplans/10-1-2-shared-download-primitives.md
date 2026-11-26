@@ -558,7 +558,11 @@ Recorded during planning; extend during implementation.
   restart cannot spend a second one. Large single-object retries are addressed
   where they belong, by separately pinned source shards and published per-shard
   manifests under 10.1.3 and 10.3.13, and by multipart object-store uploads
-  under 10.1.4. Date/Author: 2026-11-23, plan author, after triage of #210.
+  under 10.1.4. Every assembled artefact is still verified against the pinned
+  whole-file SHA-256 before use: per-shard pins cannot detect shards assembled
+  in the wrong order, and suffice only when the shards are consumed as separate
+  artefacts under a manifest that defines their order. Date/Author: 2026-11-23,
+  plan author, after triage of #210.
 - Alternatives deferred: `crypto_common::hazmat::SerializableState`. The
   locked `sha2 0.11.0` does provide it, so a persisted midstate is buildable
   today; it is deferred, not impossible. Three caveats keep it out of this
@@ -1110,16 +1114,17 @@ mid-transfer, truncate the body mid-flight, and fail then succeed. Bind
 The resume sequence proptest drives a *sequence* of scripted outcomes through
 the real `decide_resume` and `accept_response` against a model of the written
 byte range, asserting the written set is exactly `[0, final_len)`. It also
-injects the verifier's read source and counts read-back bytes, asserting `0`
-for an uninterrupted transfer and for a transfer that restarts from zero and
-never later resumes, and, for a transfer resumed from a non-zero durable
-offset, the sum of the bytes each verification attempt actually reads. It also
-asserts the sum never exceeds `verification_attempts * expected_size`, and
-includes a stop after a completed pass but before the rename, which must charge
-that pass plus its replacement. An interruption inside the verification window
-restarts the pass rather than resuming it, so the property bounds read-back by
-verification attempts, not transfer resumes. This is what replaces the dropped
-Verus resume proof, and unlike a proof it runs against the shipped code.
+counts every staged-file read, including reads the data-transfer path performs,
+and asserts that resuming a transfer adds none. It asserts `0` for an
+uninterrupted transfer and for a transfer that restarts from zero and never
+later resumes, and, for a transfer resumed from a non-zero durable offset, the
+sum of the bytes each verification attempt actually reads. It also asserts the
+sum never exceeds `verification_attempts * expected_size`, and includes a stop
+after a completed pass but before the rename, which must charge that pass plus
+its replacement. An interruption inside the verification window restarts the
+pass rather than resuming it, so the property bounds read-back by verification
+attempts, not transfer resumes. This is what replaces the dropped Verus resume
+proof, and unlike a proof it runs against the shipped code.
 
 `chutoro-bench-datasets` is outside the `property-tests` workflow's `paths`
 filter and suite matrix, so these properties run through `make test` only.
