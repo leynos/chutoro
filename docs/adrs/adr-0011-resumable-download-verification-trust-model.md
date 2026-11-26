@@ -76,12 +76,14 @@ ones the digest covered, and no read-back would expose that.
 A transfer that resumes from a non-zero durable offset discards streaming
 continuity. Resume itself re-hashes no prefix: it needs only the sidecar's
 `durable_offset`, truncation of the staged file to that offset, and a check of
-the recorded validator against the current pin. After the final data fsync the
-transfer re-hashes the complete staged file from offset zero through a fresh
-read handle, under the lock held by the current attempt, so nothing this crate
-controls can change the file between verification and publication. Publication
-happens only on a match. A transfer that restarts at offset zero has no durable
-bytes to distrust, so it streams and reads back nothing.
+the recorded validator against the current representation's validator. The
+pinned whole-file digest remains the only integrity check, applied before
+publication. After the final data fsync the transfer re-hashes the complete
+staged file from offset zero through a fresh read handle, under the lock held
+by the current attempt, so nothing this crate controls can change the file
+between verification and publication. Publication happens only on a match. A
+transfer that restarts at offset zero has no durable bytes to distrust, so it
+streams and reads back nothing.
 
 A full-length mismatch on a resumed transfer earns exactly one clean restart. A
 restart that itself completes uninterrupted adds at most one further transfer
@@ -112,15 +114,43 @@ with `clean_restarts = 0` completes the interrupted transition by applying step
 then streams from zero with no read-back. Recording the validator matters
 because a restart is typically earned by an expectation change, which includes
 a validator change; leaving the stale value behind would make a later non-zero
-resume reject a prefix written under the current pin, discarding it again. If
-the counter is already one, a short file cannot be that window: it is a
-truncated or tampered slot, and the transfer fails rather than restarting
+resume reject a prefix written under the current representation, discarding it
+again. If the counter is already one, a short file cannot be that window: it is
+a truncated or tampered slot, and the transfer fails rather than restarting
 again. The opposite update order is unsafe: incrementing the counter before
 truncating would let a crash in between wedge a transfer that never began its
 restart. Step 2 completing before step 1 cannot occur under this order. Without
 a durable counter, a process started after an interrupted restart could spend a
 second one, breaking the limit and the cost bound. A mismatch observed with the
 counter already at one is fatal even if the restart itself was interrupted.
+
+### Full-response fallback
+
+A ranged request that receives the whole representation instead of a partial
+response is a normal protocol outcome, not an integrity failure: the server
+ignored the range, or the representation changed. The transfer truncates the
+staged file and rewrites it from zero, and that transition does **not** consume
+`clean_restarts`. The budget is reserved for a full-length digest mismatch;
+charging an ordinary fallback against it would make a later genuine mismatch
+fatal.
+
+The fallback's durable order is the reverse of the clean restart's, because it
+has no counter to protect:
+
+1. Atomically update the sidecar to `durable_offset = 0` and the current
+   representation's validator, or clear the validator when the response carries
+   none, via temp-and-rename followed by a directory fsync.
+2. Truncate the staged data to zero and fsync it.
+3. Stream the response from zero.
+
+Recording the offset first means the data file is never shorter than the
+recorded offset: before step 2 it is longer, and the ordinary resume rule
+truncates it to zero. A process that stops between steps 1 and 2 is therefore
+classified as a zero-offset transfer, not as a short or tampered slot, and it
+reads nothing back. A process that stops between steps 2 and 3 starts from zero
+with an empty file. Neither interruption touches the counter. Once the rewrite
+completes, a later full-length mismatch still follows the clean-restart rule
+with the counter at zero, so the fallback has not spent the one restart.
 
 The read-back budget is stated per verification attempt. An attempt that
 streams from offset zero reads back `0` bytes, and so does a transfer that
@@ -211,6 +241,16 @@ Behavioural scenarios must cover:
 - A verification pass that completes its read but stops before the publishing
   rename, followed by recreation: the next process reads the whole staged file
   again, and the total is charged as two passes.
+- A ranged request answered with the full representation: the fallback rewrites
+  from zero, publishes on a digest match, and leaves `clean_restarts` unchanged.
+- A full-response fallback that stops between its sidecar reset and its
+  truncation, then a recreated downloader: the slot is treated as a zero-offset
+  transfer, the counter is unchanged, and the rewrite completes and publishes.
+- A full-response fallback that stops between its truncation and its rewrite,
+  then a recreated downloader: the transfer starts from zero, the counter is
+  unchanged, and the rewrite completes.
+- A full-length mismatch after a completed fallback: the fallback did not spend
+  the clean restart, so exactly one clean restart is still granted.
 - A short staged file observed while `clean_restarts` is already one: the
   transfer fails instead of streaming from zero, and no further restart is
   granted.
