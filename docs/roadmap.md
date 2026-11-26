@@ -756,6 +756,12 @@ ______________________________________________________________________
   in `docs/benchmark-dataset-retrieval.md`. The detailed design is in the
   [10.1.2 ExecPlan](https://github.com/leynos/chutoro/blob/10-1-2-shared-download-primitives/docs/execplans/10-1-2-shared-download-primitives.md)
   (draft, on branch `10-1-2-shared-download-primitives`, PR #199).
+  Verification after a resume charges each attempt only for the bytes it
+  actually reads, rather than one full re-hash per resume, and a further pass
+  is permitted whenever an attempt is interrupted before publication, under
+  [ADR 0011](adrs/adr-0011-resumable-download-verification-trust-model.md);
+  per-shard checksums and sharded transfer belong to 10.3.13, and multipart
+  object-store transfers to 10.1.4.
 - [ ] 10.1.3. Define canonical prepared artefact contracts
   (`features`, optional `labels`, optional `ground_truth`) plus immutable
   `manifest.json` metadata containing source provenance, schema version, and
@@ -884,7 +890,12 @@ ______________________________________________________________________
   (1M/10M/100M/1B), resumable object-store uploads, and profile-aware matrix
   partitioning so billion-scale jobs run only on dedicated scale runners. See
   `docs/benchmark-dataset-retrieval.md` §7.13.
-  - Requires 10.1.2, 10.1.3, 10.1.4, and 10.2.1.
+  - Requires 10.1.2, 10.1.3, 10.1.4, and 10.2.1. Per-shard checksum manifests
+    are published artefacts of this item, not transient download-staging
+    sidecars. Every assembled artefact is verified against its pinned
+    whole-file SHA-256; per-shard pins are sufficient only when the shards are
+    consumed separately under a manifest that defines their order. See
+    [ADR 0011](adrs/adr-0011-resumable-download-verification-trust-model.md).
 
 ______________________________________________________________________
 

@@ -3522,6 +3522,25 @@ the cache root must be a local filesystem: `flock` is unreliable on NFS and may
 be emulated on overlay mounts. See
 [`ADR-009`](adrs/adr-0009-staging-lock-via-rustix-flock.md).
 
+When roadmap 10.1.2 adds resumable downloads, verification follows
+[ADR 0011](adrs/adr-0011-resumable-download-verification-trust-model.md): an
+uninterrupted transfer hashes bytes as they are written and reads nothing back,
+as does a restart that streams again from offset zero and never later resumes,
+while a transfer that resumed from a non-zero durable offset re-hashes the
+complete staged file under the advisory lock and before the publishing rename.
+The advisory lock spans one transfer attempt on both paths: it is acquired
+before the attempt touches the slot and released when the attempt ends, whether
+by rename, discard, or a transient error that returns control to a retry. The
+budget is charged per verification attempt: `0` read-back bytes when
+uninterrupted, or when restarted from zero and never later resumed from a
+non-zero offset, and for a transfer resumed from a non-zero offset the bytes
+each attempt actually reads, bounded above by `expected_size` per attempt. The
+verification window runs from the first verification read to publication, so a
+pass that completes its read and then stops before the rename still costs that
+pass and the replacement. Interrupting the verification starts a fresh pass
+rather than resuming it, so the bound does not scale with the number of
+transfer resumes.
+
 Enable the crate's `testing` feature for adapter contract tests. It exposes
 `InMemoryFetcher`, `InMemoryStorage`, `InMemoryPublisher`, `FilesystemFetcher`,
 and `StubRecipe`. The behavioural tests in
@@ -3683,6 +3702,21 @@ candidate proofs:
   nonlinear, and both operands range over the full 64-bit domain rather than a
   bounded harness domain: `proptest` can sample individual values but cannot
   cover that space, and Kani cannot prove it at that bound.
+
+The same `proptest` state machine is planned to carry the read-back budget from
+[ADR 0011](adrs/adr-0011-resumable-download-verification-trust-model.md).
+It will count every staged-file read alongside the scripted transfer outcomes,
+including reads the data-transfer path performs, and assert that resuming a
+transfer adds none. It will also assert `0` for an uninterrupted transfer, `0`
+for a restart that streams from offset zero and never later resumes, and the
+bytes each verification attempt actually reads for a transfer resumed from a
+non-zero durable offset. An interruption inside verification restarts the pass
+instead of resuming it, so the property bounds read-back by verification
+attempts, not transfer resumes. Once it lands, expressing the budget as a
+property rather than a benchmark will keep it enforced on every pull request: a
+change that resumes by re-reading the prefix will fail the suite instead of
+only making large transfers slower. No read-back state machine exists in the
+tree yet.
 
 The heuristic selects a tool; it does not relax the obligations in
 [Rust-specific guidance](../AGENTS.md#rust-specific-guidance). Every new

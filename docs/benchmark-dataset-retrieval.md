@@ -337,6 +337,26 @@ For matrix jobs, retrieval cost scales approximately with:
 In practice, local worker cache hits reduce this significantly when tuple
 ordering groups by dataset.
 
+Resume verification is part of the retrieval cost. An uninterrupted download
+hashes bytes as they are written and performs no read-back, and so does a
+restart that streams again from offset zero and never later resumes from a
+non-zero offset. A download that resumed from a non-zero durable offset
+re-hashes the complete staged file, after the final byte is durable and before
+publication. The additional cost is charged per verification attempt: a
+completed pass reads `expected_size` bytes, and an attempt interrupted part-way
+contributes only the bytes it read before stopping. The window runs from the
+first verification read to publication, so a pass that completes its read and
+then stops before publication still costs that pass, and the next attempt reads
+the whole file again. Interruptions in the data-transfer phase add no attempts,
+however many times the transfer resumed, so the total stays linear in
+verification attempts rather than in resumes. A digest mismatch on a resumed
+transfer permits one clean restart. An uninterrupted restart adds one further
+transfer and one streaming hash; a restart that is itself interrupted and
+resumed from a non-zero offset adds one further transfer and one read-back of
+`expected_size` bytes instead. See
+[ADR 0011](adrs/adr-0011-resumable-download-verification-trust-model.md) for
+the trust boundary and the rejected alternatives.
+
 ## 6. Dataset assessments
 
 Effort scale:
@@ -472,8 +492,9 @@ retrieval cost by provider._
 ### 7.13. DEEP1B / BigANN
 
 - Implement sharded ingestion pipeline for 1M, 10M, 100M, and 1B subsets.
-- Use multipart and resumable object-store uploads plus per-shard checksum
-  manifests.
+- Use multipart and resumable object-store uploads. Publish per-shard checksum
+  manifests alongside the prepared shards; manifest publication is an artefact
+  of roadmap 10.1.3 and 10.3.13, not a transient download-staging sidecar.
 - Partition matrix runs by scale profile and dedicated runner class to keep
   jobs bounded and reproducible.
 
@@ -497,8 +518,14 @@ retrieval cost by provider._
 - PBMC 68k is the least automation-friendly source because the 10x dataset page
   is form-gated; keep a mirrored internal artefact and treat it as controlled
   input.
-- DEEP1B or BigANN should use chunked transfers and manifest-level checksums,
-  then sharded object keys to avoid very large single-object retries.
+- DEEP1B or BigANN should use chunked transfers — separately pinned source
+  shards, or multipart object-store uploads under roadmap 10.1.4 and 10.3.13 —
+  then sharded object keys to avoid very large single-object retries. Chunking
+  does not replace the pinned whole-file SHA-256. Every assembled artefact is
+  verified against that digest before use, because per-shard pins cannot detect
+  shards assembled in the wrong order. Per-shard pins are sufficient only when
+  the shards are consumed as separate artefacts, each with its own object key,
+  and a manifest defines their order.
 - For recurring benchmark jobs, retrieval cost is dominated by egress. Request
   charges are usually negligible compared with transfer.
 

@@ -69,6 +69,11 @@ open each document.
 - [ADR 009: staging-file locks via rustix
   flock](adrs/adr-0009-staging-lock-via-rustix-flock.md): accepted guidance for
   capability-scoped advisory staging locks and their bounded acquisition policy.
+- [ADR 0011: resumable download verification trust
+  model](adrs/adr-0011-resumable-download-verification-trust-model.md):
+  proposed whole-file re-hash after an interruption, no hash state across
+  processes, the durable restart counter, and the rejection of chunk and
+  midstate staging digests.
 
 ## Requests for comments
 
