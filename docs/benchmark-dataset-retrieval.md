@@ -354,7 +354,7 @@ transfer permits one clean restart. An uninterrupted restart adds one further
 transfer and one streaming hash; a restart that is itself interrupted and
 resumed from a non-zero offset adds one further transfer and one read-back of
 `expected_size` bytes instead. See
-[ADR 0009](adrs/adr-0009-resumable-download-verification-trust-model.md) for
+[ADR 0011](adrs/adr-0011-resumable-download-verification-trust-model.md) for
 the trust boundary and the rejected alternatives.
 
 ## 6. Dataset assessments

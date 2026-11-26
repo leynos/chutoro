@@ -755,10 +755,10 @@ ______________________________________________________________________
   [§3.1 integrity rules](benchmark-dataset-retrieval.md#31-shared-retrieval-crate-and-contracts)
   in `docs/benchmark-dataset-retrieval.md`. The detailed design is in the
   [10.1.2 ExecPlan](https://github.com/leynos/chutoro/blob/10-1-2-shared-download-primitives/docs/execplans/10-1-2-shared-download-primitives.md)
-  (draft, on branch `10-1-2-shared-download-primitives`, PR #199). Verification
-  after a resume charges one full re-hash per verification attempt rather than
-  per resume, and a further pass is permitted whenever an attempt is
-  interrupted before publication, under
+  (draft, on branch `10-1-2-shared-download-primitives`, PR #199).
+  Verification after a resume charges one full re-hash per verification attempt
+  rather than per resume, and a further pass is permitted whenever an attempt
+  is interrupted before publication, under
   [ADR 0011](adrs/adr-0011-resumable-download-verification-trust-model.md);
   per-shard checksums and sharded transfer belong to 10.3.13, and multipart
   object-store transfers to 10.1.4.
