@@ -5,8 +5,9 @@
 //! disconnected components and varied weights. Each case is replayed in
 //! one-thread and eight-thread Rayon pools and compared with the sequential
 //! reference, which pins both the transform's result and its determinism.
-//! Example-based cases then pin which lookup error the transform reports when
-//! several harvested endpoints have no core distance.
+//! A generated property and example-based cases then pin which lookup error
+//! the transform reports when several harvested endpoints have no core
+//! distance, and in which order the two endpoint roles are checked.
 
 use proptest::prelude::*;
 use proptest::test_runner::TestCaseError;
@@ -125,6 +126,90 @@ proptest! {
             );
         }
     }
+
+    /// Pins the lowest-index lookup rule on generated inputs.
+    ///
+    /// The transform takes a plain `&[f32]`, so an absent core distance can
+    /// only be an index at or beyond the slice's end: the failing endpoints
+    /// form a suffix, not an arbitrary subset. The oracle therefore walks the
+    /// harvest in input order and checks each edge's source before its target,
+    /// which is the contract stated directly. Both pinned pools must name the
+    /// endpoint that oracle names, in the same role.
+    #[test]
+    fn missing_core_distances_report_the_lowest_index_property(
+        (edges, core_len) in lookup_error_strategy(),
+    ) {
+        let harvest = EdgeHarvest::new(edges);
+        let core_distances = vec![0.25_f32; core_len];
+        let expected = first_missing_endpoint(harvest.as_slice(), core_len).ok_or_else(|| {
+            TestCaseError::fail("strategy must leave an endpoint without a core distance")
+        })?;
+
+        for threads in THREAD_COUNTS {
+            let message = with_pool(threads, || {
+                mutual_reachability_edges("fixture", &harvest, &core_distances)
+            })
+            .map_err(|error| {
+                TestCaseError::fail(format!(
+                    "failed to build a {threads}-thread Rayon pool: {error}"
+                ))
+            })?
+            .err()
+            .map(|error| error.to_string())
+            .ok_or_else(|| {
+                TestCaseError::fail(format!(
+                    "transform must reject the input with {threads} threads"
+                ))
+            })?;
+
+            prop_assert!(
+                message.contains(&format!("harvested edge {expected} has no core distance")),
+                "thread count {} reported {:?}, expected the {} lookup",
+                threads,
+                message,
+                expected,
+            );
+        }
+    }
+}
+
+/// Generates a harvest with a non-empty suffix of nodes lacking a core
+/// distance, together with the length of the core-distance vector.
+///
+/// An edge to the last node is appended, and `core_len` is always below the
+/// node count, so the harvest cannot accidentally avoid every missing node.
+/// The small generated list is then tiled up to `LOOKUP_HARVEST_LEN`, so a
+/// collector that reports whichever failure a worker reached first has
+/// several failing indices spread across the workers to choose between.
+fn lookup_error_strategy() -> impl Strategy<Value = (Vec<CandidateEdge>, usize)> {
+    (2usize..8).prop_flat_map(|node_count| {
+        (
+            prop::collection::vec(edge_strategy(node_count), 1..8),
+            0..node_count,
+        )
+            .prop_map(move |(mut edges, core_len)| {
+                edges.push(CandidateEdge::new(0, node_count - 1, 0.5, 0));
+                let pattern = edges.clone();
+                while edges.len() < LOOKUP_HARVEST_LEN {
+                    edges.extend(pattern.iter().copied());
+                }
+                (edges, core_len)
+            })
+    })
+}
+
+/// Returns the `"source N"` or `"target N"` the transform must name, or
+/// `None` when every endpoint has a core distance.
+fn first_missing_endpoint(edges: &[CandidateEdge], core_len: usize) -> Option<String> {
+    edges.iter().find_map(|edge| {
+        if edge.source() >= core_len {
+            Some(format!("source {}", edge.source()))
+        } else if edge.target() >= core_len {
+            Some(format!("target {}", edge.target()))
+        } else {
+            None
+        }
+    })
 }
 
 /// Generates a candidate-edge list and the matching core distances.

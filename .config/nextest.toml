@@ -263,7 +263,7 @@ slow-timeout = { period = "1800s", terminate-after = 1, grace-period = "5s" }
 
 [[profile.default.overrides]]
 # Tests that spawn Cargo or rustc run one at a time. Add a new spawner's binary here.
-filter = "binary(dense_testing_feature) | binary(portable_simd_gating) | binary(result_api_surface) | binary(session_api_surface) | binary(error_code_api_surface) | binary(benchmark_smoke)"
+filter = "binary(dense_testing_feature) | binary(portable_simd_gating) | binary(result_api_surface) | binary(session_api_surface) | binary(error_code_api_surface) | binary(mst_feature_gate) | binary(benchmark_smoke)"
 test-group = "nested-cargo"
 
 [profile.property-heavy]

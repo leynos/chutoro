@@ -456,8 +456,11 @@ ______________________________________________________________________
   plan with current source using the
   [planning-agent prompt](planning/2-3-2-fearless-simd-agent-prompt.md). Null
   result: the transform and Kruskal together are 0.16%-0.69% of a whole run at
-  n = 10 000, so the vectorization, pre-filter and packed-record milestones
-  were declined and the correctness guards landed instead.
+  n = 10 000 when measured at head `7368d8d`, and 0.0512%-0.3024% when the
+  measurement was repeated at head `4e96416` after the transform's collection
+  changed. Both are far below the 5% gate, so the vectorization, pre-filter and
+  packed-record milestones were declined and the correctness guards landed
+  instead.
 - [ ] 2.3.3. Prototype cross-node HNSW beam scoring that aggregates candidate
   evaluations across insertion or search jobs only if a dedicated benchmark
   shows a clear cycle-count win without changing deterministic neighbour

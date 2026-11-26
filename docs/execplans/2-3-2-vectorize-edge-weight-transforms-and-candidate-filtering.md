@@ -4,11 +4,21 @@ This ExecPlan (execution plan) is a living document. The sections `Constraints`,
 `Tolerances`, `Risks`, `Progress`, `Surprises & discoveries`, `Decision log`,
 and `Outcomes & retrospective` must be kept up to date as work proceeds.
 
-Status: COMPLETE (revision 8, 2026-11-23). The maintainer approved the plan and
-authorized production work for Milestones 0 to 2. Gate A was measured and
-fails: the decision-size ratio is 0.16% to 0.69%, far below the pre-registered
-5%, so Milestones 3 to 6 are declined and the roadmap item closes as a measured
-null result. Milestones 0 to 2 and 7 are delivered.
+Status: COMPLETE (revision 9, 2026-11-26; implementation and record). The
+maintainer approved the plan and authorized production work for Milestones 0 to
+2. Gate A was measured and fails: the decision-size ratio is 0.16% to 0.69% at
+head `7368d8d` and 0.0512% to 0.3024% at head `4e96416`, far below the
+pre-registered 5%, so Milestones 3 to 6 are declined and the roadmap item
+closes as a measured null result. Milestones 0 to 2 and 7 are delivered.
+
+The literal local `make test` was not produced, and this record does not claim
+it. Its setup script expires under this host's saturated compile queue, which
+the developers' guide classes as a budget rather than a defect. Every test it
+would run passed in partitions, and the hosted `build-test` suite that runs the
+same nextest suite plus the doctest step is green on the published head. "Gate
+disposition for the literal `make test`" under Validation and acceptance
+records the detail and the one step a reader needs if they require the literal
+command.
 
 Roadmap item: 2.3.2 (Phase 2, "Hot-path optimizations"), `docs/roadmap.md`
 lines 400-402. Design: `docs/chutoro-design.md` §6.3 "SIMD utilization".
@@ -474,6 +484,27 @@ Timestamps are mandatory (Tolerance 8).
         default 60 s per-test budget is too small for that case count, so the
         run used the test harness directly rather than changing a repository
         budget.
+  - [x] (2026-11-26) Lowest-index rule as a property. The hosted review's
+        pre-merge check asked for the transform's rule to be covered by a
+        property, not only by fixed examples.
+        `missing_core_distances_report_the_lowest_index_property` generates a
+        harvest with a non-empty suffix of nodes lacking a core distance,
+        tiles it to 4096 edges so several failing indices sit on different
+        workers, and asserts in one-thread and eight-thread pools that the
+        reported endpoint is the one an independent oracle names, in the same
+        role. Mutation evidence: checking the target before the source makes
+        it, and the existing example case, fail with the target named where
+        the source is expected; reverting restores both. The plain-slice API
+        cannot express an arbitrary missing subset, so the property documents
+        that the failing set is necessarily a suffix.
+  - [x] (2026-11-26) Compile contract for the feature gate. The same review
+        asked for the new `required-features` declaration to have a test.
+        `chutoro-compile-contracts/tests/mst_feature_gate.rs` runs
+        `cargo test -p chutoro-core --no-default-features --test
+        mst_edge_preparation_bdd --no-run` and asserts Cargo refuses the
+        target _by name_, naming the `cpu` feature, rather than compiling it.
+        `mst_feature_gate` joins the `nested-cargo` serial group, which the
+        nextest configuration asks every Cargo-spawning binary to do.
 - [x] (2026-11-23) Milestone 3 (gated on A): declined, Gate A failed.
 - [x] (2026-11-23) Milestone 4 (gated on A): declined, Gate A failed.
 - [x] (2026-11-23) Milestone 5 (gated on A and its own case): declined, Gate A
@@ -756,6 +787,28 @@ n = 10 000. That is an expectation for Milestone 1, not its outcome.
   in its own nextest setup script under this host's queue, every test it would
   run has been executed in partitions, and the hosted `build-test` suite for
   head `42f9e8c` passed 1634 tests plus the doctest step.
+
+- Decision (2026-11-26): the hosted formal review raised two inline findings
+  and three failed pre-merge checks.
+
+  1. **Plan header versus the open `make test` gate.** Valid as stated: the
+     header said COMPLETE while the literal command had no passing run, and no
+     maintainer agreement to an equivalence existed to record. Rather than
+     invent one, the plan now states the gate's disposition explicitly under
+     "Gate disposition for the literal `make test`", quotes the developers'
+     guide's "a budget, not a detected hang" ruling, lists the partitioned and
+     hosted evidence, and names the one remaining step for a reader who needs
+     the literal command. The status line says the plan is complete for
+     implementation and record, and says it does not claim that run.
+  2. **Roadmap attribution.** Valid: the ticked item presented the `7368d8d`
+     range as current. It now names the head for each range and records the
+     re-measured 0.0512%-0.3024% alongside.
+
+  The three pre-merge checks were actioned rather than rebutted. Developer
+  documentation gained a "Test targets that need a crate feature" section and a
+  paragraph on the transform's lowest-index rule in "Edge harvest and the MST
+  boundary". The property check produced the generated lowest-index property
+  above. The compile-time check produced `mst_feature_gate`.
 
 - Decision (2026-11-23): **dedup-before-sort is declined.** The three
   Milestone 2 conditions do not all hold. The dedup key the milestone names is
@@ -1405,6 +1458,46 @@ SHA. Documentation-only commits run `make markdownlint`, `make nixie` and
 Claim no speed-up, execution coverage or passing gate without its recorded
 result.
 
+### Gate disposition for the literal `make test`
+
+`make check-fmt`, `make typecheck`, `make lint`, `make markdownlint`,
+`make nixie` and `make spelling` were each run to completion on this work and
+pass. `make test` was **not** produced as a literal local run, and this plan
+does not claim one.
+
+The reason is the repository's own accounting, not a test failure. `make test`
+selects the `default` nextest profile, which runs setup scripts before any test:
+`warm-benches`, `warm-compile-contracts` and `warm-compile-contracts-default`,
+with allowances of 1,800 s, 1,800 s and 600 s. On the development host the
+shared compile pool has been saturated for days (up to several hundred queued
+compile requests from other agents), and the all-features compile-contract
+script needs roughly 5,800 s of wall clock there, so the script expires at
+1,800 s. The repository's developers' guide, under "Test timeouts: four tiers,
+outermost last", states that such an expiry is "a budget, not a detected hang",
+and explains those allowances exist so that a saturated pool surfaces in the
+setup script rather than as a red test.
+
+What stands in its place, all on recorded heads:
+
+- Every test the command would run was executed locally in partitions: 1,630 of
+  1,630 outside `chutoro-compile-contracts` and `benchmark_smoke`, 1 of 1
+  `benchmark_smoke`, all 21 compile-contract tests with the gate's exact
+  `RUSTFLAGS`, the MST scenario target 6 of 6, and every doctest binary.
+- The hosted `build-test` job runs the same nextest suite under the same
+  setup scripts and then `make test-doc`, alongside `make lint`,
+  `make spelling`, `make test-workflow-contracts` and
+  `make test-scheduling-contract`. It reports 1,642 passed and 1 skipped on head
+  `4e96416`, and CI is green on the head carrying this record. Its differences
+  from the literal command are coverage instrumentation and the coverage
+  action's target selection.
+
+A reader who requires the literal command has one remaining step: run
+`make test` on a host whose compile pool is not saturated. Nothing in this
+branch is expected to fail there, because no test in the suite is red.
+
+Claim no speed-up, execution coverage or passing gate without its recorded
+result.
+
 ## Idempotence and recovery
 
 Every step can be re-run. `target/criterion/`, `target/benchmarks/` and the
@@ -1514,6 +1607,13 @@ Close (2026-11-23). **Roadmap item 2.3.2 closes as a measured null result.**
   §6.3 entry records the same conclusion for future readers.
 
 ## Revision note
+
+**Revision 9 (2026-11-26).** Recorded the hosted whole-plan assessment's
+rework: the Gate A re-measurement at `4e96416`, the direct `prepare_edge_list`
+dedup tests and duplicate-heavy fixtures, the transform's lowest-index
+property, the compile-contract check that the scenario target requires `cpu`,
+the developers' guide entries, and an explicit gate disposition for the literal
+`make test` in place of a claim that it ran.
 
 **Revision 8 (2026-11-23).** Recorded the Milestone 2 delivery with its
 mutation and red/green evidence, the Milestone 7 documentation and roadmap

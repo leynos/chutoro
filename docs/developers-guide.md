@@ -808,6 +808,15 @@ which hides the race. Assert exact `MstError` values, and cover the rule with a
 property test whose oracle computes the first error independently of
 `validate_and_canonicalize_edge`.
 
+`mutual_reachability_edges` follows the same rule for its endpoint lookups, and
+reaches it through the same shared helper. It folds its per-edge results through
+`collect_ordered_results` rather than collecting straight into a `Result`, so
+the `GraphInvariantViolation` it reports belongs to the lowest input index, and
+within one edge the source lookup is checked before the target lookup. A direct
+`Result` collection would report whichever failure a worker reached first. Add
+a new lowest-index rule by calling `collect_ordered_results`; do not hand-roll
+a second ordered buffer.
+
 `EdgeHarvest::from_parallel_inserts` carries the same discarded ordering; only
 `prepare_edge_list`'s `(weight, source, target, sequence)` order is observable
 downstream. Recovering it means changing the harvest contract.
@@ -1494,6 +1503,25 @@ error (`InvalidTestCasesError`, `InvalidStackSizeError`) rather than panicking
 constructors, so a zero or otherwise invalid budget surfaces as an error to the
 calling test. `budget_selection.rs` re-exports them, so consumers can import
 from either path.
+
+### Test targets that need a crate feature
+
+`chutoro-core/Cargo.toml` declares a `[[test]]` block for
+`mst_edge_preparation_bdd` with `required-features = ["cpu"]`. That scenario
+suite imports `parallel_kruskal`, `EdgeHarvest` and the other exports the crate
+only offers with `cpu`, so without the declaration a `--no-default-features`
+build tried to compile the target and failed to resolve its imports. With it,
+Cargo skips the target instead, and
+`cargo check -p chutoro-core --no-default-features --tests` reports only the
+failures that predate the declaration.
+
+Declare the same requirement when adding a test target that uses a
+feature-gated export. A target that needs nothing gated must not gain the
+block, because a needless `required-features` hides its tests from
+feature-reduced builds. Developers running this suite need the default
+features, which include `cpu`;
+`cargo nextest run -p chutoro-core --test mst_edge_preparation_bdd` needs no
+extra flag because `cpu` is a default feature.
 
 ### Support-module boundaries
 
