@@ -14,17 +14,20 @@
 //! than "the verifier did not crash".
 //!
 //! The modules divide by responsibility: [`manifest`] validates the inventory,
-//! [`runner`] validates the delegated command, [`process`] executes it while
-//! streaming and capturing its output, [`output`] parses that output, and
-//! [`verdict`] compares the result with the expected set. Only [`check`]
-//! combines them.
+//! [`runner`] validates the delegated command, [`parser`] walks its arguments
+//! while [`words`] interprets each one, [`process`] executes the command while
+//! streaming and capturing its output, [`mod@line`] recognizes each printed line,
+//! [`output`] tracks the run those lines describe, and [`verdict`] compares
+//! the result with the expected set. Only [`check`] combines them.
 
+pub mod line;
 pub mod manifest;
 pub mod output;
 pub mod parser;
 pub mod process;
 pub mod runner;
 pub mod verdict;
+pub mod words;
 
 use std::collections::BTreeSet;
 use std::fmt;

@@ -60,13 +60,7 @@ def _document(path: Path = MANIFEST_PATH) -> dict[str, typ.Any]:
 
 def _entries(path: Path = MANIFEST_PATH) -> list[dict[str, typ.Any]]:
     """Return the manifest's harness entries, after validating their shape."""
-    document = _document(path)
-    unknown = set(document) - DOCUMENT_KEYS
-    if unknown:
-        raise ManifestError(f"unknown manifest keys: {sorted(unknown)}")
-    entries = document.get("harness")
-    if not isinstance(entries, list) or not entries:
-        raise ManifestError("harnesses.toml must declare at least one [[harness]]")
+    entries = _harness_list(_checked_document(path))
     for index, entry in enumerate(entries):
         if not isinstance(entry, dict):
             raise ManifestError(f"harness {index} is not a table")
@@ -74,25 +68,62 @@ def _entries(path: Path = MANIFEST_PATH) -> list[dict[str, typ.Any]]:
     return entries
 
 
+def _checked_document(path: Path) -> dict[str, typ.Any]:
+    """Return the parsed document, rejecting keys no consumer expects."""
+    document = _document(path)
+    unknown = set(document) - DOCUMENT_KEYS
+    if unknown:
+        raise ManifestError(f"unknown manifest keys: {sorted(unknown)}")
+    return document
+
+
+def _harness_list(document: dict[str, typ.Any]) -> list[typ.Any]:
+    """Return the document's non-empty list of harness tables."""
+    entries = document.get("harness")
+    if not isinstance(entries, list) or not entries:
+        raise ManifestError("harnesses.toml must declare at least one [[harness]]")
+    return entries
+
+
 def _validate_entry(index: int, entry: dict[str, typ.Any]) -> None:
     """Reject an entry whose keys, values or tier are not the expected shape."""
+    _check_keys(index, entry)
+    _check_values(index, entry)
+
+
+def _check_keys(index: int, entry: dict[str, typ.Any]) -> None:
+    """Reject an entry with a missing or unknown key."""
     missing = ENTRY_KEYS - set(entry)
     unknown = set(entry) - ENTRY_KEYS
     if missing:
         raise ManifestError(f"harness {index} is missing {sorted(missing)}")
     if unknown:
         raise ManifestError(f"harness {index} has unknown keys {sorted(unknown)}")
+
+
+def _check_values(index: int, entry: dict[str, typ.Any]) -> None:
+    """Reject an empty field, an unknown tier or an unqualified name."""
     for key in ("package", "pretty_name", "tier"):
         if not isinstance(entry[key], str) or not entry[key].strip():
             raise ManifestError(f"harness {index} has an empty {key}")
-    if entry["tier"] not in TIERS:
+    _check_tier(index, entry["tier"])
+    _check_qualified(index, entry["pretty_name"])
+
+
+def _check_tier(index: int, tier: typ.Any) -> None:
+    """Reject a tier outside the two the classifier defines."""
+    if tier not in TIERS:
         raise ManifestError(
-            f"harness {index} has tier {entry['tier']!r}; expected one of "
+            f"harness {index} has tier {tier!r}; expected one of "
             f"{sorted(TIERS)}"
         )
-    if "::" not in entry["pretty_name"]:
+
+
+def _check_qualified(index: int, pretty_name: typ.Any) -> None:
+    """Reject a name that is not a fully qualified harness path."""
+    if "::" not in pretty_name:
         raise ManifestError(
-            f"harness {index} names {entry['pretty_name']!r}, which is not a "
+            f"harness {index} names {pretty_name!r}, which is not a "
             "qualified harness path"
         )
 

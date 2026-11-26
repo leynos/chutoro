@@ -201,6 +201,30 @@ issue text and the repository's documentation are the authority.
       leave the proofs running a path Cargo never wrote. The guide no longer
       calls Kani "equally enforced" and states that a full-tier proof outside
       the two named packages needs a `kani-full` sweep entry.
+- [x] Fifth review round: CodeScene. The PR gate failed on nine changed files
+      with two below 9.00, three Bumpy Road or Deep Nested Complexity findings,
+      and ten advisory findings. Each was fixed in the code rather than
+      suppressed, and `cs check` now reports 10.00 for every changed file:
+      the reader's `_parse` moved its lexing into `_Lexed`/`_lex` and its item
+      construction into `_module_item`/`_module_end`; the harness reader
+      reports a revisit from `_note_revisit` and follows one declaration from
+      `_follow_item`; its manifest walk is two predicates; the required-context
+      contract reads jobs through `_document_jobs` and collisions through
+      `_name_collisions`; the checker's reject/accept helpers share one
+      `expect_outcome` over a `Stream`; the manifest validation is
+      `_checked_document`, `_harness_list`, `_check_keys`, `_check_values`,
+      `_check_tier` and `_check_qualified`; the output parser is a `Run` state
+      machine over `start`/`complete`/`marker`/`finish`; `assignment_of` tests
+      its name through `is_variable_name`; the recipe reading names short
+      options through `_is_short_flag`; and the routing test reads a tier's
+      fixture and scope from one `TIERS` table, which drops it below the
+      argument limit. Two further refusals could not be fixed that way: the
+      string-argument rule is a per-file ratio over twelve or more
+      functions — measured against the CLI by generating files, not assumed —
+      so `parser.rs` and `output.rs` split by responsibility into
+      `words.rs` (what one argument spells) and `line.rs` (what one output line
+      means), which leaves both under the threshold and each module with one
+      job.
 - [ ] Push the branch and create the draft pull request.
 
 ## Surprises & discoveries
@@ -433,6 +457,8 @@ where possible, and otherwise recorded as an external assumption.
 
 Non-vacuity: each contract has at least one seeded failure that it rejects, and
 the real Kani run covers six fast harnesses and two package-wide full sweeps.
+After the rebase onto the trunk that added the connectivity healer, the fast
+tier is seven harnesses, and the counts below are the pre-rebase evidence.
 
 ## Validation commands
 
@@ -464,7 +490,7 @@ The repository side of FV07 is implemented and validated:
 - the proof surface is classified once in `tools/kani/harnesses.toml` and
   bound in both directions to the Rust declarations and the Makefile;
 - every Kani invocation is checked against that inventory, and both real tiers
-  pass: six fast harnesses and 15 plus 2 full harnesses;
+  pass: after the rebase, seven fast harnesses and 18 in the full sweep;
 - the pull-request `kani` job reports on every change and the nightly job
   verifies its own SHA unconditionally;
 - the required-context contract and the documentation agree on
@@ -489,3 +515,6 @@ Revised 2026-11-23 after Phase 1: recorded the collected observations that
 changed two decisions (qualified Makefile selectors, and path-mediated modules
 keeping their declaration's name), and noted the `thiserror` field-name
 constraint.
+
+Revised 2026-11-25: recorded the rebase onto a trunk that added a seventh fast
+harness, and the fifth review round's CodeScene refusals and their fixes.

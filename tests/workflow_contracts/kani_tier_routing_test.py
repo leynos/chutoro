@@ -33,6 +33,14 @@ from kani_recipe_reading import (
 )
 from workflow_support import ROOT
 
+#: Each Makefile tier, the conftest fixture holding its recipe, and the scope
+#: the tier's wrapper must name. The three travel together, so a test takes the
+#: tier and reads the rest rather than passing the same fact twice.
+TIERS: dict[str, tuple[str, str]] = {
+    "kani": ("fast_recipe", "fast"),
+    "kani-full": ("full_recipe", "full"),
+}
+
 # ---------------------------------------------------------------------------
 # The checker wrapper
 # ---------------------------------------------------------------------------
@@ -167,15 +175,10 @@ def _selectors(argv: list[str]) -> list[str]:
     ]
 
 
-@pytest.mark.parametrize(
-    ("target", "recipe_fixture", "scope"),
-    (("kani", "fast_recipe", "fast"), ("kani-full", "full_recipe", "full")),
-)
+@pytest.mark.parametrize("target", TIERS)
 def test_make_tier_runs_the_checker_for_each_command_in_order(
     tmp_path: Path,
     target: str,
-    recipe_fixture: str,
-    scope: str,
     request: pytest.FixtureRequest,
 ) -> None:
     """Each tier's checked calls run in recipe order, one per command.
@@ -184,6 +187,7 @@ def test_make_tier_runs_the_checker_for_each_command_in_order(
     that gains or loses a command moves this contract with it instead of
     failing on a number nobody meant to pin.
     """
+    recipe_fixture, scope = TIERS[target]
     recipe = request.getfixturevalue(recipe_fixture)
     tool, log = _recorder(tmp_path)
     completed = _run_tier(tool, log, None, target)
@@ -207,15 +211,11 @@ def test_make_tier_runs_the_checker_for_each_command_in_order(
     )
 
 
-@pytest.mark.parametrize(
-    ("target", "recipe_fixture"),
-    (("kani", "fast_recipe"), ("kani-full", "full_recipe")),
-)
+@pytest.mark.parametrize("target", TIERS)
 @pytest.mark.parametrize("position", ("first", "middle", "last"))
 def test_a_failing_checker_stops_the_tier(
     tmp_path: Path,
     target: str,
-    recipe_fixture: str,
     position: str,
     request: pytest.FixtureRequest,
 ) -> None:
@@ -226,6 +226,7 @@ def test_a_failing_checker_stops_the_tier(
     outcome. Both tiers are exercised, because the nightly one is the only
     place several proofs run at all.
     """
+    recipe_fixture, _scope = TIERS[target]
     recipe = request.getfixturevalue(recipe_fixture)
     commands = selections(recipe)
     fail_at = {"first": 1, "middle": (len(commands) + 1) // 2, "last": len(commands)}[

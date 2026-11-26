@@ -97,13 +97,39 @@ def _jobs(documents: dict[str, dict[str, typ.Any]]) -> dict[str, list[tuple[str,
     """Return each job identifier mapped to the workflows that declare it."""
     found: dict[str, list[tuple[str, dict[str, typ.Any]]]] = {}
     for name, document in documents.items():
-        jobs = document.get("jobs")
-        if not isinstance(jobs, dict):
-            continue
-        for job_id, job in jobs.items():
-            if isinstance(job, dict):
-                found.setdefault(job_id, []).append((name, job))
+        for job_id, job in _document_jobs(document):
+            found.setdefault(job_id, []).append((name, job))
     return found
+
+
+def _document_jobs(
+    document: dict[str, typ.Any],
+) -> typ.Iterator[tuple[str, dict[str, typ.Any]]]:
+    """Yield each job mapping one workflow document declares."""
+    jobs = document.get("jobs")
+    if not isinstance(jobs, dict):
+        return
+    for job_id, job in jobs.items():
+        if isinstance(job, dict):
+            yield job_id, job
+
+
+def _name_collisions(
+    documents: dict[str, dict[str, typ.Any]],
+) -> list[tuple[str, str, str]]:
+    """Return each job reported under a required context's name."""
+    return [
+        (workflow, job_id, str(job["name"]))
+        for workflow, document in documents.items()
+        for job_id, job in _document_jobs(document)
+        if _renames_to_required(job, job_id)
+    ]
+
+
+def _renames_to_required(job: dict[str, typ.Any], job_id: str) -> bool:
+    """Return whether `job` reports a required context under another name."""
+    reported = job.get("name", job_id)
+    return reported in REQUIRED_CONTEXTS and reported != job_id
 
 
 @pytest.fixture(scope="module")
@@ -130,17 +156,7 @@ def test_no_job_renames_itself_to_a_required_context(
     alone cannot see that collision, so every pull-request job's effective
     reported name is checked here.
     """
-    collisions: list[tuple[str, str, str]] = []
-    for workflow, document in documents.items():
-        jobs = document.get("jobs")
-        if not isinstance(jobs, dict):
-            continue
-        for job_id, job in jobs.items():
-            if not isinstance(job, dict):
-                continue
-            reported = job.get("name", job_id)
-            if reported in REQUIRED_CONTEXTS and reported != job_id:
-                collisions.append((workflow, job_id, str(reported)))
+    collisions = _name_collisions(documents)
     assert not collisions, (
         "these jobs rename themselves to a required context, so the ruleset "
         f"could match the wrong run: {collisions!r}"

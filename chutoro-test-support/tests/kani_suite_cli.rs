@@ -186,6 +186,52 @@ fn case() -> Result<Case, FixtureError> {
     Case::create("default")
 }
 
+/// The captured stream a case's expectation is checked against.
+#[derive(Debug, Clone, Copy)]
+enum Stream {
+    /// Standard output, where a successful run prints its summary.
+    Out,
+    /// Standard error, where the checker prints its diagnostics.
+    Err,
+}
+
+impl Stream {
+    /// Return this stream's captured text.
+    fn text(self, output: &std::process::Output) -> String {
+        let captured = match self {
+            Self::Out => &output.stdout,
+            Self::Err => &output.stderr,
+        };
+        String::from_utf8_lossy(captured).into_owned()
+    }
+}
+
+/// Require the checker to have reached `expected` status and named `needle`.
+///
+/// Both directions share this check: they differ only in which stream carries
+/// the text and whether success is wanted, and a second copy of the body would
+/// eventually describe only one of them.
+fn expect_outcome(
+    output: &std::process::Output,
+    expected: bool,
+    stream: Stream,
+    needle: &str,
+) -> Result<(), String> {
+    if output.status.success() != expected {
+        let wanted = if expected { "success" } else { "failure" };
+        return Err(format!(
+            "expected {wanted}, got {}: {}",
+            output.status,
+            stream.text(output)
+        ));
+    }
+    let text = stream.text(output);
+    if !text.contains(needle) {
+        return Err(format!("expected {needle:?} in the output, got {text}"));
+    }
+    Ok(())
+}
+
 /// Require the checker to have failed, naming `needle` in its diagnostics.
 ///
 /// A `Result` rather than asserts, so the `#[rstest]` bodies can return it:
@@ -193,34 +239,12 @@ fn case() -> Result<Case, FixtureError> {
 /// fixture, and the checks belong beside the behaviour they describe rather
 /// than in a panicking helper.
 fn rejected(output: &std::process::Output, needle: &str) -> Result<(), String> {
-    if output.status.success() {
-        return Err(format!(
-            "expected failure, got success: {}",
-            String::from_utf8_lossy(&output.stdout)
-        ));
-    }
-    let stderr = String::from_utf8_lossy(&output.stderr);
-    if !stderr.contains(needle) {
-        return Err(format!(
-            "expected the diagnostic to name {needle:?}, got {stderr}"
-        ));
-    }
-    Ok(())
+    expect_outcome(output, false, Stream::Err, needle)
 }
 
 /// Require the checker to have succeeded, with a `needle` in its output.
 fn accepted(output: &std::process::Output, needle: &str) -> Result<(), String> {
-    if !output.status.success() {
-        return Err(format!(
-            "expected success, got {}",
-            String::from_utf8_lossy(&output.stderr)
-        ));
-    }
-    let stdout = String::from_utf8_lossy(&output.stdout);
-    if !stdout.contains(needle) {
-        return Err(format!("expected {needle:?} in the output, got {stdout}"));
-    }
-    Ok(())
+    expect_outcome(output, true, Stream::Out, needle)
 }
 
 #[rstest]

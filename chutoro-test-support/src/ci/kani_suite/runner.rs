@@ -148,14 +148,22 @@ fn split_assignments(words: &[String]) -> (Vec<(String, String)>, &[String]) {
 /// Return the environment assignment `word` spells, if it is one.
 fn assignment_of(word: &str) -> Option<(String, String)> {
     let (name, value) = word.split_once('=')?;
-    if name.is_empty()
-        || !name
-            .chars()
-            .all(|character| character.is_ascii_alphanumeric() || character == '_')
-    {
+    if !is_variable_name(name) {
         return None;
     }
     Some((name.to_owned(), unquoted(value)))
+}
+
+/// Return whether `name` can be an environment variable name.
+///
+/// The delegated command's leading assignments reach a child process, so a
+/// word that is only shaped like one is refused rather than passed through.
+fn is_variable_name(name: &str) -> bool {
+    if name.is_empty() {
+        return false;
+    }
+    name.chars()
+        .all(|character| character.is_ascii_alphanumeric() || character == '_')
 }
 
 /// Return `value` without one surrounding pair of double quotes.

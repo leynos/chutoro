@@ -12,8 +12,13 @@
 //! `Checking harness` while a block is open, or end of output with a block
 //! still open are all errors, because each is evidence that the run was
 //! interrupted or that its output was not the format this checker pins.
+//!
+//! [`super::line`] answers the per-line questions this state machine asks;
+//! this module owns the run's progress and the report it produces.
 
 use thiserror::Error;
+
+use super::line;
 
 /// The outcome Kani reported for one harness.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -146,124 +151,79 @@ pub enum OutputError {
 /// assert_eq!(report.summary.expect("summary").total, 1);
 /// ```
 pub fn parse(output: &str) -> Result<SuiteReport, OutputError> {
-    let mut report = SuiteReport::default();
-    let mut open: Option<String> = None;
-    let mut in_summary = false;
-    for raw in output.lines().map(strip_ansi) {
-        let line = raw.trim_end();
-        if let Some(name) = checking_harness(line) {
-            if let Some(open_name) = open.take() {
-                return Err(OutputError::Incomplete {
-                    open: open_name,
-                    next: name,
-                });
-            }
-            open = Some(name);
-            continue;
+    let mut run = Run::default();
+    for raw in output.lines().map(line::strip_ansi) {
+        run.line(raw.trim_end())?;
+    }
+    run.finish()
+}
+
+/// One run's parser state: the report so far and the block it is inside.
+#[derive(Default)]
+struct Run {
+    /// The report accumulated from completed blocks.
+    report: SuiteReport,
+    /// The harness whose block is open, if any.
+    open: Option<String>,
+    /// Whether the manual summary block has started.
+    in_summary: bool,
+}
+
+impl Run {
+    /// Fold one output line into the run's state.
+    fn line(&mut self, line: &str) -> Result<(), OutputError> {
+        if let Some(name) = line::checking_harness(line) {
+            return self.start(name);
         }
         if line.starts_with("Autoharness: Checking function ") {
             return Err(OutputError::Autoharness);
         }
         if let Some(status) = line.strip_prefix("VERIFICATION:- ") {
-            let Some(name) = open.take() else {
+            let Some(name) = self.open.take() else {
                 return Err(OutputError::OutcomeWithoutBlock {
                     outcome: status.to_owned(),
                 });
             };
-            report.results.push(HarnessResult {
-                name,
-                outcome: outcome_of(status),
-            });
-            continue;
+            self.complete(name, line::outcome_of(status));
+            return Ok(());
         }
+        self.marker(line)
+    }
+
+    /// Open a block for `name`, rejecting a block that never closed.
+    fn start(&mut self, name: String) -> Result<(), OutputError> {
+        if let Some(open) = self.open.take() {
+            return Err(OutputError::Incomplete { open, next: name });
+        }
+        self.open = Some(name);
+        Ok(())
+    }
+
+    /// Record the block closed for `name` with the outcome Kani reported.
+    fn complete(&mut self, name: String, outcome: Outcome) {
+        self.report.results.push(HarnessResult { name, outcome });
+    }
+
+    /// Fold a summary marker or a summary line into the report.
+    fn marker(&mut self, line: &str) -> Result<(), OutputError> {
         if line == "Manual Harness Summary:" {
-            in_summary = true;
-            continue;
+            self.in_summary = true;
+            return Ok(());
         }
         if line == "No proof harnesses (functions with #[kani::proof]) were found to verify." {
             return Err(OutputError::NoHarnesses);
         }
-        if in_summary {
-            read_summary_line(line, &mut report);
+        if self.in_summary {
+            line::read_summary_line(line, &mut self.report);
         }
+        Ok(())
     }
-    if let Some(open_name) = open {
-        return Err(OutputError::Unterminated { open: open_name });
-    }
-    Ok(report)
-}
 
-/// Return the harness a `Checking harness` line names, if it is one.
-fn checking_harness(line: &str) -> Option<String> {
-    let name = line.strip_prefix("Checking harness ")?;
-    Some(name.strip_suffix("...").unwrap_or(name).to_owned())
-}
-
-/// Map Kani's status text to an outcome.
-fn outcome_of(status: &str) -> Outcome {
-    if status.starts_with("SUCCESSFUL") {
-        Outcome::Success
-    } else if status.starts_with("FAILED") {
-        Outcome::Failed
-    } else {
-        Outcome::Other
-    }
-}
-
-/// Read one line of the manual harness summary into `report`.
-fn read_summary_line(line: &str, report: &mut SuiteReport) {
-    if let Some(name) = line.strip_prefix("Verification failed for - ") {
-        report.reported_failures.push(name.trim().to_owned());
-        return;
-    }
-    let Some(rest) = line.strip_prefix("Complete - ") else {
-        return;
-    };
-    let numbers = rest
-        .split_whitespace()
-        .filter_map(|word| word.parse::<usize>().ok())
-        .collect::<Vec<_>>();
-    if let [succeeded, failed, total] = numbers.as_slice() {
-        report.summary = Some(Summary {
-            succeeded: *succeeded,
-            failed: *failed,
-            total: *total,
-        });
-    }
-}
-
-/// Return `text` with ANSI escape sequences removed.
-///
-/// Kani colours its verdict when it believes it is writing to a terminal. The
-/// checker captures a pipe, so the colour is normally absent, but stripping it
-/// unconditionally keeps a coloured run parseable rather than silently
-/// unrecognised.
-fn strip_ansi(text: &str) -> String {
-    let mut out = String::with_capacity(text.len());
-    let mut characters = text.chars().peekable();
-    while let Some(character) = characters.next() {
-        if character != '\u{1b}' {
-            out.push(character);
-            continue;
-        }
-        skip_escape(&mut characters);
-    }
-    out
-}
-
-/// Consume one ANSI escape sequence, leaving the iterator after its final byte.
-///
-/// Extracted from [`strip_ansi`] so the loop and its guards fit the nesting
-/// threshold: the sequence body is one decision, not a fourth level of the
-/// caller's loop.
-fn skip_escape(characters: &mut std::iter::Peekable<std::str::Chars<'_>>) {
-    if characters.peek() != Some(&'[') {
-        return;
-    }
-    characters.next();
-    for escaped in characters.by_ref() {
-        if escaped.is_ascii_alphabetic() {
-            break;
+    /// Return the finished report, rejecting output that ended mid-block.
+    fn finish(self) -> Result<SuiteReport, OutputError> {
+        match self.open {
+            Some(open) => Err(OutputError::Unterminated { open }),
+            None => Ok(self.report),
         }
     }
 }

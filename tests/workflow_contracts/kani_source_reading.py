@@ -152,70 +152,6 @@ def _attribute_path(attribute: str) -> str | None:
     return found["path"] if found is not None else None
 
 
-def _proof_attributes(code: str, start: int) -> list[str]:
-    """Return the attributes above the declaration at `start`, innermost first.
-
-    Comments and literals are already blanked in `code`, so a mention in
-    either is not an attribute. The walk stops at the first line that is not
-    an attribute: that is the previous item's code, and nothing above it
-    belongs to this declaration.
-    """
-    found: list[str] = []
-    for line in _attributes_before(code[:start]):
-        stripped = line.strip()
-        if not stripped:
-            continue
-        if not stripped.startswith("#["):
-            break
-        found.append(_normalised(stripped))
-    return found
-
-
-def _proof_kind(attributes: typ.Iterable[str]) -> str | None:
-    """Return what registers a function as a proof, or None.
-
-    ``proof`` covers both accepted attribute forms, ``kani::proof`` and
-    ``kani::proof_for_contract``. ``cfg-attr`` reports a proof whose existence
-    depends on configuration.
-    """
-    for attribute in attributes:
-        path = _attribute_path(attribute)
-        if path in PROOF_ATTRIBUTES:
-            return "proof"
-        if path == "cfg_attr" and any(
-            proof in attribute for proof in PROOF_ATTRIBUTES
-        ):
-            return "cfg-attr"
-    return None
-
-
-def _macro_spans(code: str, depths: list[int]) -> tuple[tuple[int, int], ...]:
-    """Return the extents of macro definition bodies in `code`."""
-    spans: list[tuple[int, int]] = []
-    for match in _MACRO_DEFINITION.finditer(code):
-        opening = match.end() - 1
-        closing = _matching_brace(code, depths, opening)
-        if closing is not None:
-            spans.append((opening, closing))
-    return tuple(spans)
-
-
-def _inside(offset: int, spans: typ.Iterable[tuple[int, int]]) -> bool:
-    """Return whether `offset` lies inside one of `spans`."""
-    return any(start <= offset < end for start, end in spans)
-
-
-def _module_chain(
-    modules: typ.Iterable[_ModuleItem], offset: int
-) -> tuple[_ModuleItem, ...]:
-    """Return the inline modules enclosing `offset`, outermost first."""
-    return tuple(
-        module
-        for module in modules
-        if module.inline and module.start < offset < module.end
-    )
-
-
 def _attribute_start(text: str, end: int) -> int | None:
     """Return the offset of the ``#[`` opening the attribute ending at `end`.
 
@@ -234,7 +170,12 @@ def _attribute_start(text: str, end: int) -> int | None:
         depth -= 1
         # The depth reaching zero at a ``[`` is the bracket that opened the
         # attribute; the ``#`` immediately before it is the attribute's sigil.
-        if depth == 0 and offset > 0 and text[offset - 1] == "#":
+        # Splitting the test keeps each branch single-purpose, and the depth
+        # check comes first because an inner bracket closes while depth is
+        # still positive.
+        if depth != 0:
+            continue
+        if offset > 0 and text[offset - 1] == "#":
             return offset - 1
     return None
 
@@ -339,6 +280,65 @@ def _module_chain(
     )
 
 
+class _Lexed(typ.NamedTuple):
+    """One source's code, its comment-blanked twin, and its scanner state.
+
+    Grouped so the module reader takes one argument rather than four, and so
+    the three texts travel together for the reasons recorded on each.
+    """
+
+    code: str
+    declarations: str
+    depths: list[int]
+    macros: tuple[tuple[int, int], ...]
+
+
+def _lex(text: str) -> _Lexed:
+    """Return the scanner state for one source's text.
+
+    Two texts are kept. `code` has comments and literals blanked, so an
+    attribute inside either is not read. `declarations` has only comments
+    blanked, which keeps the ``#[path]`` value: it is a string literal, and the
+    fully blanked text has erased exactly what the reader needs. Positions are
+    preserved in both, so every offset is the source's own.
+    """
+    regions = _regions(text)
+    code = _blank(text, regions)
+    declarations = _blank(
+        text, (region for region in regions if region.is_comment)
+    )
+    depths = _brace_depths(code)
+    return _Lexed(
+        code=code,
+        declarations=declarations,
+        depths=depths,
+        macros=_macro_spans(code, depths),
+    )
+
+
+def _module_item(lexed: _Lexed, match: re.Match[str]) -> _ModuleItem | None:
+    """Return one module declaration, or None when it sits in a macro body."""
+    if _inside(match.start(), lexed.macros):
+        return None
+    inline = match["terminator"] == "{"
+    found = _PATH_ATTRIBUTE.search(
+        _attached_attributes(lexed.declarations, match.start())
+    )
+    return _ModuleItem(
+        name=match["name"],
+        start=match.start(),
+        end=_module_end(lexed, match) if inline else match.end(),
+        inline=inline,
+        path_value=found["value"] if found else None,
+    )
+
+
+def _module_end(lexed: _Lexed, match: re.Match[str]) -> int:
+    """Return one past the closing brace of an inline module."""
+    closing = _matching_brace(lexed.code, lexed.depths, match.end() - 1)
+    return closing + 1 if closing is not None else len(lexed.code)
+
+
 def _parse(path: Path) -> _Source | None:
     """Return `path` parsed for module and proof structure, or None.
 
@@ -351,41 +351,16 @@ def _parse(path: Path) -> _Source | None:
         text = path.read_text(encoding="utf-8")
     except (OSError, UnicodeDecodeError):
         return None
-    regions = _regions(text)
-    code = _blank(text, regions)
-    # A `#[path]` value is a string literal, which the fully blanked text has
-    # erased. Module structure is read from the comment-blanked text, where the
-    # value survives; a comment holding a brace cannot move a module boundary
-    # because a comment carries no attribute and no module declaration.
-    declarations = _blank(text, (region for region in regions if region.is_comment))
-    depths = _brace_depths(code)
-    macros = _macro_spans(code, depths)
-    items: list[_ModuleItem] = []
-    for match in _MOD_ITEM.finditer(code):
-        if _inside(match.start(), macros):
-            continue
-        inline = match["terminator"] == "{"
-        if inline:
-            closing = _matching_brace(code, depths, match.end() - 1)
-            end = closing + 1 if closing is not None else len(code)
-        else:
-            end = match.end()
-        found = _PATH_ATTRIBUTE.search(_attached_attributes(declarations, match.start()))
-        items.append(
-            _ModuleItem(
-                name=match["name"],
-                start=match.start(),
-                end=end,
-                inline=inline,
-                path_value=found["value"] if found else None,
-            )
-        )
+    lexed = _lex(text)
+    items = [
+        item
+        for match in _MOD_ITEM.finditer(lexed.code)
+        if (item := _module_item(lexed, match)) is not None
+    ]
     return _Source(
         text=text,
-        code=code,
-        declarations=declarations,
+        code=lexed.code,
+        declarations=lexed.declarations,
         modules=tuple(items),
-        macros=macros,
+        macros=lexed.macros,
     )
-
-

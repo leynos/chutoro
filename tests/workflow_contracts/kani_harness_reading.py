@@ -264,25 +264,7 @@ class _Reader:
         """
         resolved = file.resolve()
         if resolved in self._visited:
-            # Only a proof-bearing file can lose an identity by being read
-            # once. Sharing a test-only source between two `#[path]` modules is
-            # ordinary Rust and declares no harness, so reporting it would fail
-            # the contract on a valid tree.
-            source = _parse(file)
-            if (
-                self._visited[resolved] != module
-                and source is not None
-                and _holds_proof(source)
-            ):
-                self._report(
-                    "repeated-source",
-                    file.relative_to(self._repo_root).as_posix(),
-                    1,
-                    f"the same source is reached as both "
-                    f"{'::'.join(self._visited[resolved])} and "
-                    f"{'::'.join(module)}, so one harness identity would be "
-                    "dropped",
-                )
+            self._note_revisit(file, resolved, module)
             return
         self._visited[resolved] = module
         source = _parse(file)
@@ -304,6 +286,30 @@ class _Reader:
             _Location(file=file, is_crate_root=is_crate_root, via_path=via_path),
             source,
             module,
+        )
+
+    def _note_revisit(
+        self, file: Path, resolved: Path, module: tuple[str, ...]
+    ) -> None:
+        """Report a source reached again under a different module path.
+
+        Only a proof-bearing file can lose an identity by being read once.
+        Sharing a test-only source between two ``#[path]`` modules is ordinary
+        Rust and declares no harness, so reporting it would fail the contract
+        on a valid tree.
+        """
+        if self._visited[resolved] == module:
+            return
+        source = _parse(file)
+        if source is None or not _holds_proof(source):
+            return
+        self._report(
+            "repeated-source",
+            file.relative_to(self._repo_root).as_posix(),
+            1,
+            f"the same source is reached as both "
+            f"{'::'.join(self._visited[resolved])} and "
+            f"{'::'.join(module)}, so one harness identity would be dropped",
         )
 
     def _record_proofs(
@@ -356,25 +362,45 @@ class _Reader:
     ) -> None:
         """Follow each file-based module declaration in one file."""
         for item in source.modules:
-            if item.inline:
-                continue
-            chain = _module_chain(source.modules, item.start)
-            child = _child_file(location, chain, item.name, item.path_value)
-            if child is None:
-                if item.path_value is not None:
-                    self._report(
-                        "path-attribute",
-                        location.file.relative_to(self._repo_root).as_posix(),
-                        _line_of(source.text, item.start),
-                        f"#[path = {item.path_value!r}] does not resolve to a "
-                        "readable source file",
-                    )
-                continue
-            self.visit(
-                child,
-                (*module, *(parent.name for parent in chain), item.name),
-                via_path=item.path_value is not None,
-            )
+            if not item.inline:
+                self._follow_item(location, source, module, item)
+
+    def _follow_item(
+        self,
+        location: _Location,
+        source: _Source,
+        module: tuple[str, ...],
+        item: _ModuleItem,
+    ) -> None:
+        """Follow one file-based module declaration."""
+        chain = _module_chain(source.modules, item.start)
+        child = _child_file(location, chain, item.name, item.path_value)
+        if child is None:
+            self._report_missing_path(location, source, item)
+            return
+        self.visit(
+            child,
+            (*module, *(parent.name for parent in chain), item.name),
+            via_path=item.path_value is not None,
+        )
+
+    def _report_missing_path(
+        self, location: _Location, source: _Source, item: _ModuleItem
+    ) -> None:
+        """Report a ``#[path]`` declaration naming no readable file.
+
+        A plain ``mod name;`` that names no file is Rust's own compile error,
+        so only a ``#[path]`` is this reader's to explain.
+        """
+        if item.path_value is None:
+            return
+        self._report(
+            "path-attribute",
+            location.file.relative_to(self._repo_root).as_posix(),
+            _line_of(source.text, item.start),
+            f"#[path = {item.path_value!r}] does not resolve to a readable "
+            "source file",
+        )
 
 
 def _manifests(root: Path) -> list[Path]:
@@ -388,15 +414,20 @@ def _manifests(root: Path) -> list[Path]:
     found: list[Path] = []
     pending = [root]
     while pending:
-        directory = pending.pop()
-        for child in sorted(directory.iterdir()):
-            if child.is_dir():
-                if child.name not in IGNORED_DIRECTORIES:
-                    pending.append(child)
-                continue
-            if child.name == "Cargo.toml":
-                found.append(child)
+        entries = sorted(pending.pop().iterdir())
+        found.extend(entry for entry in entries if _is_manifest(entry))
+        pending.extend(entry for entry in entries if _is_package_tree(entry))
     return sorted(found)
+
+
+def _is_manifest(path: Path) -> bool:
+    """Return whether `path` is a package manifest."""
+    return path.name == "Cargo.toml" and path.is_file()
+
+
+def _is_package_tree(path: Path) -> bool:
+    """Return whether `path` is a directory the sweep may enter."""
+    return path.is_dir() and path.name not in IGNORED_DIRECTORIES
 
 
 class _ManifestPackage(typ.NamedTuple):

@@ -214,9 +214,18 @@ def _spells(word: str, flag: str) -> bool:
     """
     if word == flag or word.startswith(f"{flag}="):
         return True
-    if len(flag) == 2 and flag.startswith("-") and not flag.startswith("--"):
-        return word.startswith(flag) and len(word) > 2
-    return False
+    if not _is_short_flag(flag):
+        return False
+    return word.startswith(flag) and len(word) > 2
+
+
+def _is_short_flag(flag: str) -> bool:
+    """Report whether `flag` is a single-dash short option such as ``-j``."""
+    if len(flag) != 2:
+        return False
+    if not flag.startswith("-"):
+        return False
+    return not flag.startswith("--")
 
 
 def violations(arguments: str) -> list[str]:

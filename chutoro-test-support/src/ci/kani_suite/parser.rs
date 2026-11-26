@@ -1,14 +1,13 @@
 //! Walk a delegated `cargo kani` argument list, rejecting what it must not pass.
 //!
 //! The walk is separate from the command's construction and validation so the
-//! two can be read on their own: this module decides what each argument means
-//! and records the selections and flags it finds, while the parent module
-//! decides whether the collected command is one the checker can trust and
-//! builds the value it runs.
-
-use std::collections::BTreeMap;
+//! two can be read on their own: this module keeps the state of one walk and
+//! records the selections and flags it finds, while [`super::words`] decides
+//! what each single argument spells and the parent module decides whether the
+//! collected command is one the checker can trust.
 
 use super::runner::{CommandError, Delegated, FORBIDDEN_FLAGS, Invocation};
+use super::words;
 
 /// The state of one delegated-command walk.
 #[derive(Debug, Default)]
@@ -33,7 +32,7 @@ impl Parser {
         };
         if let Some((flag, reason)) = FORBIDDEN_FLAGS
             .iter()
-            .find(|(flag, _)| matches_forbidden(argument, flag))
+            .find(|(flag, _)| words::matches_forbidden(argument, flag))
         {
             return Err(CommandError::Forbidden {
                 flag: (*flag).to_owned(),
@@ -63,7 +62,7 @@ impl Parser {
         index: usize,
         argument: &str,
     ) -> Result<usize, CommandError> {
-        let Some(store) = separated_option(argument) else {
+        let Some(valued) = words::Valued::of(argument) else {
             return Ok(index + 1);
         };
         let Some(value) = args.get(index + 1).cloned() else {
@@ -71,14 +70,14 @@ impl Parser {
                 flag: argument.to_owned(),
             });
         };
-        store(self, value)?;
+        valued.store(self, value)?;
         Ok(index + 2)
     }
 
     /// Consume an option whose value is attached with `=`.
     pub(super) fn consume_attached(&mut self, argument: &str) -> Result<(), CommandError> {
         if let Some(value) = argument.strip_prefix("--output-format=") {
-            check_output_format(value)?;
+            words::check_output_format(value)?;
         } else if let Some(value) = argument.strip_prefix("--harness=") {
             self.selectors.push(value.to_owned());
         } else if let Some(value) = argument
@@ -118,7 +117,7 @@ impl Parser {
         if !self.selectors.is_empty() && !self.exact {
             return Err(CommandError::NotExact);
         }
-        let duplicates = repeated(&self.selectors);
+        let duplicates = words::repeated(&self.selectors);
         if !duplicates.is_empty() {
             return Err(CommandError::DuplicateSelector { names: duplicates });
         }
@@ -130,72 +129,4 @@ impl Parser {
             selectors: self.selectors,
         })
     }
-}
-
-/// Report whether `argument` spells the refused option `flag`.
-///
-/// `--jobs 4`, `--jobs=4` and `-j4` are one option in three spellings, and a
-/// short option takes its value attached without a separator. Matching only
-/// the exact flag and its `=` form would let `-j4` reach the child and
-/// interleave the blocks the checker reads.
-fn matches_forbidden(argument: &str, flag: &str) -> bool {
-    if argument == flag || argument.starts_with(&format!("{flag}=")) {
-        return true;
-    }
-    // A short option is one dash and one letter, so anything longer that
-    // starts with it is the option with its value attached.
-    flag.len() == 2
-        && flag.starts_with('-')
-        && !flag.starts_with("--")
-        && argument.starts_with(flag)
-        && argument.len() > flag.len()
-}
-
-/// One option's store, or None when the option is not one this handles.
-///
-/// The options that take a value in the following argument are exactly the
-/// three here: the output format, checked rather than stored, and the package
-/// and harness selectors, which are recorded. Naming them in one place keeps
-/// the separated and attached spellings from disagreeing about which options
-/// exist. Every store returns a `Result` even where recording cannot fail, so
-/// the table can hold the checked option beside the two that record.
-type Store = fn(&mut Parser, String) -> Result<(), CommandError>;
-
-/// Return the store for `argument`, or None when it takes no separated value.
-fn separated_option(argument: &str) -> Option<Store> {
-    match argument {
-        "--output-format" => Some(|_, value| check_output_format(&value)),
-        "-p" | "--package" => Some(|parser, value| {
-            parser.push_package(value);
-            Ok(())
-        }),
-        "--harness" => Some(|parser, value| {
-            parser.push_selector(value);
-            Ok(())
-        }),
-        _ => None,
-    }
-}
-
-/// Reject any output format other than the regular one.
-fn check_output_format(format: &str) -> Result<(), CommandError> {
-    if format == "regular" {
-        return Ok(());
-    }
-    Err(CommandError::OutputFormat {
-        format: format.to_owned(),
-    })
-}
-
-/// Return the names appearing more than once in `names`, sorted.
-fn repeated(names: &[String]) -> Vec<String> {
-    let mut counts: BTreeMap<&str, usize> = BTreeMap::new();
-    for name in names {
-        *counts.entry(name.as_str()).or_default() += 1;
-    }
-    counts
-        .into_iter()
-        .filter(|(_, count)| *count > 1)
-        .map(|(name, _)| name.to_owned())
-        .collect()
 }
