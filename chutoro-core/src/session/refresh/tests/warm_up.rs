@@ -104,3 +104,37 @@ fn crossing_min_cluster_size_keeps_the_warm_up_candidates() {
         rebuilt.mst_backbone
     );
 }
+
+/// A duplicate in an earlier buffer must not reorder the warm-up pool.
+///
+/// Warm-up returns the pool rather than a tree, so nothing downstream imposes
+/// an order on it. Deduplication therefore sorts the pool deterministically;
+/// otherwise moving `B` into the earlier backbone buffer would yield `[B, A]`
+/// where the baseline yields `[A, B]`, and OBL-7's "backbone unchanged" would
+/// fail on element order alone.
+#[test]
+fn warm_up_pool_order_is_independent_of_buffer_overlap() {
+    let core_distances = [1.0_f32, 1.0, 1.0, 1.0];
+    let first = CandidateEdge::new(0, 1, 1.0, 0);
+    let second = CandidateEdge::new(1, 2, 2.0, 1);
+    let pending = [first, second];
+
+    let baseline = rebuild_mst_labels("refresh-test", &inputs(4, &pending, &core_distances, 5))
+        .expect("the baseline warm-up must publish");
+
+    let reordered = RefreshInputs {
+        node_count: 4,
+        mst_backbone: &[second],
+        historical_edges: &[],
+        pending_edges: &pending,
+        core_distances: &core_distances,
+        min_cluster_size: min_cluster_size(5),
+    };
+    let actual =
+        rebuild_mst_labels("refresh-test", &reordered).expect("the reordered warm-up must publish");
+
+    assert_eq!(
+        actual.mst_backbone, baseline.mst_backbone,
+        "an earlier-buffer duplicate must not reorder the pool"
+    );
+}

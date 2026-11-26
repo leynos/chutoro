@@ -34,7 +34,10 @@ impl<D: DataSource + Send + Sync> ClusteringSession<D> {
     /// `snapshot_version`, `pending_edges`, and the MST backbone unchanged. A
     /// retry after the cause is removed reprocesses the remaining dirty
     /// core-distance cells and republishes. On success the session clears
-    /// `pending_edges` and advances `snapshot_version` by exactly one.
+    /// `pending_edges` and advances `snapshot_version` by one, except at the
+    /// representational limit: the counter saturates at `u64::MAX`, so a
+    /// refresh beyond that point republishes without advancing it. Reaching
+    /// `u64::MAX` requires 2^64 successful refreshes on one session.
     ///
     /// An empty session publishes an empty snapshot, and a session with fewer
     /// points than `min_cluster_size` publishes an all-noise snapshot; both

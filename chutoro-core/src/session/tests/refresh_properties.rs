@@ -180,11 +180,67 @@ proptest! {
 /// Splits `total` into `rounds` strictly increasing cut points ending at `total`.
 ///
 /// Every round therefore appends at least one point, and the final cut is the
-/// whole dataset so the batch oracle compares like with like.
+/// whole dataset so the batch oracle compares like with like. A round's share
+/// is capped at what is left after reserving one point for every later round:
+/// dividing `total` by `rounds` alone can leave a trailing cut equal to its
+/// predecessor — four points over three rounds would otherwise yield
+/// `[2, 4, 4]` — and the last round would append nothing.
 fn round_cuts(total: usize, rounds: usize) -> Vec<usize> {
     let round_count = rounds.clamp(1, total);
-    let stride = total.div_ceil(round_count);
-    (1..=round_count)
-        .map(|round| round.saturating_mul(stride).min(total))
-        .collect()
+    let mut cuts = Vec::with_capacity(round_count);
+    let mut previous = 0usize;
+    for round in 1..=round_count {
+        let remaining_rounds = round_count.saturating_sub(round);
+        // Leave one point for each round still to come, then never move
+        // backwards.
+        let latest = total.saturating_sub(remaining_rounds);
+        let ideal = round.saturating_mul(total).div_ceil(round_count);
+        let cut = ideal.min(latest).max(previous.saturating_add(1)).min(total);
+        cuts.push(cut);
+        previous = cut;
+    }
+    cuts
+}
+
+#[cfg(test)]
+mod round_cut_tests {
+    //! Direct checks on the round splitter used by the differential suites.
+    //!
+    //! The property tests use `round_cuts` to decide how many points each
+    //! append round contributes. A splitter that ever repeats a cut would make
+    //! a round append nothing while the surrounding test still claimed several
+    //! non-empty rounds, so the guarantee is pinned here rather than inferred
+    //! from the properties that consume it.
+
+    use super::round_cuts;
+
+    /// Four points over three rounds was the case that used to yield
+    /// `[2, 4, 4]`, leaving the final round empty.
+    #[test]
+    fn every_round_of_the_three_way_split_appends_a_point() {
+        let cuts = round_cuts(4, 3);
+
+        assert_eq!(cuts, vec![2, 3, 4]);
+    }
+
+    /// The invariant across the domain the generator uses: strictly
+    /// increasing, ending at `total`, and never exceeding it.
+    #[test]
+    fn cuts_are_strictly_increasing_and_end_at_total() {
+        for total in 1usize..=64 {
+            for rounds in 2usize..=3 {
+                let cuts = round_cuts(total, rounds);
+                assert_eq!(*cuts.last().unwrap_or(&0), total);
+                let mut previous = 0;
+                for (index, cut) in cuts.iter().copied().enumerate() {
+                    assert!(
+                        cut > previous,
+                        "round {index} of {rounds} over {total} points repeated a cut: {cuts:?}"
+                    );
+                    assert!(cut <= total, "cut {cut} exceeds {total}");
+                    previous = cut;
+                }
+            }
+        }
+    }
 }

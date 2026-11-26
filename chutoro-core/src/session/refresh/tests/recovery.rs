@@ -6,7 +6,7 @@
 
 use pretty_assertions::assert_eq;
 
-use super::{inputs, rebuild_mst_labels};
+use super::{RefreshInputs, inputs, min_cluster_size, rebuild_mst_labels};
 use crate::CandidateEdge;
 
 /// Two same-key candidates with different raw distances must not be confused.
@@ -77,9 +77,11 @@ fn core_distances_change_the_selected_backbone() {
     let raised = rebuild_mst_labels("refresh-test", &inputs(5, &edges, &raised_cores, 2))
         .expect("the raised-core fixture must cluster");
 
+    // Recovery returns the backbone sorted by canonical key, so `(0, 4)`
+    // precedes `(1, 2)` here even though it appears later in the input.
     assert_eq!(
         raised.mst_backbone,
-        vec![edges[0], edges[1], edges[3], edges[4]],
+        vec![edges[0], edges[4], edges[1], edges[3]],
         "raising node 2's core distance must reweight its edges out of the MST"
     );
     assert_eq!(flat.labels.len(), 5);
@@ -143,4 +145,54 @@ fn backbone_retains_raw_distances_not_mutual_reachability_weights() {
             "backbone edge {edge:?} kept a mutual-reachability weight"
         );
     }
+}
+
+/// Tied reweighted weights must not let buffer order choose the raw distance.
+///
+/// With core distance 10 on every node, both `(0, 1, 9, 7)` and
+/// `(0, 1, 1, 7)` reweight to 10, so the accepted weight alone cannot tell them
+/// apart. Recovery must pick deterministically — it keeps the smallest raw
+/// distance — and must produce the same backbone whichever buffer supplied a
+/// candidate. A first-match rule would return the distance-9 edge when it
+/// appears first and the distance-1 edge when the distance-1 candidate is
+/// duplicated into an earlier buffer, which is exactly the OBL-7 violation
+/// this case rules out.
+#[test]
+fn tied_reweighted_candidates_recover_deterministically() {
+    let core_distances = [10.0_f32, 10.0, 10.0];
+    let heavy = CandidateEdge::new(0, 1, 9.0, 7);
+    let light = CandidateEdge::new(0, 1, 1.0, 7);
+    let other = CandidateEdge::new(1, 2, 2.0, 8);
+
+    // Baseline: the heavy candidate comes first.
+    let heavy_first = [heavy, light, other];
+    let baseline = rebuild_mst_labels("refresh-test", &inputs(3, &heavy_first, &core_distances, 2))
+        .expect("the tied fixture must cluster");
+
+    // Same set, but the light candidate now also reaches the merge through the
+    // earlier backbone buffer.
+    let duplicated = RefreshInputs {
+        node_count: 3,
+        mst_backbone: &[light],
+        historical_edges: &[],
+        pending_edges: &heavy_first,
+        core_distances: &core_distances,
+        min_cluster_size: min_cluster_size(2),
+    };
+    let actual = rebuild_mst_labels("refresh-test", &duplicated)
+        .expect("the duplicated tied fixture must cluster");
+
+    assert_eq!(
+        actual.mst_backbone, baseline.mst_backbone,
+        "buffer overlap must not change the recovered backbone"
+    );
+    let retained = actual
+        .mst_backbone
+        .iter()
+        .find(|edge| edge.sequence() == 7)
+        .expect("the shared-key edge must be retained");
+    assert!(
+        retained.distance().total_cmp(&1.0_f32).is_eq(),
+        "recovery must keep the smallest raw distance among tied candidates, got {retained:?}"
+    );
 }

@@ -878,14 +878,27 @@ non-vacuity argument recorded beside it.
 
 - Obligation: **OBL-4 snapshot-version discipline.** `snapshot_version`
   increases by exactly one per successful `refresh` call and is otherwise
-  unchanged. Method: property test over interleavings (shares the OBL-3
-  harness) plus a unit test asserting the delta across two consecutive
-  refreshes. Domain: as OBL-3. Artefact: `refresh_properties.rs`; `refresh.rs`
+  unchanged; the counter saturates at `u64::MAX` (see below). Method: property
+  test over interleavings (shares the OBL-3 harness) plus a unit test asserting
+  the delta across two consecutive refreshes. Domain: as OBL-3. Artefact:
+  `refresh_properties.rs`; `refresh.rs`
   (`refresh_advances_snapshot_version_by_one`). Evidence: as OBL-3.
   Non-vacuity: sequences with ≥ 2 refreshes are generated (the refresh count
   strategy starts at 1 and the unit test pins the 2-refresh case), so the
   "exactly one" claim is distinguished from "at least one"; a seeded
-  double-increment fault must fail the unit case.
+  double-increment fault must fail the unit case, and the recorded mutation
+  check in Artefacts shows it does.
+
+  **Representational limit (documented deviation, 2026-11-26).** The counter is
+  a `u64`, so it cannot advance past `u64::MAX`; a refresh at that point
+  republishes without advancing it. Reaching it needs 2^64 successful refreshes
+  on one session, and rejecting it instead would need a new public
+  `ChutoroError` variant, which the Interface tolerance forbids. The public
+  `refresh` documentation, `publish_refresh`, and the `snapshot_version` field
+  all state the boundary, so the contract is exact everywhere it is reachable
+  and explicit where it is not. The completeness assessment asked for this to
+  be either preserved exactly or accepted and documented; this is the
+  documented alternative, recorded here rather than only in a private comment.
 
 - Obligation: **OBL-5 all-or-nothing publish.** A failed `refresh` leaves
   `labels`, `snapshot_version`, `pending_edges`, and `mst_backbone` unchanged;

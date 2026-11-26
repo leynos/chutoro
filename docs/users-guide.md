@@ -361,7 +361,9 @@ refresh swaps in a fresh `Arc` rather than mutating a published one.
 
 The version advances by exactly one per successful call, including a call that
 publishes an unchanged partition. Treat it as a call counter, not as a signal
-that the content changed.
+that the content changed. It is a `u64`, so it saturates at `u64::MAX`; a
+refresh beyond that point republishes without advancing it, which needs 2^64
+successful refreshes on one session to reach.
 
 Publication is all-or-nothing. A failed refresh leaves the previous labels,
 version, and pending edges untouched; correct the cause and call again. The
