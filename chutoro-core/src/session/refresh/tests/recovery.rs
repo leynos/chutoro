@@ -92,7 +92,7 @@ fn core_distances_change_the_selected_backbone() {
 fn backbone_recovery_matches_the_forest_for_canonical_inputs() {
     let core_distances = [1.0_f32, 1.0, 1.0];
     // The (1, 0) edge is deliberately reversed: the backbone must come back
-    // as the raw input, not as Kruskal's canonicalized form.
+    // in canonical orientation while keeping the raw distance.
     let pending = [
         CandidateEdge::new(1, 0, 1.0, 7),
         CandidateEdge::new(2, 1, 2.0, 8),
@@ -198,4 +198,42 @@ fn tied_reweighted_candidates_recover_deterministically() {
         retained.distance().total_cmp(&1.0_f32).is_eq(),
         "recovery must keep the smallest raw distance among tied candidates, got {retained:?}"
     );
+}
+
+/// Opposite orientations of one selected edge must recover identically.
+///
+/// Warm-up has its own orientation witness; this one drives a *real* rebuild,
+/// where the accepted forest edge is recovered from the merged buffers. The
+/// reversed copy is duplicated into the earlier backbone buffer, so a
+/// first-match rule keyed on value would return a different `CandidateEdge`.
+#[test]
+fn recovery_is_independent_of_endpoint_orientation() {
+    let core_distances = [1.0_f32, 1.0, 1.0];
+    let forward = CandidateEdge::new(0, 1, 1.0, 7);
+    let reversed = CandidateEdge::new(1, 0, 1.0, 7);
+    let other = CandidateEdge::new(1, 2, 2.0, 8);
+
+    let baseline_edges = [reversed, other];
+    let baseline = rebuild_mst_labels(
+        "refresh-test",
+        &inputs(3, &baseline_edges, &core_distances, 2),
+    )
+    .expect("the orientation fixture must cluster");
+
+    let duplicated = RefreshInputs {
+        node_count: 3,
+        mst_backbone: &[forward],
+        historical_edges: &[],
+        pending_edges: &baseline_edges,
+        core_distances: &core_distances,
+        min_cluster_size: min_cluster_size(2),
+    };
+    let actual = rebuild_mst_labels("refresh-test", &duplicated)
+        .expect("the orientation fixture must cluster");
+
+    assert_eq!(
+        actual.mst_backbone, baseline.mst_backbone,
+        "an orientation duplicate must not change the recovered backbone"
+    );
+    assert_eq!(actual.labels, baseline.labels);
 }

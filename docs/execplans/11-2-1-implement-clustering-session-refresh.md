@@ -264,6 +264,13 @@ Hard invariants. Violation requires escalation, not a workaround.
   dropped at its go/no-go; the Decision Log records why.
 - [x] EP-M5: Documentation — design §12.3–§12.6, users' guide, developers'
   guide, ADR-010, `docs/contents.md` index, and the roadmap tick.
+- [x] Post-review repair round (2026-11-26): retired the OBL-7 ambiguities the
+  hosted assessments found — weight-qualified recovery, smallest-raw-distance
+  tie-break, canonical orientation on retention, and a direct rebuild witness
+  (`recovery_is_independent_of_endpoint_orientation`) alongside the existing
+  warm-up orientation property. Full gates re-run green: lint (0 warnings),
+  1699/1699 nextest via the no-setup-script fallback, 23 compile contracts, 165
+  doctests, markdownlint 0 issues.
 
 ## Surprises & discoveries
 
@@ -351,6 +358,16 @@ Hard invariants. Violation requires escalation, not a workaround.
   itself; without deduplication a candidate reaching the merge through two
   buffers would be retained twice and the pool would grow on every warm-up
   refresh. Date/Author: 2026-11-25, implementation (post-review repair).
+
+- Decision: Retained raw candidates (both the real backbone and the warm-up
+  pool) are stored in canonical endpoint orientation (`source <= target`).
+  Rationale: an edge is undirected, but orientation is part of
+  `CandidateEdge`'s derived equality, so retaining whichever orientation
+  arrived first made the snapshot depend on buffer arrival order — duplicating
+  the opposite-oriented copy into an earlier buffer changed the pool and the
+  backbone. Canonicalizing on retention makes element equality order-free, and
+  sorting by canonical key then raw distance makes the element order order-free
+  too. Date/Author: 2026-11-26, implementation (post-assessment repair).
 
 - Decision: The version bump saturates at `u64::MAX` and that boundary is
   documented rather than rejected. Rationale: a rejection path would need a new
@@ -1362,8 +1379,9 @@ Acceptance (behaviour a human can verify), matching RM-11.2.1:
 
 1. After `session.append(&[0..N])` then `session.refresh()`,
    `session.labels()` returns a vector of length `N` (`= point_count`).
-2. `session.snapshot_version()` increases by exactly one per `refresh` call,
-   saturating at `u64::MAX` (see OBL-4's representational-limit note).
+2. `session.snapshot_version()` increases by exactly one per successful
+   `refresh` call, saturating at `u64::MAX` (see OBL-4's representational-limit
+   note).
 3. Incremental labels are partition-equivalent to `Chutoro::run` on the same
    contiguous dataset (ARI `== 1.0` on the deterministic single-refresh test).
 4. `pending_edges` is empty after `refresh`; a failed `refresh` leaves
