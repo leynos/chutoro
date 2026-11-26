@@ -61,6 +61,7 @@ COMPILE_CONTRACT_TESTS: typ.Final[frozenset[str]] = frozenset({
     "session_api_compiles_when_cpu_feature_is_enabled",
     "session_api_is_unavailable_without_cpu_feature",
     "dataset_recipe_phase_order",
+    "cleanup_failure_api_surface_is_constrained",
     "arrow_parquet_types_share_one_family",
     "portable_simd_is_rejected_without_feature",
     "portable_simd_is_rejected_on_nightly_without_feature",
