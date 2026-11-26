@@ -4,12 +4,16 @@ This ExecPlan (execution plan) is a living document. The sections `Constraints`,
 `Tolerances`, `Risks`, `Progress`, `Surprises & discoveries`, `Decision log`,
 and `Outcomes & retrospective` must be kept up to date as work proceeds.
 
-Status: COMPLETE (revision 9, 2026-11-26; implementation and record). The
-maintainer approved the plan and authorized production work for Milestones 0 to
-2. Gate A was measured and fails: the decision-size ratio is 0.16% to 0.69% at
-head `7368d8d` and 0.0512% to 0.3024% at head `4e96416`, far below the
-pre-registered 5%, so Milestones 3 to 6 are declined and the roadmap item
-closes as a measured null result. Milestones 0 to 2 and 7 are delivered.
+Status: IN PROGRESS (revision 10, 2026-11-26); implementation and record are
+complete, with one planned gate pending. The maintainer approved the plan and
+authorized production work for Milestones 0 to 2. Gate A was measured and
+fails: the decision-size ratio is 0.16% to 0.69% at head `7368d8d` and 0.0512%
+to 0.3024% at head `4e96416`, far below the pre-registered 5%, so Milestones 3
+to 6 are declined and the roadmap item closes as a measured null result.
+Milestones 0 to 2 and 7 are delivered. **Pending:** the literal local
+`make test` has no passing run on this host, for the infrastructure reason
+recorded under "Gate disposition for the literal `make test`". That gate is
+pending, not waived, and no equivalence is claimed to have been approved.
 
 The literal local `make test` was not produced, and this record does not claim
 it. Its setup script expires under this host's saturated compile queue, which
@@ -810,6 +814,15 @@ n = 10 000. That is an expectation for Milestone 1, not its outcome.
   boundary". The property check produced the generated lowest-index property
   above. The compile-time check produced `mst_feature_gate`.
 
+- Decision (2026-11-26): record the hosted red rather than hide it. Adding the
+  nested-build test `mst_scenario_target_requires_the_cpu_feature` made
+  `make test-workflow-contracts` fail on head `9cc610e`, because
+  `tests/workflow_contracts/trybuild_override_test.py` pins the exact set of
+  `chutoro-compile-contracts` tests that spawn nested builds. That pin exists
+  so a test cannot gain a nested build without also gaining its allowance. The
+  new test is now named in the set, and the file passes 50/50. The failing head
+  is kept in the record instead of being replaced by the fixing head.
+
 - Decision (2026-11-23): **dedup-before-sort is declined.** The three
   Milestone 2 conditions do not all hold. The dedup key the milestone names is
   `(weight bits, source, target)`, but production dedup uses
@@ -1486,14 +1499,27 @@ What stands in its place, all on recorded heads:
 - The hosted `build-test` job runs the same nextest suite under the same
   setup scripts and then `make test-doc`, alongside `make lint`,
   `make spelling`, `make test-workflow-contracts` and
-  `make test-scheduling-contract`. It reports 1,642 passed and 1 skipped on head
-  `4e96416`, and CI is green on the head carrying this record. Its differences
-  from the literal command are coverage instrumentation and the coverage
-  action's target selection.
+  `make test-scheduling-contract`. Its nextest summary was 1,642 passed and 1
+  skipped on head `4e96416`, and the job was green there and on head `42f9e8c`.
+  Its differences from the literal command are coverage instrumentation and the
+  coverage action's target selection.
+
+Head `9cc610e` is recorded as a **red** hosted result rather than a green one:
+adding `mst_scenario_target_requires_the_cpu_feature` put a nested-build test
+into `chutoro-compile-contracts` without adding it to the pinned set in
+`tests/workflow_contracts/trybuild_override_test.py`, so
+`make test-workflow-contracts` failed with "the discovery must find exactly…".
+The pinned set now names the new test, and that contract file passes 50/50
+locally. Any later head's result belongs to that head.
 
 A reader who requires the literal command has one remaining step: run
 `make test` on a host whose compile pool is not saturated. Nothing in this
 branch is expected to fail there, because no test in the suite is red.
+
+**Gate state: pending.** This plan does not record a passing literal run, does
+not record a maintainer-approved equivalence, and does not treat the
+substitutes above as the gate. They are the evidence available; the gate closes
+when the command passes.
 
 Claim no speed-up, execution coverage or passing gate without its recorded
 result.
@@ -1607,6 +1633,10 @@ Close (2026-11-23). **Roadmap item 2.3.2 closes as a measured null result.**
   §6.3 entry records the same conclusion for future readers.
 
 ## Revision note
+
+**Revision 10 (2026-11-26).** Recorded the gate as pending rather than
+complete, the red hosted result on `9cc610e` and its workflow-contract repair,
+and the head attribution for every hosted figure.
 
 **Revision 9 (2026-11-26).** Recorded the hosted whole-plan assessment's
 rework: the Gate A re-measurement at `4e96416`, the direct `prepare_edge_list`
