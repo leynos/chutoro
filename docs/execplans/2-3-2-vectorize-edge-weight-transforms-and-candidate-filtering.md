@@ -1531,7 +1531,10 @@ The broad partition now passes 1,639 of 1,639 on the fixing tree.
 
 Head `f09f3cc` is green: `build-test` reports 1,644 tests passed and 1 skipped
 in 102 s, alongside `kani`, all four property shards, `verus-proofs`, CodeScene
-and Gecko. Any later head's result belongs to that head.
+and Gecko. Head `e0e9143` is green on the same checks, and the managed
+CodeRabbit review returned `APPROVED` on it, with 13 of 14 pre-merge rows
+passed and the remaining title row reduced to a format warning that retitling
+the pull request answered. Any later head's result belongs to that head.
 
 A reader who requires the literal command has one remaining step: run
 `make test` on a host whose compile pool is not saturated. Nothing in this
