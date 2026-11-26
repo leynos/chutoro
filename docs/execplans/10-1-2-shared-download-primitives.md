@@ -531,7 +531,7 @@ Recorded during planning; extend during implementation.
   `cfb4354`, which used 8 MiB chunks; that design was superseded by the
   2026-11-11 checkpointed-midstate revision, which the 2026-11-21
   trust-boundary revision then superseded. The decision is recorded in
-  [ADR 0009](../adrs/adr-0009-resumable-download-verification-trust-model.md).
+  [ADR 0011](../adrs/adr-0011-resumable-download-verification-trust-model.md).
   It is delivered with the main-line documentation for #210. Rationale: #210 is
   right that `sha2 0.10` cannot serialize hasher midstate, and right that the
   resulting quadratic re-read is unacceptable. Its premise about the lockfile
@@ -1565,7 +1565,7 @@ made the read-back bound testable. `cargo tree -i sha2 -e all --workspace` and
 `rust-embed` (and also through `i18n-embed`, which is a parallel dependent, not
 a required hop). The ticket's `sha2 0.10` premise is therefore stale, and
 locally generated chunk digests are rejected because they cannot authenticate
-the pinned whole-file SHA-256. The decision is recorded in ADR 0009. The
+the pinned whole-file SHA-256. The decision is recorded in ADR 0011. The
 Decision log now states the read-back budget: zero bytes for an uninterrupted
 transfer, and for a resumed transfer the sum of the bytes each verification
 attempt actually reads, bounded above by
