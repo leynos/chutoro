@@ -103,11 +103,27 @@ pub(crate) fn extract_example(markdown: &str, id: &str) -> Result<String, Exampl
         .ok_or_else(|| ExampleError::MissingExample { id: id.to_owned() })
 }
 
+/// One source line, paired with its one-based number.
+#[derive(Clone, Copy)]
+struct SourceLine<'a> {
+    /// The line's text, without its terminator.
+    text: &'a str,
+    /// One-based line number, used in diagnostics.
+    number: usize,
+}
+
+impl<'a> SourceLine<'a> {
+    /// Pairs `text` with its one-based line number.
+    const fn new(text: &'a str, number: usize) -> Self {
+        Self { text, number }
+    }
+}
+
 /// Parses every marked example, enforcing the marker contract.
 fn load_examples(markdown: &str) -> Result<Vec<MarkedExample>, ExampleError> {
     let mut loader = Loader::default();
-    for (offset, line) in markdown.lines().enumerate() {
-        loader.accept(line, offset.saturating_add(1))?;
+    for (offset, text) in markdown.lines().enumerate() {
+        loader.accept(SourceLine::new(text, offset.saturating_add(1)))?;
     }
     loader.finish()
 }
@@ -127,18 +143,18 @@ struct Loader {
 
 impl Loader {
     /// Consumes one line, returning the first contract violation.
-    fn accept(&mut self, line: &str, number: usize) -> Result<(), ExampleError> {
+    fn accept(&mut self, line: SourceLine<'_>) -> Result<(), ExampleError> {
         if self.open.is_some() {
             self.accept_inside_fence(line);
             return Ok(());
         }
-        if let Some(rest) = line.trim().strip_prefix(MARKER_PREFIX) {
-            return self.accept_marker(rest, number);
+        if line.text.trim().starts_with(MARKER_PREFIX) {
+            return self.accept_marker(line);
         }
         if is_opening_fence(line) {
             self.open = Some(OpenFence {
                 id: self.pending.take().map(|(identifier, _line)| identifier),
-                line: number,
+                line: line.number,
                 body: String::new(),
             });
             return Ok(());
@@ -147,10 +163,10 @@ impl Loader {
     }
 
     /// Consumes a line while a fence is open, closing the fence when it ends.
-    fn accept_inside_fence(&mut self, line: &str) {
+    fn accept_inside_fence(&mut self, line: SourceLine<'_>) {
         if !is_closing_fence(line) {
             if let Some(fence) = self.open.as_mut() {
-                fence.body.push_str(line);
+                fence.body.push_str(line.text);
                 fence.body.push('\n');
             }
             return;
@@ -166,18 +182,18 @@ impl Loader {
     }
 
     /// Records a marker and rejects a detached or duplicate one.
-    fn accept_marker(&mut self, rest: &str, number: usize) -> Result<(), ExampleError> {
+    fn accept_marker(&mut self, line: SourceLine<'_>) -> Result<(), ExampleError> {
         if let Some((_, marker_line)) = self.pending.as_ref() {
             return Err(ExampleError::MarkerWithoutFence { line: *marker_line });
         }
-        let identifier = parse_identifier(rest, number)?;
+        let identifier = parse_identifier(line)?;
         if !self.identifiers.insert(identifier.to_owned()) {
             return Err(ExampleError::DuplicateIdentifier {
                 id: identifier.to_owned(),
-                line: number,
+                line: line.number,
             });
         }
-        self.pending = Some((identifier.to_owned(), number));
+        self.pending = Some((identifier.to_owned(), line.number));
         Ok(())
     }
 
@@ -212,23 +228,24 @@ struct OpenFence {
 }
 
 /// Parses the identifier that follows a marker prefix.
-fn parse_identifier(rest: &str, line: usize) -> Result<&str, ExampleError> {
+fn parse_identifier(line: SourceLine<'_>) -> Result<&'_ str, ExampleError> {
+    let rest = line.text.trim().trim_start_matches(MARKER_PREFIX);
     let Some(identifier) = rest.strip_suffix(MARKER_SUFFIX) else {
-        return Err(ExampleError::MalformedMarker { line });
+        return Err(ExampleError::MalformedMarker { line: line.number });
     };
     let trimmed = identifier.trim();
     if trimmed.is_empty() || trimmed.contains(char::is_whitespace) {
-        return Err(ExampleError::MalformedMarker { line });
+        return Err(ExampleError::MalformedMarker { line: line.number });
     }
     Ok(trimmed)
 }
 
 /// Reports whether `line` opens a fenced block, with or without a language.
-fn is_opening_fence(line: &str) -> bool {
-    line.trim_start().starts_with(FENCE)
+fn is_opening_fence(line: SourceLine<'_>) -> bool {
+    line.text.trim_start().starts_with(FENCE)
 }
 
 /// Reports whether `line` is a bare closing fence.
-fn is_closing_fence(line: &str) -> bool {
-    line.trim() == FENCE
+fn is_closing_fence(line: SourceLine<'_>) -> bool {
+    line.text.trim() == FENCE
 }
