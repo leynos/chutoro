@@ -243,3 +243,8 @@ impl fmt::Display for FetchSizeExceeded {
 }
 
 const _: () = assert!(std::mem::size_of::<RecipeError>() <= 32);
+
+// The 32-byte bound is a hard budget, not a target: `clippy::result_large_err`
+// is denied workspace-wide. This guard is the only size check on this branch;
+// `main`'s #439 adds a matching test to `tests/error.rs`, which Stage A
+// inherits once that work merges.
