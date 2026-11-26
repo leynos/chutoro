@@ -1,11 +1,13 @@
 //! Extracts marker-selected fenced examples from a published Markdown guide.
 //!
-//! The users' guide is the source of truth for its worked examples. A marker
-//! comment of the form `<!-- tested-example: <identifier> -->` immediately
-//! above an opening fence names that fence, and [`extract_example`] returns its
-//! body so the build script can compile the shipped text instead of a copy.
+//! A published document is the source of truth for its worked examples. A
+//! marker comment of the form `<!-- tested-example: <identifier> -->`
+//! immediately above an opening fence names that fence, and [`extract_example`]
+//! returns its body so the build script can compile the shipped text instead of
+//! a copy.
 //!
-//! The loader rejects a malformed or empty identifier, a marker with no fence
+//! Every fence in a loaded document must be marked. The loader rejects an
+//! unmarked fence, a malformed or empty identifier, a marker with no fence
 //! beneath it, an unterminated fence, and a duplicate identifier. It is shared
 //! by the build script and by `tests/users_guide_loader.rs`, so the rejection
 //! rules are tested on the same code that generates the compiled example.
@@ -46,6 +48,11 @@ pub(crate) enum ExampleError {
         /// One-based line number of the opening fence.
         line: usize,
     },
+    /// A fence had no marker above it.
+    UnmarkedFence {
+        /// One-based line number of the opening fence.
+        line: usize,
+    },
     /// Two markers declared the same identifier.
     DuplicateIdentifier {
         /// Identifier declared twice.
@@ -75,6 +82,9 @@ impl fmt::Display for ExampleError {
             Self::UnterminatedFence { line } => {
                 write!(formatter, "line {line}: fenced example is never closed")
             }
+            Self::UnmarkedFence { line } => {
+                write!(formatter, "line {line}: fenced example is not marked")
+            }
             Self::DuplicateIdentifier { id, line } => {
                 write!(formatter, "line {line}: duplicate tested-example `{id}`")
             }
@@ -92,9 +102,8 @@ impl Error for ExampleError {}
 /// # Errors
 ///
 /// Returns [`ExampleError`] when the document's markers are malformed,
-/// duplicated, detached from a fence or unterminated, and when no marker
-/// declares `id`. An unmarked fence is therefore invisible: the only way to
-/// load an example is to mark it.
+/// duplicated or detached from a fence, when a fence is unmarked or
+/// unterminated, and when no marker declares `id`.
 pub(crate) fn extract_example(markdown: &str, id: &str) -> Result<String, ExampleError> {
     load_examples(markdown)?
         .into_iter()
@@ -152,8 +161,11 @@ impl Loader {
             return self.accept_marker(line);
         }
         if is_opening_fence(line) {
+            let Some((identifier, _)) = self.pending.take() else {
+                return Err(ExampleError::UnmarkedFence { line: line.number });
+            };
             self.open = Some(OpenFence {
-                id: self.pending.take().map(|(identifier, _line)| identifier),
+                id: identifier,
                 line: line.number,
                 body: String::new(),
             });
@@ -171,11 +183,9 @@ impl Loader {
             }
             return;
         }
-        if let Some(finished) = self.open.take()
-            && let Some(id) = finished.id
-        {
+        if let Some(finished) = self.open.take() {
             self.examples.push(MarkedExample {
-                id,
+                id: finished.id,
                 body: finished.body,
             });
         }
@@ -219,8 +229,8 @@ impl Loader {
 
 /// A fence currently being read.
 struct OpenFence {
-    /// Identifier from the preceding marker, or `None` for an unmarked fence.
-    id: Option<String>,
+    /// Identifier from the preceding marker.
+    id: String,
     /// One-based line number of the opening fence.
     line: usize,
     /// Body accumulated so far.

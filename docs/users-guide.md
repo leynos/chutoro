@@ -308,53 +308,13 @@ and HNSW structural failures surface as `ChutoroError::CpuHnswFailure`.
 Call `refresh()` to turn the buffered candidate edges into a published label
 snapshot, and read the result through `labels()`:
 
-The example below is a complete program and the source of truth for this
-workflow. The build script's tested-example loader extracts the marked fence,
-and both the integration test
-(`chutoro-core/tests/users_guide_session_refresh.rs`) and the behavioural
-scenarios in `chutoro-core/tests/session_append_bdd.rs` compile and run the
-extracted text, so editing this snippet changes what those tests execute. The
-runnable doctest on `ClusteringSession::refresh` remains an independent short
-form of the same workflow.
-
-<!-- tested-example: session-refresh -->
-```rust
-use std::sync::Arc;
-
-use chutoro_core::{
-    ChutoroBuilder, ChutoroError, DataSource, DataSourceError, MetricDescriptor,
-};
-
-struct Numbers(Vec<f32>);
-
-impl DataSource for Numbers {
-    fn len(&self) -> usize { self.0.len() }
-    fn name(&self) -> &'static str { "numbers" }
-    fn distance(&self, i: usize, j: usize) -> Result<f32, DataSourceError> {
-        let a = self.0.get(i).ok_or(DataSourceError::OutOfBounds { index: i })?;
-        let b = self.0.get(j).ok_or(DataSourceError::OutOfBounds { index: j })?;
-        Ok((a - b).abs())
-    }
-    fn metric_descriptor(&self) -> MetricDescriptor {
-        MetricDescriptor::new("numbers:abs")
-    }
-}
-
-fn main() -> Result<(), ChutoroError> {
-    let source = Arc::new(Numbers(vec![0.0, 1.0, 2.0, 3.0]));
-    let mut session = ChutoroBuilder::new()
-        .with_min_cluster_size(2)
-        .build_session(source)?;
-
-    session.append(&[0, 1, 2, 3])?;
-    session.refresh()?;
-
-    let labels = session.labels();
-    assert_eq!(labels.len(), 4);
-    assert_eq!(session.snapshot_version(), 1);
-    Ok(())
-}
-```
+The complete program is published as
+[the session-refresh example](https://github.com/leynos/chutoro/blob/main/chutoro-core/docs/session-refresh-example.md)
+and is compiled and run by the test suite: the shared tested-example loader
+extracts the fence marked `session-refresh` during the build, so editing that
+file changes what the tests execute. The runnable doctest on
+`ClusteringSession::refresh` remains an independent short form of the same
+workflow.
 
 `refresh` recomputes any dirty core distances, merges the retained MST backbone
 with the buffered candidate edges, reweights the merged set with the

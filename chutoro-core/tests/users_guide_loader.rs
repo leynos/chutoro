@@ -1,22 +1,22 @@
 //! Rejection tests for the shared tested-example loader.
 //!
 //! `build.rs` uses the same `build_support/users_guide_examples.rs` module to
-//! generate the compiled form of the users' guide's example. These cases pin
-//! the four conditions the marker contract must reject, so a malformed guide
-//! fails the build rather than silently selecting the wrong text.
+//! generate the compiled form of the published example. These cases pin each
+//! condition the marker contract must reject, so a malformed document fails the
+//! build rather than silently selecting the wrong text.
 
 #[path = "../build_support/users_guide_examples.rs"]
 mod users_guide_examples;
 
 use users_guide_examples::{ExampleError, extract_example};
 
-/// The published guide the build script reads.
-const USERS_GUIDE: &str = include_str!("../../docs/users-guide.md");
+/// The published document the build script reads.
+const EXAMPLE_DOCUMENT: &str = include_str!("../docs/session-refresh-example.md");
 
 #[test]
 fn the_guide_publishes_the_session_refresh_example() {
-    let body = extract_example(USERS_GUIDE, "session-refresh")
-        .expect("the guide must declare the marked refresh example");
+    let body = extract_example(EXAMPLE_DOCUMENT, "session-refresh")
+        .expect("the document must declare the marked refresh example");
 
     assert!(
         body.contains("fn main() -> Result<(), ChutoroError>"),
@@ -33,13 +33,27 @@ fn the_guide_publishes_the_session_refresh_example() {
 }
 
 #[test]
-fn a_fence_without_a_marker_cannot_be_loaded() {
-    let markdown = "```rust\nfn main() {}\n```\n";
+fn an_unmarked_fence_is_rejected() {
+    let markdown = concat!(
+        "<!-- tested-example: marked -->\n",
+        "```rust\nfn main() {}\n```\n",
+        "```rust\nfn main() {}\n```\n",
+    );
 
     assert_eq!(
-        extract_example(markdown, "unmarked"),
+        extract_example(markdown, "marked"),
+        Err(ExampleError::UnmarkedFence { line: 5 })
+    );
+}
+
+#[test]
+fn a_marked_document_can_lack_the_requested_identifier() {
+    let markdown = "<!-- tested-example: present -->\n```rust\nfn main() {}\n```\n";
+
+    assert_eq!(
+        extract_example(markdown, "absent"),
         Err(ExampleError::MissingExample {
-            id: String::from("unmarked"),
+            id: String::from("absent"),
         })
     );
 }
