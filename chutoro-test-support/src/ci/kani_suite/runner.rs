@@ -16,6 +16,7 @@
 use thiserror::Error;
 
 use super::parser;
+use super::words;
 
 /// A Kani option the checker cannot work with, with the reason it is refused.
 pub(super) const FORBIDDEN_FLAGS: &[(&str, &str)] = &[
@@ -114,6 +115,22 @@ pub enum CommandError {
     /// The command does not restrict itself to the library target.
     #[error("the delegated command must pass --lib, so only the library's harnesses are compiled")]
     MissingLib,
+    /// The command selects a binary target, whose harnesses Kani reports
+    /// under the same names as the library's.
+    #[error(
+        "the delegated command selects the binary target {name:?}, but only the library's \
+         harnesses can be attributed to the manifest"
+    )]
+    BinaryTarget {
+        /// The binary target that was selected.
+        name: String,
+    },
+    /// The command selects every binary target.
+    #[error(
+        "the delegated command passes --bins, but only the library's harnesses can be \
+         attributed to the manifest"
+    )]
+    AllBinaries,
     /// A harness selector is a substring filter rather than an exact name.
     #[error(
         "the delegated command passes --harness without --exact, so a selector can match more than the manifest lists"
@@ -189,9 +206,10 @@ fn unquoted(value: &str) -> String {
 /// use chutoro_test_support::ci::kani_suite::runner::parse_command;
 ///
 /// let words = ["LD_LIBRARY_PATH=/tmp/lib", "cargo", "kani", "-p", "pkg",
-///              "--lib", "--exact", "--harness", "proofs::verify_one"];
+///              "--lib", "--exact", "--harness", "proofs::verify_one"]
+///     .map(str::to_owned);
 /// let delegated =
-///     parse_command(&words.map(str::to_owned), "pkg").expect("a valid command");
+///     parse_command(&words, "pkg").expect("a valid command");
 /// assert_eq!(delegated.env, vec![("LD_LIBRARY_PATH".to_owned(), "/tmp/lib".to_owned())]);
 /// assert_eq!(delegated.selectors, vec!["proofs::verify_one"]);
 /// ```
@@ -200,7 +218,7 @@ pub fn parse_command(words: &[String], package: &str) -> Result<Delegated, Comma
     let Some((program, args)) = command.split_first() else {
         return Err(CommandError::Empty);
     };
-    let subcommand = subcommand_index(args);
+    let subcommand = words::subcommand_index(args);
     if args.get(subcommand).map(String::as_str) != Some("kani") {
         return Err(CommandError::NotCargoKani {
             args: args.to_vec(),
@@ -217,60 +235,6 @@ pub fn parse_command(words: &[String], package: &str) -> Result<Delegated, Comma
         args: args.to_vec(),
     };
     parser.finish(&invocation, package)
-}
-
-/// Return the index of the subcommand in `args`, after Cargo's global options.
-///
-/// Cargo accepts both a toolchain selector (`+nightly`) and its global options
-/// before the subcommand: `cargo --config net.offline=true kani` is a valid
-/// invocation, and the repository exposes `CARGO` as a command-line override so
-/// a caller can spell it that way. Both are skipped so this check is about the
-/// subcommand rather than about how the toolchain or configuration is spelled.
-/// An option this does not recognise is left in place, so an unexpected word
-/// fails as a wrong subcommand rather than being silently ignored.
-fn subcommand_index(args: &[String]) -> usize {
-    let mut index = 0;
-    while let Some(word) = args.get(index) {
-        if word.starts_with('+') {
-            index += 1;
-            continue;
-        }
-        let Some(consumed) = cargo_global_option(word) else {
-            break;
-        };
-        index += consumed;
-    }
-    index
-}
-
-/// Return how many words the Cargo global option at `word` occupies.
-///
-/// A value-taking option spelled as one word (`--config=x`) occupies one; the
-/// separated spelling occupies two. A flag occupies one. None means the word is
-/// not a global option, so the caller has reached the subcommand.
-fn cargo_global_option(word: &str) -> Option<usize> {
-    const VALUED: &[&str] = &[
-        "--color",
-        "--config",
-        "--explain",
-        "--manifest-path",
-        "--target-dir",
-        "-C",
-        "-Z",
-    ];
-    // Quiet is deliberately absent: this checker refuses a run whose output
-    // is suppressed, and a quiet word before the subcommand is no exception.
-    // Leaving it unrecognised makes the invocation fail as a wrong
-    // subcommand, which is the safe direction.
-    const FLAGS: &[&str] = &["--frozen", "--locked", "--offline", "--verbose", "-v"];
-    if FLAGS.contains(&word) {
-        return Some(1);
-    }
-    if VALUED.contains(&word) {
-        return Some(2);
-    }
-    let (name, _) = word.split_once('=')?;
-    VALUED.contains(&name).then_some(1)
 }
 
 /// The words that will be executed, before validation decides whether to.
@@ -296,43 +260,57 @@ mod tests {
 
     use super::*;
 
-    #[rstest]
-    #[case(&["kani"], 0, "a plain command")]
-    #[case(&["+nightly", "kani"], 1, "a toolchain selector")]
-    #[case(&["--config", "net.offline=true", "kani"], 2, "a separated option")]
-    #[case(&["--config=net.offline=true", "kani"], 1, "an attached option")]
-    #[case(&["--locked", "+nightly", "kani"], 2, "a flag before the selector")]
-    fn the_subcommand_follows_cargo_global_options(
-        #[case] args: &[&str],
-        #[case] expected: usize,
-        #[case] what: &str,
-    ) {
-        let words: Vec<String> = args.iter().map(|word| (*word).to_owned()).collect();
-        assert_eq!(
-            subcommand_index(&words),
-            expected,
-            "{what} must resolve to its subcommand"
-        );
-    }
-
-    #[rstest]
-    #[case("--config", Some(2), "a separated value")]
-    #[case("--config=net.offline=true", Some(1), "an attached value")]
-    #[case("--locked", Some(1), "a flag")]
-    #[case("kani", None, "the subcommand")]
-    fn only_cargo_global_options_are_consumed(
-        #[case] word: &str,
-        #[case] expected: Option<usize>,
-        #[case] what: &str,
-    ) {
-        assert_eq!(cargo_global_option(word), expected, "{what}");
+    /// Return a parameterised case's words as owned arguments.
+    fn owned(words: &[&str]) -> Vec<String> {
+        words.iter().map(|word| (*word).to_owned()).collect()
     }
 
     #[test]
     fn a_plain_cargo_invocation_still_resolves_kani() {
         let words = ["cargo", "kani", "-p", "pkg", "--lib", "--exact"];
         let delegated =
-            parse_command(&words.map(str::to_owned), "pkg").expect("a plain cargo kani invocation");
+            parse_command(&owned(&words), "pkg").expect("a plain cargo kani invocation");
         assert_eq!(delegated.program, "cargo");
+    }
+
+    #[rstest]
+    #[case(
+        &["cargo", "kani", "-p", "pkg", "other", "--lib", "--exact"],
+        "a second package"
+    )]
+    #[case(
+        &["cargo", "kani", "-p", "pkg", "--lib", "--exact", "--harness", "a"],
+        "one package"
+    )]
+    fn only_one_package_may_be_selected(#[case] words: &[&str], #[case] what: &str) {
+        let outcome = parse_command(&owned(words), "pkg");
+        match what {
+            "one package" => assert!(outcome.is_ok(), "one package must be accepted"),
+            _ => assert!(
+                matches!(outcome, Err(CommandError::Package { .. })),
+                "a second package must be rejected, got {outcome:?}"
+            ),
+        }
+    }
+
+    #[rstest]
+    #[case(
+        &["cargo", "kani", "-p", "pkg", "--lib", "--bin", "helper"],
+        "a bin option"
+    )]
+    #[case(
+        &["cargo", "kani", "-p", "pkg", "--lib", "--bin=helper"],
+        "an attached bin option"
+    )]
+    #[case(&["cargo", "kani", "-p", "pkg", "--lib", "--bins"], "the bins flag")]
+    fn a_binary_target_is_refused(#[case] words: &[&str], #[case] what: &str) {
+        let outcome = parse_command(&owned(words), "pkg");
+        assert!(
+            matches!(
+                outcome,
+                Err(CommandError::BinaryTarget { .. } | CommandError::AllBinaries)
+            ),
+            "{what} must be refused, got {outcome:?}"
+        );
     }
 }

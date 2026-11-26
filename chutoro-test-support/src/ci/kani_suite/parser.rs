@@ -46,6 +46,7 @@ impl Parser {
         match argument.as_str() {
             "--exact" => self.exact = true,
             "--lib" => self.lib = true,
+            "--bins" => return Err(CommandError::AllBinaries),
             _ => self.consume_attached(argument)?,
         }
         Ok(index + 1)
@@ -71,7 +72,21 @@ impl Parser {
             });
         };
         valued.store(self, value)?;
-        Ok(index + 2)
+        let mut next = index + 2;
+        if !valued.repeats() {
+            return Ok(next);
+        }
+        // Cargo's package option takes a list, so every following word that is
+        // not an option is another package. Recording only the first would let
+        // a second package's harness satisfy the expected set.
+        while let Some(extra) = args.get(next) {
+            if extra.starts_with('-') {
+                break;
+            }
+            self.push_package(extra.clone());
+            next += 1;
+        }
+        Ok(next)
     }
 
     /// Consume an option whose value is attached with `=`.
@@ -80,6 +95,10 @@ impl Parser {
             words::check_output_format(value)?;
         } else if let Some(value) = argument.strip_prefix("--harness=") {
             self.selectors.push(value.to_owned());
+        } else if let Some(value) = argument.strip_prefix("--bin=") {
+            return Err(CommandError::BinaryTarget {
+                name: value.to_owned(),
+            });
         } else if let Some(value) = argument
             .strip_prefix("-p=")
             .or_else(|| argument.strip_prefix("--package="))

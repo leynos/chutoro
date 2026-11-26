@@ -217,17 +217,18 @@ def test_a_required_job_cannot_be_skipped_or_renamed_per_run(
 
 
 @pytest.mark.parametrize("context", REQUIRED_CONTEXTS)
-def test_the_owning_trigger_declares_no_path_filter(
+def test_the_owning_trigger_covers_every_pull_request(
     context: str,
     jobs: dict[str, list[tuple[str, dict]]],
     documents: dict[str, dict[str, typ.Any]],
 ) -> None:
-    """A path filter would leave the required context absent.
+    """The trigger must reach ``main`` for every pull request, unfiltered.
 
-    An absent required check blocks a merge, which is fail-closed, but it also
-    means a change that alters what the job verifies without matching a listed
-    path never receives a result. The job must therefore run on every pull
-    request to the branch the ruleset protects.
+    A path filter would leave the required context absent on a change that
+    alters what the job verifies without matching a listed path. A branch
+    filter does the same for every pull request it excludes: GitHub never
+    starts the workflow, so the check never reports. Either way the merge is
+    blocked, and the job's verification is skipped without a result.
     """
     for workflow, _ in jobs.get(context, []):
         pull_request = _events(documents[workflow], workflow)["pull_request"]
@@ -236,12 +237,29 @@ def test_the_owning_trigger_declares_no_path_filter(
         # the value as a mapping before normalising it would raise TypeError
         # instead of accepting the unfiltered trigger.
         configured = pull_request if isinstance(pull_request, dict) else {}
-        filters = [
-            key for key in ("paths", "paths-ignore") if key in configured
-        ]
-        assert not filters, (
+        _require_unfiltered(workflow, context, configured)
+
+
+def _require_unfiltered(
+    workflow: str, context: str, configured: dict[str, typ.Any]
+) -> None:
+    """Require a trigger with no path filter and no branch filter on main."""
+    filters = [key for key in ("paths", "paths-ignore") if key in configured]
+    assert not filters, (
+        f"{workflow}:{context} is a required check, so its pull_request "
+        f"trigger must declare no path filter; found {filters!r}"
+    )
+    branches = configured.get("branches")
+    if branches is not None:
+        assert "main" in branches, (
             f"{workflow}:{context} is a required check, so its pull_request "
-            f"trigger must declare no path filter; found {filters!r}"
+            f"trigger must include main; found branches {branches!r}"
+        )
+    ignored = configured.get("branches-ignore")
+    if ignored is not None:
+        assert "main" not in ignored, (
+            f"{workflow}:{context} is a required check, so its pull_request "
+            f"trigger must not exclude main; found branches-ignore {ignored!r}"
         )
 
 

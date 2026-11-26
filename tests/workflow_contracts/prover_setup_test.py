@@ -162,3 +162,14 @@ def test_setup_install_and_run_are_unconditional_and_ordered(
         f"{workflow_name}:{job_name} must not tolerate a failing proof step; "
         f"found continue-on-error on {tolerant!r}"
     )
+    # The job itself must be unconditional too. A job-level `if` skips the
+    # whole proof run while the job still reports a conclusion, and a
+    # job-level `continue-on-error` turns a failed proof into a green run.
+    # The required-context contract checks this for the required jobs; the
+    # nightly one is not required, so nothing else would.
+    document = job(workflow_name, job_name)
+    gated = [key for key in ("if", "continue-on-error") if key in document]
+    assert not gated, (
+        f"{workflow_name}:{job_name} must run its proof unconditionally; "
+        f"found job-level {gated!r}"
+    )

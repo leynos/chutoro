@@ -268,6 +268,19 @@ issue text and the repository's documentation are the authority.
       constructing the cleanup owner so an existing directory is never
       removed, and the required-context contract's description separates the
       policy it checks from the live enforcement the guide records.
+- [x] Ninth review round, all five findings actioned, every one latent
+      rather than live. The checker now refuses `--bin`/`--bin=...`/`--bins`
+      as well as requiring `--lib`: Kani reports a binary target's harnesses
+      under the same names, so a binary could satisfy a verdict after the
+      library's proof disappeared. It also reads the whole value list of a
+      `-p`/`--package` option, so `-p pkg other` is rejected instead of
+      silently checking only `pkg`. Cargo's own global options move into
+      `words.rs` with `-p` handling, which keeps `runner.rs` under 400 lines.
+      The tier-reading patterns accept a column-0 comment among recipe lines,
+      as make does, so nothing after one drops out of the checked recipe; the
+      prover-job contract refuses a job-level `if` or `continue-on-error` on
+      the nightly job as well as its steps; and the required-context contract
+      checks that each owning trigger's branch filter reaches `main`.
 - [ ] Push the branch and create the draft pull request.
 
 ## Surprises & discoveries

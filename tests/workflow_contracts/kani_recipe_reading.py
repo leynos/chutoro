@@ -26,19 +26,22 @@ from workflow_support import ROOT
 
 MAKEFILE_PATH = ROOT / "Makefile"
 
-#: The ``kani:`` target header and its immediately following tab-indented
-#: recipe lines. The capture stops at the first line that is not tab-indented,
-#: and deliberately does not stop at a blank line: make permits a blank line
-#: between recipe lines, and a comment line inside a recipe is recipe text the
-#: shell runs. Ending the capture at either would silently read a shorter tier.
+#: The ``kani:`` target header and its immediately following recipe lines. The
+#: capture stops at the first line that belongs to neither the recipe nor a
+#: comment, and deliberately does not stop at a blank line or a column-0 ``#``
+#: line: make permits a blank line between recipe lines, a tab-indented comment
+#: is recipe text the shell runs, and a column-0 comment is a make comment that
+#: does not end the recipe. Ending the capture at any of them would silently
+#: read a shorter tier, and a failure-ignoring command after the comment would
+#: go unchecked.
 KANI_TARGET_RE = re.compile(
-    r"^kani:[^\n]*\n(?P<recipe>(?:(?:\t[^\n]*)?(?:\n|$))*)",
+    r"^kani:[^\n]*\n(?P<recipe>(?:(?:\t[^\n]*|#[^\n]*)?(?:\n|$))*)",
     re.MULTILINE,
 )
 
 #: The same shape for the ``kani-full:`` target.
 KANI_FULL_TARGET_RE = re.compile(
-    r"^kani-full:[^\n]*\n(?P<recipe>(?:(?:\t[^\n]*)?(?:\n|$))*)",
+    r"^kani-full:[^\n]*\n(?P<recipe>(?:(?:\t[^\n]*|#[^\n]*)?(?:\n|$))*)",
     re.MULTILINE,
 )
 
@@ -201,6 +204,8 @@ FORBIDDEN_FLAGS = (
     "--quiet",
     "-q",
     "--output-into-files",
+    "--bin",
+    "--bins",
     "--no-codegen",
     "--only-codegen",
     "--log-file",
