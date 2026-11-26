@@ -53,3 +53,7 @@ Feature: Clustering session append
     When I refresh the session
     Then the label snapshot is empty
     And the snapshot version is 1
+
+  Scenario: The published users' guide example completes
+    When I run the published users' guide refresh example
+    Then the published example succeeds

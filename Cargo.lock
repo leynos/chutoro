@@ -545,6 +545,8 @@ dependencies = [
 name = "chutoro-core"
 version = "0.1.0"
 dependencies = [
+ "camino",
+ "cap-std",
  "chutoro-test-support",
  "dashmap",
  "googletest",

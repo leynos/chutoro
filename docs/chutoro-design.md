@@ -3054,24 +3054,29 @@ index, cached core distances, the current MST backbone (retained as raw
 candidate edges), pending delta edges, and the latest label snapshot._
 
 **Memory growth and edge retention.** Between refreshes, `pending_edges` grows
-by roughly O(M) entries per appended point (where M is the HNSW connectivity
-parameter), because each insertion discovers up to M candidate edges. On
-refresh, `pending_edges` is drained: the edges are merged into the Kruskal
-candidate set, and the buffer is cleared. After refresh, the session retains
-two edge collections: (a) `mst_backbone`; and (b) `historical_edges`, a bounded
-set of non-MST edges retained for correctness under core-distance drift (see
-§12.5). The backbone holds raw `CandidateEdge` values, not weighted `MstEdge`
-values, so the next refresh reweights from the raw distances; see §12.5.
+by one entry per (layer, neighbour) pair the insertion plan discovered. A plan
+searches every layer the inserted point occupies with `ef_construction`
+breadth, and edge extraction harvests neighbours from all of them, so one
+insertion can append up to `ef_construction × (level + 1)` edges and may repeat
+a neighbour that appears in several layers. Section 11.4 models that
+multi-layer harvest; the pending buffer follows it, not a single-layer `n × M`
+count. On refresh, `pending_edges` is drained: the edges are merged into the
+Kruskal candidate set, and the buffer is cleared. After refresh, the session
+retains two edge collections: (a) `mst_backbone`; and (b) `historical_edges`, a
+bounded set of non-MST edges retained for correctness under core-distance drift
+(see §12.5). The backbone holds raw `CandidateEdge` values, not weighted
+`MstEdge` values, so the next refresh reweights from the raw distances; see
+§12.5.
 
 The backbone's size bound depends on the phase. After a real rebuild it holds
 the selected forest, so it is bounded by n − 1 for n points. During **warm-up**
 — while the point count is below `min_cluster_size` and no tree exists — it
 instead holds the deduplicated harvested candidate pool, which may include
-non-MST edges and is bounded by the O(n × M) candidates HNSW has harvested so
-far rather than by n − 1. That pool is deliberately retained because HNSW never
-re-harvests an old-old edge; discarding it would lose those connections
-permanently. Warm-up is transient by construction: the first refresh at or above
-`min_cluster_size` replaces the pool with a forest.
+non-MST edges and is bounded by the multi-layer harvest count HNSW has
+accumulated so far rather than by n − 1. That pool is deliberately retained
+because HNSW never re-harvests an old-old edge; discarding it would lose those
+connections permanently. Warm-up is transient by construction: the first
+refresh at or above `min_cluster_size` replaces the pool with a forest.
 
 The `historical_edges` set is capped at a configurable multiple of the MST edge
 count (default 2×); edges with the highest mutual-reachability weight are

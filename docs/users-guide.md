@@ -308,12 +308,16 @@ and HNSW structural failures surface as `ChutoroError::CpuHnswFailure`.
 Call `refresh()` to turn the buffered candidate edges into a published label
 snapshot, and read the result through `labels()`:
 
-The example below is a complete program, and the same workflow is exercised in
-two places: the runnable doctest on `ClusteringSession::refresh` and an
-integration test (`chutoro-core/tests/users_guide_session_refresh.rs`). Those
-are independent copies whose assertions agree; changing this snippet does not
-fail them, so update all three together.
+The example below is a complete program and the source of truth for this
+workflow. The build script's tested-example loader extracts the marked fence,
+and both the integration test
+(`chutoro-core/tests/users_guide_session_refresh.rs`) and the behavioural
+scenarios in `chutoro-core/tests/session_append_bdd.rs` compile and run the
+extracted text, so editing this snippet changes what those tests execute. The
+runnable doctest on `ClusteringSession::refresh` remains an independent short
+form of the same workflow.
 
+<!-- tested-example: session-refresh -->
 ```rust
 use std::sync::Arc;
 

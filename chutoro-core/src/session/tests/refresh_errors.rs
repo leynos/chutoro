@@ -64,26 +64,33 @@ impl SnapshotState {
         }
     }
 
-    /// Asserts the session still publishes exactly this captured state.
-    fn assert_unchanged<D: crate::DataSource + Send + Sync>(&self, session: &ClusteringSession<D>) {
-        assert_eq!(
-            session.snapshot_version(),
-            self.version,
-            "version must not move"
-        );
-        assert_eq!(
-            session.labels().to_vec(),
-            self.labels,
-            "labels must not move"
-        );
-        assert_eq!(
-            session.pending_edges, self.pending_edges,
-            "pending edges must be preserved element for element"
-        );
-        assert_eq!(
-            session.mst_backbone, self.mst_backbone,
-            "the MST backbone must be preserved element for element"
-        );
+    /// Compares the captured state with the session's current state.
+    ///
+    /// Returns the first field that moved, so the caller's `assert_eq!` at the
+    /// `#[rstest]` boundary names it. Comparing whole values rather than
+    /// summary statistics is deliberate: a length check would miss a refresh
+    /// that reordered or replaced the pending edges while preserving count.
+    fn diff<D: crate::DataSource + Send + Sync>(
+        &self,
+        session: &ClusteringSession<D>,
+    ) -> Result<(), String> {
+        if session.snapshot_version() != self.version {
+            return Err(format!(
+                "version moved: {} -> {}",
+                self.version,
+                session.snapshot_version()
+            ));
+        }
+        if session.labels().to_vec() != self.labels {
+            return Err(format!("labels moved: {:?}", session.labels()));
+        }
+        if session.pending_edges != self.pending_edges {
+            return Err(format!("pending edges moved: {:?}", session.pending_edges));
+        }
+        if session.mst_backbone != self.mst_backbone {
+            return Err(format!("MST backbone moved: {:?}", session.mst_backbone));
+        }
+        Ok(())
     }
 }
 
@@ -112,7 +119,7 @@ fn failed_refresh_preserves_snapshot_and_pending() {
         matches!(error, ChutoroError::DataSource { .. }),
         "expected a data-source error, got {error:?}"
     );
-    before.assert_unchanged(&session);
+    assert_eq!(before.diff(&session), Ok(()));
 
     source.recover();
     session
@@ -144,7 +151,7 @@ fn contiguity_violation_reports_cpu_mst_failure_and_preserves_state(
         .expect_err("a non-contiguous refresh must fail");
 
     assert_eq!(mst_failure_code(&error), Some("INVALID_NODE_ID"));
-    before.assert_unchanged(&session);
+    assert_eq!(before.diff(&session), Ok(()));
 
     // Filling the gap repairs the session; the retry republishes.
     session.append(&[2]).expect("filling the gap must succeed");

@@ -16,17 +16,27 @@ mod warm_up;
 use super::{RefreshInputs, rebuild_mst_labels};
 use crate::{CandidateEdge, ChutoroError, MstError};
 
-/// Builds the standard non-zero `min_cluster_size` used by these cases.
-fn min_cluster_size(size: usize) -> NonZeroUsize {
-    NonZeroUsize::new(size).expect("test min_cluster_size must be non-zero")
-}
+/// Cluster-size threshold of two, the smallest that forms a cluster here.
+///
+/// The `None` arm is rejected during constant evaluation, so a zero literal is
+/// a compile error rather than a runtime panic inside a fixture.
+const MIN_CLUSTER_SIZE_TWO: NonZeroUsize = match NonZeroUsize::new(2) {
+    Some(size) => size,
+    None => panic!("a test cluster size must be non-zero"),
+};
+
+/// Warm-up threshold above the three- and four-point fixtures.
+const MIN_CLUSTER_SIZE_FIVE: NonZeroUsize = match NonZeroUsize::new(5) {
+    Some(size) => size,
+    None => panic!("a test cluster size must be non-zero"),
+};
 
 /// Builds inputs with no retained edges, so a case states only its pending set.
 fn inputs<'a>(
     node_count: usize,
     pending_edges: &'a [CandidateEdge],
     core_distances: &'a [f32],
-    min_size: usize,
+    min_size: NonZeroUsize,
 ) -> RefreshInputs<'a> {
     RefreshInputs {
         node_count,
@@ -34,7 +44,7 @@ fn inputs<'a>(
         historical_edges: &[],
         pending_edges,
         core_distances,
-        min_cluster_size: min_cluster_size(min_size),
+        min_cluster_size: min_size,
     }
 }
 
@@ -64,7 +74,7 @@ fn hierarchy_failure_code(error: &ChutoroError) -> Option<&str> {
 
 #[test]
 fn empty_session_publishes_an_empty_snapshot() {
-    let outcome = rebuild_mst_labels("refresh-test", &inputs(0, &[], &[], 2))
+    let outcome = rebuild_mst_labels("refresh-test", &inputs(0, &[], &[], MIN_CLUSTER_SIZE_TWO))
         .expect("an empty session must publish, not error");
 
     assert_eq!(outcome.labels, Vec::<usize>::new());
@@ -81,8 +91,11 @@ fn non_contiguous_point_ids_report_the_highest_appended_index() {
         CandidateEdge::new(1, 3, 2.0, 1),
     ];
 
-    let error = rebuild_mst_labels("refresh-test", &inputs(3, &pending, &core_distances, 2))
-        .expect_err("a non-contiguous session must be rejected");
+    let error = rebuild_mst_labels(
+        "refresh-test",
+        &inputs(3, &pending, &core_distances, MIN_CLUSTER_SIZE_TWO),
+    )
+    .expect_err("a non-contiguous session must be rejected");
 
     let expected_message = MstError::InvalidNodeId {
         node: 3,
@@ -107,8 +120,11 @@ fn labels_cover_every_point_on_a_separated_fixture() {
         CandidateEdge::new(1, 2, 10.0, 2),
     ];
 
-    let outcome = rebuild_mst_labels("refresh-test", &inputs(4, &pending, &core_distances, 2))
-        .expect("the fixture must cluster");
+    let outcome = rebuild_mst_labels(
+        "refresh-test",
+        &inputs(4, &pending, &core_distances, MIN_CLUSTER_SIZE_TWO),
+    )
+    .expect("the fixture must cluster");
 
     assert_eq!(outcome.labels.len(), 4);
     assert_ne!(outcome.labels.first(), outcome.labels.get(2));
@@ -135,8 +151,11 @@ fn duplicated_edge_across_a_buffer_pair_leaves_the_result_unchanged(#[case] pair
         CandidateEdge::new(0, 1, 1.0, 3),
         CandidateEdge::new(1, 2, 2.0, 4),
     ];
-    let expected = rebuild_mst_labels("refresh-test", &inputs(3, &baseline, &core_distances, 2))
-        .expect("the baseline fixture must cluster");
+    let expected = rebuild_mst_labels(
+        "refresh-test",
+        &inputs(3, &baseline, &core_distances, MIN_CLUSTER_SIZE_TWO),
+    )
+    .expect("the baseline fixture must cluster");
     assert!(
         !expected.mst_backbone.is_empty(),
         "test precondition: the duplicated edge must be MST-selected"
@@ -158,7 +177,7 @@ fn duplicated_edge_across_a_buffer_pair_leaves_the_result_unchanged(#[case] pair
         historical_edges,
         pending_edges,
         core_distances: &core_distances,
-        min_cluster_size: min_cluster_size(2),
+        min_cluster_size: MIN_CLUSTER_SIZE_TWO,
     };
     let actual = rebuild_mst_labels("refresh-test", &duplicated)
         .expect("the duplicated fixture must cluster");
@@ -194,7 +213,7 @@ fn historical_edges_participate_in_the_merge() {
         historical_edges: &historical,
         pending_edges: &pending,
         core_distances: &core_distances,
-        min_cluster_size: min_cluster_size(2),
+        min_cluster_size: MIN_CLUSTER_SIZE_TWO,
     };
 
     let outcome =
@@ -209,8 +228,11 @@ fn non_finite_core_distances_are_rejected_by_kruskal() {
     let core_distances = [f32::INFINITY, 1.0];
     let pending = [CandidateEdge::new(0, 1, 1.0, 0)];
 
-    let error = rebuild_mst_labels("refresh-test", &inputs(2, &pending, &core_distances, 2))
-        .expect_err("a non-finite weight must be rejected");
+    let error = rebuild_mst_labels(
+        "refresh-test",
+        &inputs(2, &pending, &core_distances, MIN_CLUSTER_SIZE_TWO),
+    )
+    .expect_err("a non-finite weight must be rejected");
 
     assert_eq!(mst_failure_code(&error), Some("NON_FINITE_WEIGHT"));
 }
@@ -223,8 +245,11 @@ fn hierarchy_failure_is_mapped_not_panicked() {
     let core_distances = [-1.0_f32, -1.0];
     let pending = [CandidateEdge::new(0, 1, -5.0, 0)];
 
-    let error = rebuild_mst_labels("refresh-test", &inputs(2, &pending, &core_distances, 2))
-        .expect_err("a negative MST weight must be rejected by hierarchy extraction");
+    let error = rebuild_mst_labels(
+        "refresh-test",
+        &inputs(2, &pending, &core_distances, MIN_CLUSTER_SIZE_TWO),
+    )
+    .expect_err("a negative MST weight must be rejected by hierarchy extraction");
 
     assert_eq!(hierarchy_failure_code(&error), Some("INVALID_EDGE_WEIGHT"));
 }

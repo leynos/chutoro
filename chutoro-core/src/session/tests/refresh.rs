@@ -30,25 +30,32 @@ fn two_cluster_source() -> Arc<NumericTestSource> {
     )
 }
 
-/// Asserts that two partitions are identical up to floating-point rounding.
+/// Reports how far `ari` sits from an exact partition match.
+///
+/// Returns a printable explanation instead of asserting, so the `#[rstest]`
+/// boundary owns the assertion and a failure names the deviation.
 #[expect(
     clippy::float_arithmetic,
     reason = "derived clustering-quality checks need an absolute delta"
 )]
-fn assert_partitions_match(ari: f64) {
+fn partition_mismatch(ari: f64) -> Result<(), String> {
     let delta = (ari - 1.0_f64).abs();
-    assert!(
-        delta <= 1.0e-12_f64,
-        "ARI {ari} deviates from 1.0 by {delta}"
-    );
+    if delta <= 1.0e-12_f64 {
+        Ok(())
+    } else {
+        Err(format!("ARI {ari} deviates from 1.0 by {delta}"))
+    }
 }
 
 /// Maps batch assignments to the plain label integers the ARI helper takes.
-fn batch_labels(result: &crate::ClusteringResult) -> Vec<usize> {
+///
+/// Returns the offending label when it does not fit `usize`, so the caller
+/// reports it rather than a mapping closure panicking.
+fn batch_labels(result: &crate::ClusteringResult) -> Result<Vec<usize>, u64> {
     result
         .assignments()
         .iter()
-        .map(|id: &ClusterId| usize::try_from(id.get()).expect("batch label must fit usize"))
+        .map(|id: &ClusterId| usize::try_from(id.get()).map_err(|_| id.get()))
         .collect()
 }
 
@@ -191,10 +198,15 @@ fn crossing_min_cluster_size_retains_warm_up_candidates(session_builder: Chutoro
 
     let stepped_labels = stepped.labels().to_vec();
     let one_step_labels = one_step.labels().to_vec();
+    assert_eq!(
+        stepped_labels.len(),
+        one_step_labels.len(),
+        "both sessions must label every point"
+    );
     let ari =
         adjusted_rand_index(&stepped_labels, &one_step_labels).expect("label lengths must agree");
 
-    assert_partitions_match(ari);
+    assert_eq!(partition_mismatch(ari), Ok(()));
     assert_eq!(stepped_labels.len(), 8);
 }
 
@@ -220,9 +232,38 @@ fn refresh_matches_batch_partition(session_builder: ChutoroBuilder) {
         .expect("batch run must succeed");
 
     let incremental = session.labels().to_vec();
-    let batch_labels = batch_labels(&batch);
+    let batch_labels = batch_labels(&batch).expect("a batch label must fit usize");
+    assert_eq!(
+        incremental.len(),
+        batch_labels.len(),
+        "the incremental and batch runs must label the same points"
+    );
     let ari = adjusted_rand_index(&incremental, &batch_labels).expect("label lengths must agree");
 
-    assert_partitions_match(ari);
+    assert_eq!(partition_mismatch(ari), Ok(()));
     insta::assert_debug_snapshot!(incremental);
+}
+
+/// The version counter saturates instead of wrapping at its limit.
+///
+/// Reaching `u64::MAX` needs 2^64 refreshes, so the test sets the counter
+/// directly; the field is visible to crate tests. A saturated refresh must
+/// still publish labels and drain the pending buffer — only the increment is
+/// skipped.
+#[rstest]
+fn refresh_saturates_snapshot_version_at_the_representational_limit(
+    session_builder: ChutoroBuilder,
+) {
+    let (mut session, _) =
+        make_session(session_builder.with_min_cluster_size(2), 4).expect("session must build");
+    session.append(&[0, 1, 2, 3]).expect("append must succeed");
+    session.snapshot_version = u64::MAX;
+
+    session
+        .refresh()
+        .expect("a refresh at the representational limit must succeed");
+
+    assert_eq!(session.snapshot_version(), u64::MAX);
+    assert_eq!(session.labels().len(), 4);
+    assert_eq!(session.pending_edges, Vec::new());
 }

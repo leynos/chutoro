@@ -18,6 +18,8 @@ use chutoro_core::{
     ChutoroBuilder, ChutoroError, ClusteringSession, DataSource, DataSourceError, MetricDescriptor,
 };
 
+include!(concat!(env!("OUT_DIR"), "/users_guide_session_refresh.rs"));
+
 #[derive(Debug)]
 enum BddStepError {
     Parse(ParseIntError),
@@ -186,6 +188,20 @@ fn snapshot_version_is(world: &SessionAppendWorld, version: u64) {
     assert_eq!(world.session.snapshot_version(), version);
 }
 
+#[when("I run the published users' guide refresh example")]
+fn run_published_users_guide_example(world: &mut SessionAppendWorld) {
+    world.last_error = published_example::run().err();
+}
+
+#[then("the published example succeeds")]
+fn published_example_succeeds(world: &SessionAppendWorld) {
+    assert!(
+        world.last_error.is_none(),
+        "the published users' guide example must succeed, got {:?}",
+        world.last_error
+    );
+}
+
 #[then("source index {index:usize} has core distance {distance:f32}")]
 fn source_index_has_core_distance(world: &SessionAppendWorld, index: usize, distance: f32) {
     assert_eq!(world.session.core_distance(index), Some(distance));
@@ -246,6 +262,16 @@ fn snapshot_version_immutability_across_multiple_appends(
     name = "Recomputing core distances after append"
 )]
 fn recomputing_core_distances_after_append(
+    _world: StepResult<SessionAppendWorld, BddStepError>,
+) -> StepResult<(), BddStepError> {
+    Ok(())
+}
+
+#[scenario(
+    path = "tests/features/session_append.feature",
+    name = "The published users' guide example completes"
+)]
+fn the_published_users_guide_example_completes(
     _world: StepResult<SessionAppendWorld, BddStepError>,
 ) -> StepResult<(), BddStepError> {
     Ok(())

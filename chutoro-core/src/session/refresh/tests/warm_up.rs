@@ -6,7 +6,7 @@
 
 use pretty_assertions::assert_eq;
 
-use super::{RefreshInputs, inputs, min_cluster_size, rebuild_mst_labels};
+use super::{MIN_CLUSTER_SIZE_FIVE, RefreshInputs, inputs, mst_failure_code, rebuild_mst_labels};
 use crate::CandidateEdge;
 
 /// Warm-up publishes all-noise labels *and* keeps its candidate pool.
@@ -22,8 +22,11 @@ fn below_min_cluster_size_publishes_all_noise_and_retains_candidates() {
     let core_distances = [1.0_f32, 1.0, 1.0, 1.0];
     let pending = [CandidateEdge::new(0, 1, 1.0, 0)];
 
-    let outcome = rebuild_mst_labels("refresh-test", &inputs(4, &pending, &core_distances, 5))
-        .expect("a warm-up session must publish all-noise labels");
+    let outcome = rebuild_mst_labels(
+        "refresh-test",
+        &inputs(4, &pending, &core_distances, MIN_CLUSTER_SIZE_FIVE),
+    )
+    .expect("a warm-up session must publish all-noise labels");
 
     assert_eq!(outcome.labels, vec![0, 0, 0, 0]);
     assert_eq!(outcome.mst_backbone, pending.to_vec());
@@ -39,8 +42,11 @@ fn below_min_cluster_size_publishes_all_noise_and_retains_candidates() {
 fn warm_up_retains_an_overlapping_candidate_once() {
     let core_distances = [1.0_f32, 1.0, 1.0, 1.0];
     let shared = [CandidateEdge::new(0, 1, 1.0, 0)];
-    let expected = rebuild_mst_labels("refresh-test", &inputs(4, &shared, &core_distances, 5))
-        .expect("the baseline warm-up must publish");
+    let expected = rebuild_mst_labels(
+        "refresh-test",
+        &inputs(4, &shared, &core_distances, MIN_CLUSTER_SIZE_FIVE),
+    )
+    .expect("the baseline warm-up must publish");
 
     let overlapping = RefreshInputs {
         node_count: 4,
@@ -48,7 +54,7 @@ fn warm_up_retains_an_overlapping_candidate_once() {
         historical_edges: &shared,
         pending_edges: &shared,
         core_distances: &core_distances,
-        min_cluster_size: min_cluster_size(5),
+        min_cluster_size: MIN_CLUSTER_SIZE_FIVE,
     };
     let actual = rebuild_mst_labels("refresh-test", &overlapping)
         .expect("the overlapping warm-up must publish");
@@ -72,8 +78,11 @@ fn crossing_min_cluster_size_keeps_the_warm_up_candidates() {
     ];
 
     // Warm-up: four points, one below the threshold of five.
-    let warmed = rebuild_mst_labels("refresh-test", &inputs(4, &warm_up_pool, &warm_up_cores, 5))
-        .expect("warm-up must publish");
+    let warmed = rebuild_mst_labels(
+        "refresh-test",
+        &inputs(4, &warm_up_pool, &warm_up_cores, MIN_CLUSTER_SIZE_FIVE),
+    )
+    .expect("warm-up must publish");
     assert_eq!(warmed.labels, vec![0; 4]);
     assert_eq!(warmed.mst_backbone, warm_up_pool.to_vec());
 
@@ -87,7 +96,7 @@ fn crossing_min_cluster_size_keeps_the_warm_up_candidates() {
         historical_edges: &[],
         pending_edges: &[CandidateEdge::new(2, 3, 1.0, 2)],
         core_distances: &crossed_cores,
-        min_cluster_size: min_cluster_size(5),
+        min_cluster_size: MIN_CLUSTER_SIZE_FIVE,
     };
     let rebuilt =
         rebuild_mst_labels("refresh-test", &crossed).expect("the first real rebuild must succeed");
@@ -119,8 +128,11 @@ fn warm_up_pool_order_is_independent_of_buffer_overlap() {
     let second = CandidateEdge::new(1, 2, 2.0, 1);
     let pending = [first, second];
 
-    let baseline = rebuild_mst_labels("refresh-test", &inputs(4, &pending, &core_distances, 5))
-        .expect("the baseline warm-up must publish");
+    let baseline = rebuild_mst_labels(
+        "refresh-test",
+        &inputs(4, &pending, &core_distances, MIN_CLUSTER_SIZE_FIVE),
+    )
+    .expect("the baseline warm-up must publish");
 
     let reordered = RefreshInputs {
         node_count: 4,
@@ -128,7 +140,7 @@ fn warm_up_pool_order_is_independent_of_buffer_overlap() {
         historical_edges: &[],
         pending_edges: &pending,
         core_distances: &core_distances,
-        min_cluster_size: min_cluster_size(5),
+        min_cluster_size: MIN_CLUSTER_SIZE_FIVE,
     };
     let actual =
         rebuild_mst_labels("refresh-test", &reordered).expect("the reordered warm-up must publish");
@@ -157,7 +169,7 @@ fn warm_up_pool_is_independent_of_endpoint_orientation() {
     let reversed_first = [reversed, forward, other];
     let baseline = rebuild_mst_labels(
         "refresh-test",
-        &inputs(4, &reversed_first, &core_distances, 5),
+        &inputs(4, &reversed_first, &core_distances, MIN_CLUSTER_SIZE_FIVE),
     )
     .expect("the orientation fixture must publish");
     assert_eq!(
@@ -173,7 +185,7 @@ fn warm_up_pool_is_independent_of_endpoint_orientation() {
         historical_edges: &[],
         pending_edges: &reversed_first,
         core_distances: &core_distances,
-        min_cluster_size: min_cluster_size(5),
+        min_cluster_size: MIN_CLUSTER_SIZE_FIVE,
     };
     let actual = rebuild_mst_labels("refresh-test", &duplicated)
         .expect("the orientation fixture must publish");
@@ -182,4 +194,29 @@ fn warm_up_pool_is_independent_of_endpoint_orientation() {
         actual.mst_backbone, baseline.mst_backbone,
         "an orientation duplicate must not change the pool"
     );
+}
+
+/// The contiguity guard runs before the warm-up shortcut.
+///
+/// Warm-up returns before Kruskal runs, so the point-id check must happen
+/// first. Appending ids 0, 1 and 3 leaves `core_distances` four long while the
+/// source has three points, and a threshold of five keeps the session below
+/// `min_cluster_size`. Without the guard the rebuild would publish all-noise
+/// labels and retain a pool whose highest id is not a node.
+#[test]
+fn warm_up_rejects_non_contiguous_point_ids() {
+    let core_distances = [0.0_f32; 4];
+    let refresh_inputs = RefreshInputs {
+        node_count: 3,
+        mst_backbone: &[],
+        historical_edges: &[],
+        pending_edges: &[],
+        core_distances: &core_distances,
+        min_cluster_size: MIN_CLUSTER_SIZE_FIVE,
+    };
+
+    let error = rebuild_mst_labels("refresh-test", &refresh_inputs)
+        .expect_err("a non-contiguous warm-up must fail");
+
+    assert_eq!(mst_failure_code(&error), Some("INVALID_NODE_ID"));
 }

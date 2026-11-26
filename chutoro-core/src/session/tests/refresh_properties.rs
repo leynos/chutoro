@@ -9,7 +9,7 @@
 //! The generators are total: every generated source length, batch size, and
 //! cluster count is usable, so there is no rejection budget.
 
-use std::sync::Arc;
+use std::{num::TryFromIntError, sync::Arc};
 
 use proptest::prelude::*;
 
@@ -18,11 +18,15 @@ use crate::test_utils::{NumericTestSource, suite_proptest_config};
 use crate::{ChutoroBuilder, ClusterId, ClusteringResult, MetricDescriptor, adjusted_rand_index};
 
 /// Maps batch assignments to the plain label integers the ARI helper takes.
-fn batch_labels(result: &ClusteringResult) -> Vec<usize> {
+///
+/// Returns the conversion error when a label does not fit `usize`, so the
+/// property propagates it as a test failure rather than panicking inside the
+/// mapping.
+fn batch_labels(result: &ClusteringResult) -> Result<Vec<usize>, TryFromIntError> {
     result
         .assignments()
         .iter()
-        .map(|id: &ClusterId| usize::try_from(id.get()).expect("batch label must fit usize"))
+        .map(|id: &ClusterId| usize::try_from(id.get()))
         .collect()
 }
 
@@ -167,8 +171,16 @@ proptest! {
             .expect("batch configuration must be valid");
         let batch = chutoro.run(source.as_ref()).expect("batch run must succeed");
         let incremental = session.labels().to_vec();
-        let ari = adjusted_rand_index(&incremental, &batch_labels(&batch))
-            .expect("label lengths must agree");
+        // A label that does not fit `usize` becomes a `TestCaseError` rather
+        // than a panic inside the mapping closure.
+        let batch_labels = batch_labels(&batch)?;
+        prop_assert_eq!(
+            incremental.len(),
+            batch_labels.len(),
+            "label lengths must agree"
+        );
+        let ari = adjusted_rand_index(&incremental, &batch_labels)
+            .expect("equal-length label vectors must be comparable");
 
         prop_assert!(
             ari >= 0.95,
@@ -229,25 +241,37 @@ mod round_cut_tests {
     fn cuts_are_strictly_increasing_and_end_at_total() {
         for total in 1usize..=64 {
             for rounds in 2usize..=3 {
-                assert_strict_increase(&round_cuts(total, rounds), total, rounds);
+                let cuts = round_cuts(total, rounds);
+                assert_eq!(
+                    validate_strict_increase(&cuts, total),
+                    Ok(()),
+                    "rounds={rounds} total={total} cuts={cuts:?}"
+                );
             }
         }
     }
 
-    /// Asserts one split's cuts are strictly increasing and end at `total`.
+    /// Validates one split's cuts, returning the first violation.
     ///
-    /// Extracted so the sweep above stays a two-level loop; the checks
-    /// themselves are a flat walk over one split.
-    fn assert_strict_increase(cuts: &[usize], total: usize, rounds: usize) {
-        assert_eq!(cuts.last().copied().unwrap_or(0), total);
+    /// Extracted so the sweep above stays a two-level loop; the walk itself is
+    /// flat over one split, and reporting a violation as a value keeps the
+    /// assertion at the `#[test]` boundary.
+    fn validate_strict_increase(cuts: &[usize], total: usize) -> Result<(), String> {
+        if cuts.last().copied().unwrap_or(0) != total {
+            return Err(format!("the final cut must equal {total}, got {cuts:?}"));
+        }
         let mut previous = 0;
         for (index, cut) in cuts.iter().copied().enumerate() {
-            assert!(
-                cut > previous,
-                "round {index} of {rounds} over {total} points repeated a cut: {cuts:?}"
-            );
-            assert!(cut <= total, "cut {cut} exceeds {total}");
+            if cut <= previous {
+                return Err(format!(
+                    "round {index} repeated or reversed a cut: {cuts:?}"
+                ));
+            }
+            if cut > total {
+                return Err(format!("cut {cut} exceeds {total}"));
+            }
             previous = cut;
         }
+        Ok(())
     }
 }

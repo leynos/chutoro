@@ -271,6 +271,18 @@ Hard invariants. Violation requires escalation, not a workaround.
   warm-up orientation property. Full gates re-run green: lint (0 warnings),
   1699/1699 nextest via the no-setup-script fallback, 23 compile contracts, 165
   doctests, markdownlint 0 issues.
+- [x] Post-review consolidation round (2026-11-26, second): CodeRabbit's
+  formal review raised six findings and two testing requests, all actioned.
+  Test fixtures now construct their thresholds as compile-time `NonZeroUsize`
+  constants, snapshot and label/ARI helpers return validation results that the
+  `#[rstest]` and `proptest!` boundaries assert on, the design's warm-up memory
+  bound uses the modelled multi-layer harvest rather than `n × M`, and the
+  users' guide's refresh example is compiled from the published text by a
+  shared tested-example loader (`build.rs` plus `build_support/`) that both the
+  integration test and a behavioural scenario execute. The requested saturation
+  and warm-up contiguity cases were added, together with an assertion that the
+  recorded metric values, not only their counts, describe the published
+  snapshot.
 
 ## Surprises & discoveries
 
@@ -358,6 +370,16 @@ Hard invariants. Violation requires escalation, not a workaround.
   itself; without deduplication a candidate reaching the merge through two
   buffers would be retained twice and the pool would grow on every warm-up
   refresh. Date/Author: 2026-11-25, implementation (post-review repair).
+
+- Decision: The users' guide's worked example is compiled from the published
+  Markdown rather than copied into a test. Rationale: the guide previously
+  admitted that editing its snippet did not fail any test, so the documented
+  workflow could drift from the exercised one. A marker-selected fence
+  (`<!-- tested-example: session-refresh -->`) is extracted by a shared loader
+  in the build script, and the integration test and behavioural scenario
+  compile the generated module, so the guide is the single source of truth and
+  a malformed, duplicated or unterminated marker fails the build. Date/Author:
+  2026-11-26, implementation (post-review repair).
 
 - Decision: Retained raw candidates (both the real backbone and the warm-up
   pool) are stored in canonical endpoint orientation (`source <= target`).

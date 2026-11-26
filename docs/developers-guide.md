@@ -1504,6 +1504,30 @@ matching table row to change in the same commit. A wholly new code enum is
 still invisible to the test, because the test names the enums it covers; add a
 case for it when the documented surface grows.
 
+### Users-guide tested examples
+
+`chutoro-core/build_support/users_guide_examples.rs` is the shared
+tested-example loader. It reads `docs/users-guide.md`, and every fence named by
+an immediately preceding `<!-- tested-example: <identifier> -->` marker becomes
+a `MarkedExample`. The loader rejects a malformed or empty identifier, a marker
+that is not followed by a fence, an unterminated fence, and a duplicate
+identifier; a fence without a marker is invisible to it, so marking is the only
+way to load an example.
+
+`chutoro-core/build.rs` extracts the `session-refresh` example and writes a
+module wrapping it under `OUT_DIR`. Both the integration test
+(`chutoro-core/tests/users_guide_session_refresh.rs`) and the behavioural
+scenarios (`chutoro-core/tests/session_append_bdd.rs`) include that generated
+module, so the text they compile and run is the text the guide publishes.
+Editing the marked fence changes what the tests execute; there is no copied
+fixture to keep in step. `chutoro-core/tests/users_guide_loader.rs` exercises
+each rejection rule on the same loader source through a `#[path]` module.
+
+The guide's other fences are not marked yet, so the contract currently covers
+the examples the suite compiles. Marking a fence is a promise that a test loads
+and executes it, so convert one example at a time rather than marking
+prose-only snippets.
+
 ### Graph-lock test helpers
 
 `chutoro-core/src/hnsw/cpu/test_helpers.rs` carries two fixtures that reach

@@ -6,7 +6,7 @@
 
 use pretty_assertions::assert_eq;
 
-use super::{RefreshInputs, inputs, min_cluster_size, rebuild_mst_labels};
+use super::{MIN_CLUSTER_SIZE_TWO, RefreshInputs, inputs, rebuild_mst_labels};
 use crate::CandidateEdge;
 
 /// Two same-key candidates with different raw distances must not be confused.
@@ -24,8 +24,11 @@ fn recovery_matches_by_weight_within_a_shared_key() {
         CandidateEdge::new(1, 2, 2.0, 8),
     ];
 
-    let outcome = rebuild_mst_labels("refresh-test", &inputs(3, &candidates, &core_distances, 2))
-        .expect("the shared-key fixture must cluster");
+    let outcome = rebuild_mst_labels(
+        "refresh-test",
+        &inputs(3, &candidates, &core_distances, MIN_CLUSTER_SIZE_TWO),
+    )
+    .expect("the shared-key fixture must cluster");
 
     assert!(
         outcome
@@ -63,8 +66,11 @@ fn core_distances_change_the_selected_backbone() {
     ];
 
     let flat_cores = [0.0_f32; 5];
-    let flat = rebuild_mst_labels("refresh-test", &inputs(5, &edges, &flat_cores, 2))
-        .expect("the flat-core fixture must cluster");
+    let flat = rebuild_mst_labels(
+        "refresh-test",
+        &inputs(5, &edges, &flat_cores, MIN_CLUSTER_SIZE_TWO),
+    )
+    .expect("the flat-core fixture must cluster");
 
     assert_eq!(
         flat.mst_backbone,
@@ -74,8 +80,11 @@ fn core_distances_change_the_selected_backbone() {
 
     // Node 2 sits on the path but not on the shortcut.
     let raised_cores = [0.0_f32, 0.0, 10.0, 0.0, 0.0];
-    let raised = rebuild_mst_labels("refresh-test", &inputs(5, &edges, &raised_cores, 2))
-        .expect("the raised-core fixture must cluster");
+    let raised = rebuild_mst_labels(
+        "refresh-test",
+        &inputs(5, &edges, &raised_cores, MIN_CLUSTER_SIZE_TWO),
+    )
+    .expect("the raised-core fixture must cluster");
 
     // Recovery returns the backbone sorted by canonical key, so `(0, 4)`
     // precedes `(1, 2)` here even though it appears later in the input.
@@ -99,8 +108,11 @@ fn backbone_recovery_matches_the_forest_for_canonical_inputs() {
         CandidateEdge::new(0, 2, 9.0, 9),
     ];
 
-    let outcome = rebuild_mst_labels("refresh-test", &inputs(3, &pending, &core_distances, 2))
-        .expect("the fixture must cluster");
+    let outcome = rebuild_mst_labels(
+        "refresh-test",
+        &inputs(3, &pending, &core_distances, MIN_CLUSTER_SIZE_TWO),
+    )
+    .expect("the fixture must cluster");
 
     assert_eq!(outcome.mst_backbone.len(), 2);
     // The input edges are written with reversed orientation on purpose; the
@@ -133,8 +145,11 @@ fn backbone_retains_raw_distances_not_mutual_reachability_weights() {
         CandidateEdge::new(0, 2, 1.0, 2),
     ];
 
-    let outcome = rebuild_mst_labels("refresh-test", &inputs(3, &pending, &core_distances, 2))
-        .expect("the fixture must cluster");
+    let outcome = rebuild_mst_labels(
+        "refresh-test",
+        &inputs(3, &pending, &core_distances, MIN_CLUSTER_SIZE_TWO),
+    )
+    .expect("the fixture must cluster");
 
     // Without this the loop below would pass vacuously on an empty backbone.
     assert_eq!(
@@ -169,8 +184,11 @@ fn tied_reweighted_candidates_recover_deterministically() {
 
     // Baseline: the heavy candidate comes first.
     let heavy_first = [heavy, light, other];
-    let baseline = rebuild_mst_labels("refresh-test", &inputs(3, &heavy_first, &core_distances, 2))
-        .expect("the tied fixture must cluster");
+    let baseline = rebuild_mst_labels(
+        "refresh-test",
+        &inputs(3, &heavy_first, &core_distances, MIN_CLUSTER_SIZE_TWO),
+    )
+    .expect("the tied fixture must cluster");
 
     // Same set, but the light candidate now also reaches the merge through the
     // earlier backbone buffer.
@@ -180,7 +198,7 @@ fn tied_reweighted_candidates_recover_deterministically() {
         historical_edges: &[],
         pending_edges: &heavy_first,
         core_distances: &core_distances,
-        min_cluster_size: min_cluster_size(2),
+        min_cluster_size: MIN_CLUSTER_SIZE_TWO,
     };
     let actual = rebuild_mst_labels("refresh-test", &duplicated)
         .expect("the duplicated tied fixture must cluster");
@@ -216,7 +234,7 @@ fn recovery_is_independent_of_endpoint_orientation() {
     let baseline_edges = [reversed, other];
     let baseline = rebuild_mst_labels(
         "refresh-test",
-        &inputs(3, &baseline_edges, &core_distances, 2),
+        &inputs(3, &baseline_edges, &core_distances, MIN_CLUSTER_SIZE_TWO),
     )
     .expect("the orientation fixture must cluster");
 
@@ -226,7 +244,7 @@ fn recovery_is_independent_of_endpoint_orientation() {
         historical_edges: &[],
         pending_edges: &baseline_edges,
         core_distances: &core_distances,
-        min_cluster_size: min_cluster_size(2),
+        min_cluster_size: MIN_CLUSTER_SIZE_TWO,
     };
     let actual = rebuild_mst_labels("refresh-test", &duplicated)
         .expect("the orientation fixture must cluster");
