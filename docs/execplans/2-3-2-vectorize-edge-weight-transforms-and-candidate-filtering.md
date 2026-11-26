@@ -18,11 +18,12 @@ pending, not waived, and no equivalence is claimed to have been approved.
 The literal local `make test` was not produced, and this record does not claim
 it. Its setup script expires under this host's saturated compile queue, which
 the developers' guide classes as a budget rather than a defect. Every test it
-would run passed in partitions, and the hosted `build-test` suite that runs the
-same nextest suite plus the doctest step is green on the published head. "Gate
-disposition for the literal `make test`" under Validation and acceptance
-records the detail and the one step a reader needs if they require the literal
-command.
+would run passed in local partitions, whose scope is stated with them. The
+hosted `build-test` job, which runs the same nextest suite plus the doctest
+step, was green on heads `42f9e8c` and `4e96416` and red on `9cc610e`; no
+result is claimed for a head that has not finished. "Gate disposition for the
+literal `make test`" under Validation and acceptance records the detail and the
+one step a reader needs if they require the literal command.
 
 Roadmap item: 2.3.2 (Phase 2, "Hot-path optimizations"), `docs/roadmap.md`
 lines 400-402. Design: `docs/chutoro-design.md` §6.3 "SIMD utilization".
@@ -1492,10 +1493,15 @@ setup script rather than as a red test.
 
 What stands in its place, all on recorded heads:
 
-- Every test the command would run was executed locally in partitions: 1,630 of
-  1,630 outside `chutoro-compile-contracts` and `benchmark_smoke`, 1 of 1
-  `benchmark_smoke`, all 21 compile-contract tests with the gate's exact
-  `RUSTFLAGS`, the MST scenario target 6 of 6, and every doctest binary.
+- Every test the command would run was executed locally in partitions, with
+  these run scopes: 1,630 of 1,630 outside `chutoro-compile-contracts` and
+  `benchmark_smoke` on head `42f9e8c` before the Milestone 2 review rework;
+  1,567 of 1,567 there on the pre-rebase tree; 1 of 1 `benchmark_smoke` on
+  `42f9e8c`; 21 of 21 compile-contract tests at `4e96416` with the gate's exact
+  `RUSTFLAGS`, before the two tests added afterwards; the MST scenario target 6
+  of 6 on `69583e5`; and every doctest binary on `42f9e8c`. Tests added after
+  those runs were executed individually and are recorded in Progress, but they
+  are not covered by a whole-suite partition run yet.
 - The hosted `build-test` job runs the same nextest suite under the same
   setup scripts and then `make test-doc`, alongside `make lint`,
   `make spelling`, `make test-workflow-contracts` and
@@ -1504,13 +1510,23 @@ What stands in its place, all on recorded heads:
   Its differences from the literal command are coverage instrumentation and the
   coverage action's target selection.
 
-Head `9cc610e` is recorded as a **red** hosted result rather than a green one:
-adding `mst_scenario_target_requires_the_cpu_feature` put a nested-build test
-into `chutoro-compile-contracts` without adding it to the pinned set in
-`tests/workflow_contracts/trybuild_override_test.py`, so
-`make test-workflow-contracts` failed with "the discovery must find exactly…".
-The pinned set now names the new test, and that contract file passes 50/50
-locally. Any later head's result belongs to that head.
+Heads `9cc610e` and `6be75ac` are recorded as **red** hosted results rather
+than green ones, because adding the nested-build test
+`mst_scenario_target_requires_the_cpu_feature` broke two pins in turn.
+
+- `9cc610e` failed `make test-workflow-contracts` with "the discovery must find
+  exactly…", because `tests/workflow_contracts/trybuild_override_test.py` pins
+  the set of compile-contract tests that spawn nested builds. That file now
+  names the new test and passes 50/50.
+- `6be75ac` then failed the nextest suite on
+  `chutoro-core::nextest_config compiler_starting_tests_share_the_nested_cargo_group`,
+  which pins the exact `nested-cargo` filter string and so had to learn the
+  new binary too. It now does, and that target passes 26/26.
+
+The lesson is recorded rather than smoothed over: neither pin was covered by
+the partition run that had already passed, because both were added after it.
+The broad partition now passes 1,639 of 1,639 on the fixing tree. Any later
+head's result belongs to that head.
 
 A reader who requires the literal command has one remaining step: run
 `make test` on a host whose compile pool is not saturated. Nothing in this
@@ -1635,8 +1651,8 @@ Close (2026-11-23). **Roadmap item 2.3.2 closes as a measured null result.**
 ## Revision note
 
 **Revision 10 (2026-11-26).** Recorded the gate as pending rather than
-complete, the red hosted result on `9cc610e` and its workflow-contract repair,
-and the head attribution for every hosted figure.
+complete, the two red hosted results on `9cc610e` and `6be75ac` with both
+pinned-set repairs, and the head attribution for every hosted figure.
 
 **Revision 9 (2026-11-26).** Recorded the hosted whole-plan assessment's
 rework: the Gate A re-measurement at `4e96416`, the direct `prepare_edge_list`
