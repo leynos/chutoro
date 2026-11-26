@@ -74,6 +74,7 @@ COMPILE_CONTRACT_TESTS: typ.Final[frozenset[str]] = frozenset({
     "digest_algorithm_requires_wildcard_arm",
     "checksum_parse_is_not_const",
     "checksum_unsupported_variant_is_removed",
+    "mst_scenario_target_requires_the_cpu_feature",
 })
 
 def _period_seconds(timeout: object) -> float | None:

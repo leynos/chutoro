@@ -40,5 +40,12 @@ rstest-bdd-macros = "0.6.0-beta1"
 version = "0.1.0"
 path = "../chutoro-test-support"
 
+# This scenario suite drives the MST entry point, which the crate only exports
+# with the `cpu` feature. Declaring the requirement makes Cargo skip the target
+# instead of failing to resolve its imports on a `--no-default-features` build.
+[[test]]
+name = "mst_edge_preparation_bdd"
+required-features = ["cpu"]
+
 [lints]
 workspace = true

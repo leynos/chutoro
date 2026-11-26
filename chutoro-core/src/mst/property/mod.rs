@@ -8,6 +8,7 @@
 //! See `docs/property-testing-design.md` Section 4.
 
 mod concurrency;
+mod duplicates;
 mod equivalence;
 mod error_strategies;
 mod helpers;

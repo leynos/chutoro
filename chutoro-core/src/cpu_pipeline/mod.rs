@@ -121,17 +121,24 @@ fn build_mutual_reachability_forest(
 /// maximum of the raw distance and both endpoints' core distances. The
 /// transform preserves input order, so the parallel slice walk and a
 /// sequential walk over [`EdgeHarvest::iter`] return the same vector.
+///
+/// Every index runs before any error is inspected. When several endpoints lack
+/// a core distance, the returned error is the one belonging to the lowest
+/// input index, and within one edge the source lookup is checked before the
+/// target lookup. That matches the serial walk's error identity at any Rayon
+/// thread count instead of reporting whichever failure a worker reached first.
 #[cfg(feature = "cpu")]
 fn mutual_reachability_edges(
     source_name: &str,
     harvested: &EdgeHarvest,
     core_distances: &[f32],
 ) -> Result<Vec<CandidateEdge>> {
-    harvested
-        .as_slice()
-        .par_iter()
-        .map(|edge| mutual_reachability_edge(source_name, edge, core_distances))
-        .collect()
+    collect_ordered_results(
+        harvested
+            .as_slice()
+            .par_iter()
+            .map(|edge| mutual_reachability_edge(source_name, edge, core_distances)),
+    )
 }
 
 /// Applies mutual-reachability weighting to one candidate edge.
@@ -245,6 +252,10 @@ fn compute_core_distances<D: DataSource + Sync>(
 /// serially, selects the error at the lowest source index. Collecting directly
 /// into `Result<Vec<_>, _>` would instead return whichever error rayon observes
 /// first, which is not deterministic across thread counts.
+///
+/// Both [`compute_core_distances`] and [`mutual_reachability_edges`] rely on
+/// that rule; it is the shared abstraction for "lowest index wins" in this
+/// module.
 #[cfg(feature = "cpu")]
 fn collect_ordered_results<T, E>(
     results: impl ParallelIterator<Item = std::result::Result<T, E>>,
