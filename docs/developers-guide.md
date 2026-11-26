@@ -3532,13 +3532,14 @@ The advisory lock spans one transfer attempt on both paths: it is acquired
 before the attempt touches the slot and released when the attempt ends, whether
 by rename, discard, or a transient error that returns control to a retry. The
 budget is charged per verification attempt: `0` read-back bytes when
-uninterrupted or restarted from zero, and for a transfer resumed from a
-non-zero offset the bytes each attempt actually reads, bounded above by
-`expected_size` per attempt. The verification window runs from the first
-verification read to publication, so a pass that completes its read and then
-stops before the rename still costs that pass and the replacement. Interrupting
-the verification starts a fresh pass rather than resuming it, so the bound does
-not scale with the number of transfer resumes.
+uninterrupted, or when restarted from zero and never later resumed from a
+non-zero offset, and for a transfer resumed from a non-zero offset the bytes
+each attempt actually reads, bounded above by `expected_size` per attempt. The
+verification window runs from the first verification read to publication, so a
+pass that completes its read and then stops before the rename still costs that
+pass and the replacement. Interrupting the verification starts a fresh pass
+rather than resuming it, so the bound does not scale with the number of
+transfer resumes.
 
 Enable the crate's `testing` feature for adapter contract tests. It exposes
 `InMemoryFetcher`, `InMemoryStorage`, `InMemoryPublisher`, `FilesystemFetcher`,
