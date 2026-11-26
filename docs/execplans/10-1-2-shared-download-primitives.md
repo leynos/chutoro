@@ -912,7 +912,15 @@ as missed optimizations:
 - A `Full` outcome in reply to a ranged read means the server ignored the range
   or the representation changed (§14.2, §13.1.5): truncate to zero and rewrite.
   **This is the normal path, not an error** — it reads like a bug to anyone who
-  has not read the RFC, so say so in the comment.
+  has not read the RFC, so say so in the comment. It does **not** consume
+  `clean_restarts`, which is reserved for a full-length digest mismatch. Its
+  durable order is the reverse of the clean restart's: atomically set the
+  sidecar to `durable_offset = 0` and the current representation's validator
+  (or clear it when the response carries none) and fsync it, then truncate and
+  fsync the data, then stream from zero. Resetting the offset first means the
+  data file is never shorter than the recorded offset, so a crash between the
+  steps recovers as a zero-offset transfer rather than as a truncated slot. A
+  later mismatch after a completed fallback still earns the one clean restart.
 - `NotSatisfiable` carries a remote total; if it equals the staged length the
   artefact is already whole, otherwise discard and restart (§15.5.17).
 - Any content coding disables resume for that URL, because §14.1.2 makes range
