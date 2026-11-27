@@ -300,6 +300,22 @@ issue text and the repository's documentation are the authority.
       per invocation. The reader fixtures split into general and path
       modules over a shared support module, and the Cargo-option reader moved
       to `cargo_options.rs`, which keeps every changed file inside its bounds.
+- [x] Eleventh review round, all 16 findings actioned. The substantive one
+      closes the last route to a false pass: a proof behind a *module's*
+      `cfg(all(kani, test))` guard now inherits that guard, and a proof in a
+      binary target is reported as `binary-target` because `cargo kani --lib`
+      never compiles it, so neither can satisfy a manifest entry. `autolib =
+      false` stops `src/lib.rs` being read as a second crate root, the orphan
+      sweep prunes build directories and covers every root, and the discovery
+      root is normalized so `discover(Path("."))` reports rather than raising.
+      The recipe reader matches `kani` as a whole subcommand, rejects any
+      unquoted shell control operator (`|| true ;` no longer masks), and reads
+      quoted option values as the shell would. Branch filters follow GitHub's
+      syntax (`?`/`+` quantify the preceding character, `[]` classes), the
+      manifest rejects a version that is not the integer the Rust loader
+      reads, and the distance-proof count is scoped to its package. The
+      fixtures gained a `write_package` factory, parameterized spellings, a
+      carried-guard case, an autolib case and a pruning case.
 - [ ] Push the branch and create the draft pull request.
 
 ## Surprises & discoveries

@@ -18,6 +18,7 @@ from kani_recipe_reading import (
     MAKEFILE_PATH,
     recipe,
 )
+from kani_reader_support import _write_package
 
 
 @pytest.fixture(scope="module")
@@ -36,3 +37,19 @@ def fast_recipe(makefile: str) -> str:
 def full_recipe(makefile: str) -> str:
     """Return the recipe body of the ``kani-full:`` target."""
     return recipe(makefile, KANI_FULL_TARGET_RE, "kani-full")
+
+
+@pytest.fixture
+def write_package(tmp_path):
+    """Return a function that writes one package under this test's tmp_path.
+
+    The reader contracts build a package for nearly every case, so binding the
+    root here keeps the source text the only argument each test supplies. A
+    case that needs a custom layout still calls the shared writer with an
+    explicit root.
+    """
+
+    def write(source: str, name: str = "fixture"):
+        return _write_package(tmp_path, source, name)
+
+    return write

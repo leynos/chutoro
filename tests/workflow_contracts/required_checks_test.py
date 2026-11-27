@@ -246,25 +246,57 @@ def test_the_owning_trigger_covers_every_pull_request(
 REQUIRED_TYPES = ("opened", "synchronize", "reopened")
 
 
+#: The regular expression for a `*` wildcard: any run without a separator.
+_WILDCARD = "[^/]*"
+
+#: The regular expression for `**`: any run, separators included.
+_ANY = ".*"
+
+
 def _branch_pattern_regex(pattern: str) -> re.Pattern[str]:
     """Translate one GitHub branch filter into a regular expression.
 
     GitHub's filter syntax is not literal membership: ``*`` matches any run of
-    characters except ``/``, ``**`` matches across separators, and ``?`` is one
-    character. Treating the values as literal names would accept
-    ``branches-ignore: ['m*']``, which does exclude ``main``.
+    characters except ``/``, ``**`` matches across separators, ``?`` and ``+``
+    quantify the preceding character, and ``[]`` is a character class with
+    ``!`` for negation. Treating the values as literal names would accept
+    ``branches-ignore: ['m*']``, which does exclude ``main``, and treating
+    ``?`` as a wildcard would accept ``ma?n``, which does not reach it.
     """
     parts: list[str] = []
     index = 0
     while index < len(pattern):
-        if pattern[index : index + 2] == "**":
-            parts.append(".*")
-            index += 2
-            continue
-        character = pattern[index]
-        parts.append({"*": "[^/]*", "?": "[^/]"}.get(character, re.escape(character)))
-        index += 1
+        atom, index = _pattern_atom(pattern, index)
+        if atom in {"?", "+"} and parts:
+            parts[-1] = f"{parts[-1]}{atom}"
+        else:
+            parts.append(atom)
     return re.compile("".join(parts))
+
+
+def _pattern_atom(pattern: str, index: int) -> tuple[str, int]:
+    """Return the next regular-expression atom and the offset after it."""
+    character = pattern[index]
+    if character == "*":
+        if pattern[index : index + 2] == "**":
+            return _ANY, index + 2
+        return _WILDCARD, index + 1
+    if character in "?+":
+        return character, index + 1
+    if character == "[":
+        return _character_class(pattern, index)
+    return re.escape(character), index + 1
+
+
+def _character_class(pattern: str, index: int) -> tuple[str, int]:
+    """Return one bracket expression's regex and the offset after it."""
+    end = pattern.find("]", index + 1)
+    if end < 0:
+        return re.escape("["), index + 1
+    body = pattern[index + 1 : end]
+    if body.startswith("!"):
+        body = "^" + body[1:]
+    return f"[{body}]", end + 1
 
 
 def _selected_by(patterns: typ.Iterable[str], branch: str) -> bool:
@@ -288,11 +320,26 @@ def _require_unfiltered(
     workflow: str, context: str, configured: dict[str, typ.Any]
 ) -> None:
     """Require a trigger that reaches main for every relevant activity."""
+    _require_no_path_filter(workflow, context, configured)
+    _require_main_selected(workflow, context, configured)
+    _require_required_types(workflow, context, configured)
+
+
+def _require_no_path_filter(
+    workflow: str, context: str, configured: dict[str, typ.Any]
+) -> None:
+    """Require a trigger with no path filter, which would leave it absent."""
     filters = [key for key in ("paths", "paths-ignore") if key in configured]
     assert not filters, (
         f"{workflow}:{context} is a required check, so its pull_request "
         f"trigger must declare no path filter; found {filters!r}"
     )
+
+
+def _require_main_selected(
+    workflow: str, context: str, configured: dict[str, typ.Any]
+) -> None:
+    """Require the branch filters to select main and not exclude it."""
     branches = configured.get("branches")
     if branches is not None:
         assert _selected_by(branches, "main"), (
@@ -300,23 +347,31 @@ def _require_unfiltered(
             f"trigger must select main; found branches {branches!r}"
         )
     ignored = configured.get("branches-ignore")
-    if ignored is not None:
-        excluded = [
-            pattern
-            for pattern in ignored
-            if _branch_pattern_regex(pattern).fullmatch("main")
-        ]
-        assert not excluded, (
-            f"{workflow}:{context} is a required check, so its pull_request "
-            f"trigger must not exclude main; found branches-ignore {excluded!r}"
-        )
+    if ignored is None:
+        return
+    excluded = [
+        pattern
+        for pattern in ignored
+        if _branch_pattern_regex(pattern).fullmatch("main")
+    ]
+    assert not excluded, (
+        f"{workflow}:{context} is a required check, so its pull_request "
+        f"trigger must not exclude main; found branches-ignore {excluded!r}"
+    )
+
+
+def _require_required_types(
+    workflow: str, context: str, configured: dict[str, typ.Any]
+) -> None:
+    """Require an explicit activity list to include every relevant activity."""
     types = configured.get("types")
-    if types is not None:
-        missing = [kind for kind in REQUIRED_TYPES if kind not in types]
-        assert not missing, (
-            f"{workflow}:{context} is a required check, so its pull_request "
-            f"trigger must run on {missing!r} as well; found types {types!r}"
-        )
+    if types is None:
+        return
+    missing = [kind for kind in REQUIRED_TYPES if kind not in types]
+    assert not missing, (
+        f"{workflow}:{context} is a required check, so its pull_request "
+        f"trigger must run on {missing!r} as well; found types {types!r}"
+    )
 
 
 @pytest.mark.parametrize(
@@ -325,7 +380,10 @@ def _require_unfiltered(
         (("main",), True),
         (("**",), True),
         (("m*",), True),
-        (("ma?n",), True),
+        (("ma?n",), False),
+        (("[m]ain",), True),
+        (("mai+n",), True),
+        (("mai+",), False),
         (("develop",), False),
         (("main", "!main"), False),
         (("!main", "main"), True),
@@ -351,6 +409,8 @@ def test_branch_patterns_follow_github_filtering(
         ({"branches-ignore": ["m*"]}, True),
         ({"branches": ["main", "!main"]}, True),
         ({"branches": ["develop"]}, True),
+        ({"branches": ["ma?n"]}, True),
+        ({"branches-ignore": ["[m]ain"]}, True),
         ({"types": ["closed"]}, True),
         ({"branches": ["**"]}, False),
         ({"types": ["opened", "synchronize", "reopened"]}, False),

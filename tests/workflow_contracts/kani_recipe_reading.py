@@ -19,6 +19,7 @@ the make behaviour it models.
 from __future__ import annotations
 
 import re
+import shlex
 from pathlib import Path
 
 import pytest
@@ -57,7 +58,7 @@ KANI_FULL_TARGET_RE = re.compile(
 KANI_COMMAND_RE = re.compile(
     r"^\t(?P<prefixes>[-@+]*)(?:\$\([A-Z_]+\)\s+)*"
     r"(?:\$\(KANI_SUITE\)\s+.*?\s--\s+)?"
-    r"(?:\$\([A-Z_]+\)\s+)*\$\(CARGO\)\s+kani\b(?P<arguments>.*)$"
+    r"(?:\$\([A-Z_]+\)\s+)*\$\(CARGO\)\s+kani(?=\s|$)(?P<arguments>.*)$"
 )
 
 #: The checker wrapper around one delegated command: the manifest, the
@@ -87,6 +88,11 @@ PACKAGE_ARGUMENT_RE = re.compile(
 #: is the same operator; matching a fixed list of spellings would accept it.
 _MASKING_SUFFIX = re.compile(r"\|\|\s*(?:true|:)\s*$")
 
+#: Shell control operators this reader refuses. A tier recipe is one command
+#: that make can fail on; a `;` lets a later `true` hide the checker's status,
+#: and `&&`/`&`/`|` do the same in other shapes. Quoted text is exempt.
+_CONTROL_OPERATORS = frozenset({";", "&&", "&", "|"})
+
 #: A shell comment, which ends the command before anything written after it.
 _SHELL_COMMENT = re.compile(r"(?:^|\s)#.*$")
 
@@ -110,6 +116,33 @@ def _terminal_command(arguments: str) -> str:
 def _masked(command: str) -> bool:
     """Report whether `command` swallows its own failure."""
     return _MASKING_SUFFIX.search(command) is not None
+
+
+def _control_operators(command: str) -> list[str]:
+    """Return the unquoted shell control operators in `command`."""
+    found: list[str] = []
+    quote = ""
+    index = 0
+    while index < len(command):
+        character = command[index]
+        if quote:
+            if character == quote:
+                quote = ""
+            index += 1
+            continue
+        if character in {"'", '"'}:
+            quote = character
+            index += 1
+            continue
+        pair = command[index : index + 2]
+        if pair in {"&&", "||"}:
+            found.append(pair)
+            index += 2
+            continue
+        if character in _CONTROL_OPERATORS:
+            found.append(character)
+        index += 1
+    return found
 
 
 class RecipeError(ValueError):
@@ -185,26 +218,44 @@ def selections(text: str) -> list[tuple[str, list[str]]]:
         When a command cannot be counted as a gate: it ignores its own exit
         status, swallows a failure, or names no single package.
     """
-    selected: list[tuple[str, list[str]]] = []
-    for match in executable_commands(text):
-        arguments = _terminal_command(match["arguments"])
-        if "-" in match["prefixes"]:
-            raise RecipeError(
-                f"a Kani recipe line is prefixed with '-' so its failure is "
-                f"ignored: {arguments.strip()!r}"
-            )
-        if _masked(arguments):
-            raise RecipeError(
-                f"a Kani recipe line swallows its failure: {arguments.strip()!r}"
-            )
-        packages = names(arguments, PACKAGE_ARGUMENT_RE)
-        if len(packages) != 1:
-            raise RecipeError(
-                "each Kani recipe line must name exactly one package with -p, "
-                f"got {packages!r} in {arguments.strip()!r}"
-            )
-        selected.append((packages[0], names(arguments, HARNESS_ARGUMENT_RE)))
-    return selected
+    return [
+        _selection(match)
+        for match in executable_commands(text)
+    ]
+
+
+def _selection(match: re.Match[str]) -> tuple[str, list[str]]:
+    """Return one command's package and harness arguments, or raise."""
+    arguments = _terminal_command(match["arguments"])
+    _reject_masking(match, arguments)
+    packages = names(arguments, PACKAGE_ARGUMENT_RE)
+    if len(packages) != 1:
+        raise RecipeError(
+            "each Kani recipe line must name exactly one package with -p, "
+            f"got {packages!r} in {arguments.strip()!r}"
+        )
+    return packages[0], names(arguments, HARNESS_ARGUMENT_RE)
+
+
+def _reject_masking(match: re.Match[str], arguments: str) -> None:
+    """Reject a recipe line whose own failure could be swallowed."""
+    if "-" in match["prefixes"]:
+        raise RecipeError(
+            f"a Kani recipe line is prefixed with '-' so its failure is "
+            f"ignored: {arguments.strip()!r}"
+        )
+    if _masked(arguments):
+        raise RecipeError(
+            f"a Kani recipe line swallows its failure: {arguments.strip()!r}"
+        )
+    operators = _control_operators(arguments)
+    if operators:
+        raise RecipeError(
+            "a Kani recipe line must be one command, but it contains the "
+            f"shell control operator(s) {sorted(set(operators))!r}, "
+            "through which a later command can hide the checker's status: "
+            f"{arguments.strip()!r}"
+        )
 
 
 def wrappers(text: str) -> list[re.Match[str]]:
@@ -256,6 +307,19 @@ def _is_short_flag(flag: str) -> bool:
     return not flag.startswith("--")
 
 
+def shell_words(arguments: str) -> list[str]:
+    """Return one command's words as the shell would pass them.
+
+    Quotes group words and are removed, so ``--output-format "regular"``
+    names the same value as the unquoted spelling. A command whose quoting is
+    unbalanced falls back to a plain split, which can only over-report.
+    """
+    try:
+        return shlex.split(terminal_arguments(arguments))
+    except ValueError:
+        return terminal_arguments(arguments).split()
+
+
 def violations(arguments: str) -> list[str]:
     """Return the refused options in one Kani command's arguments, in order.
 
@@ -265,7 +329,7 @@ def violations(arguments: str) -> list[str]:
     read as one: the checker never receives it, and reporting it would fail a
     recipe for an option it does not pass.
     """
-    words = _terminal_command(arguments).split()
+    words = shell_words(arguments)
     found = [
         word
         for word in words

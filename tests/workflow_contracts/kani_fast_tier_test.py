@@ -105,8 +105,12 @@ def test_a_shell_comment_ends_the_read_command() -> None:
         "--scope fast -- $(CARGO) kani -p chutoro-core --lib --exact "
         "--harness a::verify_one # --harness b::verify_two --jobs=4\n"
     )
-    assert selections(command) == [("chutoro-core", ["a::verify_one"])]
-    assert violations("-p chutoro-core --lib --harness a::verify_one # -j4") == []
+    found = selections(command)
+    assert found == [("chutoro-core", ["a::verify_one"])], (
+        f"a trailing comment must not add a selection, got {found!r}"
+    )
+    refused = violations("-p chutoro-core --lib --harness a::verify_one # -j4")
+    assert refused == [], f"a commented-out flag must not be refused, got {refused!r}"
 
 
 def test_fast_recipe_runs_only_executable_kani_commands(fast_recipe: str) -> None:
@@ -149,7 +153,10 @@ def test_forbidden_kani_flags_are_rejected(arguments: str) -> None:
 
 def test_a_regular_output_format_is_not_a_violation() -> None:
     """The negative control: the one output format the checker reads passes."""
-    assert violations("-p chutoro-core --lib --output-format regular") == []
+    refused = violations("-p chutoro-core --lib --output-format regular")
+    assert refused == [], f"the regular format must be accepted, got {refused!r}"
+    quoted = violations('-p chutoro-core --lib --output-format "regular"')
+    assert quoted == [], f"a quoted regular format must be accepted, got {quoted!r}"
 
 
 @pytest.mark.parametrize(

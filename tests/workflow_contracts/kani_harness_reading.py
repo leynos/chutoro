@@ -131,11 +131,14 @@ class _Package(typ.NamedTuple):
         The crate root source file, ``src/lib.rs`` or ``src/main.rs``.
     directory
         The package directory, used to find sources no module reaches.
+    is_binary
+        Whether the root is a binary target, which `--lib` never compiles.
     """
 
     name: str
     root: Path
     directory: Path
+    is_binary: bool
 
 
 class _Location(typ.NamedTuple):
@@ -159,6 +162,25 @@ class _Location(typ.NamedTuple):
     file: Path
     is_crate_root: bool
     via_path: bool
+
+
+class _Context(typ.NamedTuple):
+    """The state one file is read in.
+
+    Attributes
+    ----------
+    module
+        The module path the file is reached by.
+    guards
+        The ``#[cfg]`` attributes of the declarations that reached it.
+    binary
+        Whether the file belongs to a binary target, which ``--lib`` never
+        compiles.
+    """
+
+    module: tuple[str, ...]
+    guards: tuple[str, ...]
+    binary: bool
 
 
 def _is_mod_rs(location: _Location) -> bool:
@@ -250,12 +272,17 @@ class _Reader:
     def visit(
         self,
         file: Path,
-        module: tuple[str, ...],
+        context: _Context = _Context((), (), False),
         *,
         is_crate_root: bool = False,
         via_path: bool = False,
     ) -> None:
         """Read `file` as the module `module`, following its declarations.
+
+        `context` carries the module path, the ``#[cfg]`` attributes of the
+        declarations that reached this file, and whether it belongs to a
+        binary target. A module gated by a test guard puts every proof below it
+        in that configuration too, and ``--lib`` never compiles a binary.
 
         A file reached twice under the same module path is a revisited module
         and is skipped. A file reached twice under *different* paths is not:
@@ -268,9 +295,9 @@ class _Reader:
             file=file, is_crate_root=is_crate_root, via_path=via_path
         )
         if resolved in self._visited:
-            self._note_revisit(resolved, module, location)
+            self._note_revisit(resolved, context, location)
             return
-        self._visited[resolved] = module
+        self._visited[resolved] = context.module
         source = _parse(file)
         relative = file.relative_to(self._repo_root).as_posix()
         if source is None:
@@ -285,11 +312,11 @@ class _Reader:
                 "UTF-8, so its declarations cannot be checked",
             )
             return
-        self._record_proofs(source, module, relative)
-        self._follow(location, source, module)
+        self._record_proofs(source, relative, context)
+        self._follow(location, source, context)
 
     def _note_revisit(
-        self, resolved: Path, module: tuple[str, ...], location: _Location
+        self, resolved: Path, context: _Context, location: _Location
     ) -> None:
         """Report a source reached again under a different module path.
 
@@ -304,13 +331,13 @@ class _Reader:
         it declares a proof.
         """
         first = self._visited[resolved]
-        if first == module:
+        if first == context.module:
             return
         source = _parse(location.file)
         if source is None:
             return
         held = _holds_proof(source) or bool(
-            self._descendant_proofs(location, source, module)
+            self._descendant_proofs(location, source, context)
         )
         if not held:
             return
@@ -319,15 +346,12 @@ class _Reader:
             location.file.relative_to(self._repo_root).as_posix(),
             1,
             "the same source is reached as both "
-            f"{'::'.join(first)} and {'::'.join(module)}, so a harness "
+            f"{'::'.join(first)} and {'::'.join(context.module)}, so a harness "
             "identity below it would be dropped",
         )
 
     def _descendant_proofs(
-        self,
-        location: _Location,
-        source: _Source,
-        module: tuple[str, ...],
+        self, location: _Location, source: _Source, context: _Context
     ) -> list[str]:
         """Return the harness paths a repeated file's subtree would declare.
 
@@ -339,7 +363,7 @@ class _Reader:
         """
         found: list[str] = []
         seen = {location.file.resolve()}
-        pending = [(location, source, module)]
+        pending = [(location, source, context.module)]
         while pending:
             current, current_source, current_module = pending.pop()
             for _, child, child_module in _declared_children(
@@ -358,10 +382,7 @@ class _Reader:
         return found
 
     def _record_proofs(
-        self,
-        source: _Source,
-        module: tuple[str, ...],
-        relative: str,
+        self, source: _Source, relative: str, context: _Context
     ) -> None:
         """Record each proof in one file, or report why it cannot be."""
         for match in _FUNCTION.finditer(source.code):
@@ -392,7 +413,11 @@ class _Reader:
             # behind a test guard exists in the source but never runs. Counting
             # it as a harness would let the manifest require something the
             # recipe cannot verify.
-            guards = [*attributes, *(attr for item in chain for attr in item.attributes)]
+            guards = [
+                *context.guards,
+                *attributes,
+                *(attr for item in chain for attr in item.attributes),
+            ]
             if _gated_by_test(guards):
                 self._report(
                     "cfg-test",
@@ -402,8 +427,20 @@ class _Reader:
                     "does not enable, so it cannot run",
                 )
                 continue
+            # The gate compiles with `--lib`, so a binary target's harnesses
+            # never run in either tier. Recording one would let a mandatory
+            # manifest entry be satisfied by a proof the run cannot execute.
+            if context.binary:
+                self._report(
+                    "binary-target",
+                    relative,
+                    line,
+                    "proof is declared in a binary target, which the Kani gate "
+                    "does not compile",
+                )
+                continue
             pretty = "::".join(
-                (*module, *(item.name for item in chain), match["name"])
+                (*context.module, *(item.name for item in chain), match["name"])
             )
             self.proofs.append(
                 ProofDeclaration(
@@ -415,20 +452,25 @@ class _Reader:
             )
 
     def _follow(
-        self,
-        location: _Location,
-        source: _Source,
-        module: tuple[str, ...],
+        self, location: _Location, source: _Source, context: _Context
     ) -> None:
         """Follow each file-based module declaration in one file."""
         self._report_inline_paths(location, source)
         for item, child, child_module in _declared_children(
-            location, source, module
+            location, source, context.module
         ):
             if child is None:
                 self._report_missing_path(location, source, item)
                 continue
-            self.visit(child.file, child_module, via_path=child.via_path)
+            self.visit(
+                child.file,
+                _Context(
+                    child_module,
+                    (*context.guards, *item.attributes),
+                    context.binary,
+                ),
+                via_path=child.via_path,
+            )
 
     def _report_inline_paths(self, location: _Location, source: _Source) -> None:
         """Report an inline module whose own ``#[path]`` cannot be read.
@@ -556,12 +598,16 @@ class _ManifestPackage(typ.NamedTuple):
         The package directory.
     roots
         The crate roots to read, in declaration order: an explicit
-        ``[lib] path`` or the default ``src/lib.rs``, then the binary root.
+        ``[lib] path`` or the default ``src/lib.rs``, then the binary roots.
+    library_roots
+        Those of `roots` that are library targets, which ``--lib`` compiles
+        and the gate therefore verifies.
     """
 
     name: str
     directory: Path
     roots: tuple[Path, ...]
+    library_roots: tuple[Path, ...]
 
 
 def _declared_roots(
@@ -577,16 +623,32 @@ def _declared_roots(
     any of them would omit a package's proofs without a report, which is the
     failure the inventory contract exists to prevent.
     """
-    roots: list[Path] = [_library_root(document, directory)]
+    roots: list[Path] = []
+    library = _library_root(document, directory)
+    if library is not None:
+        roots.append(library)
     roots.extend(_binary_roots(document, directory))
     return tuple(roots)
 
 
-def _library_root(document: dict[str, typ.Any], directory: Path) -> Path:
-    """Return the manifest's library root, explicit or conventional."""
+def _library_root(document: dict[str, typ.Any], directory: Path) -> Path | None:
+    """Return the manifest's library root, explicit or conventional.
+
+    ``autolib = false`` tells Cargo not to build ``src/lib.rs`` as a library of
+    its own, usually because a binary loads that file as a module. Inferring it
+    anyway would visit the same source as two crate roots and report the
+    second visit as a repeat that is not there. An explicit ``[lib] path`` is
+    still honoured, because that key asks for a library.
+    """
     library = document.get("lib")
-    if isinstance(library, dict) and isinstance(library.get("path"), str):
-        return directory / library["path"]
+    if isinstance(library, dict):
+        if isinstance(library.get("path"), str):
+            return directory / library["path"]
+        return directory / "src" / "lib.rs"
+    package = document.get("package")
+    autolib = package.get("autolib") if isinstance(package, dict) else None
+    if autolib is False:
+        return None
     return directory / "src" / "lib.rs"
 
 
@@ -631,12 +693,18 @@ def _package_directories(root: Path) -> list[_ManifestPackage]:
             continue
         roots = _declared_roots(document, manifest.parent)
         if any(candidate.is_file() for candidate in roots):
+            library = _library_root(document, manifest.parent)
             found.append(
                 _ManifestPackage(
                     name=package["name"],
                     directory=manifest.parent,
                     roots=tuple(
                         candidate for candidate in roots if candidate.is_file()
+                    ),
+                    library_roots=(
+                        (library,)
+                        if library is not None and library.is_file()
+                        else ()
                     ),
                 )
             )
@@ -653,6 +721,7 @@ def _packages(root: Path) -> list[_Package]:
                     name=package.name,
                     root=crate_root,
                     directory=package.directory,
+                    is_binary=crate_root not in package.library_roots,
                 )
             )
     return packages
@@ -690,14 +759,27 @@ def _unreached(packages: typ.Iterable[_Package], visited: frozenset[Path]) -> li
 
 def _sweep_files(packages: typ.Iterable[_Package]) -> typ.Iterator[Path]:
     """Yield each source file under the packages' own directories once."""
-    directories: dict[Path, None] = {}
-    for package in packages:
-        candidates = [package.directory / "src", package.root.parent]
-        for directory in candidates:
-            if directory.is_dir():
-                directories.setdefault(directory.resolve(), None)
-    for directory in sorted(directories):
-        yield from directory.rglob("*.rs")
+    candidates = [
+        candidate
+        for package in packages
+        for candidate in (package.directory / "src", package.root.parent)
+    ]
+    for directory in sorted({candidate.resolve() for candidate in candidates if candidate.is_dir()}):
+        yield from _source_files(directory)
+
+
+def _source_files(directory: Path) -> typ.Iterator[Path]:
+    """Yield each Rust file below `directory`, never entering an ignored tree.
+
+    The sweep may start at a package directory when its library lives outside
+    ``src``, and a build directory there holds generated sources. Reading those
+    would report an orphan the repository never wrote.
+    """
+    pending = [directory]
+    while pending:
+        entries = sorted(pending.pop().iterdir())
+        pending.extend(entry for entry in entries if _is_package_tree(entry))
+        yield from (entry for entry in entries if entry.suffix == ".rs")
 
 
 def discover(root: Path = ROOT) -> Inventory:
@@ -725,6 +807,7 @@ def discover(root: Path = ROOT) -> Inventory:
         The attributable declarations and the constructs that could not be
         attributed.
     """
+    root = Path(root).resolve()
     proofs: list[ProofDeclaration] = []
     unresolved: list[UnresolvedDeclaration] = []
     by_package: dict[str, list[_Package]] = {}
@@ -733,7 +816,11 @@ def discover(root: Path = ROOT) -> Inventory:
     for name, roots in by_package.items():
         reader = _Reader(name, root)
         for package in roots:
-            reader.visit(package.root, (), is_crate_root=True)
+            reader.visit(
+                package.root,
+                _Context((), (), package.is_binary),
+                is_crate_root=True,
+            )
         proofs.extend(reader.proofs)
         unresolved.extend(reader.unresolved)
         for path in _unreached(roots, reader.visited):

@@ -77,6 +77,10 @@ def _checked_document(path: Path) -> dict[str, typ.Any]:
     if unknown:
         raise ManifestError(f"unknown manifest keys: {sorted(unknown)}")
     version = document.get("version")
+    # `True == 1` and `1.0 == 1` in Python, while the Rust loader reads a u32;
+    # the type is checked before the value so those forms are rejected here.
+    if not isinstance(version, int) or isinstance(version, bool):
+        raise ManifestError(f"manifest version {version!r} is not an integer")
     if version != MANIFEST_VERSION:
         raise ManifestError(
             f"manifest version {version!r}; expected {MANIFEST_VERSION}"
@@ -197,14 +201,15 @@ def test_manifest_version_must_be_the_one_the_loader_reads(
     A version the checker cannot load would otherwise pass every Python check
     and fail only when `make kani` runs.
     """
-    path = tmp_path / "harnesses.toml"
-    path.write_text(
-        'version = 2\n[[harness]]\npackage = "p"\n'
-        'pretty_name = "a::b"\ntier = "fast"\n',
-        encoding="utf-8",
-    )
-    with pytest.raises(ManifestError):
-        _entries(path)
+    for version in ("2", "true", "1.0"):
+        path = tmp_path / f"harnesses-{version}.toml"
+        path.write_text(
+            f'version = {version}\n[[harness]]\npackage = "p"\n'
+            'pretty_name = "a::b"\ntier = "fast"\n',
+            encoding="utf-8",
+        )
+        with pytest.raises(ManifestError):
+            _entries(path)
 
 
 def test_manifest_entries_are_well_formed(manifest: list[dict[str, typ.Any]]) -> None:
@@ -286,12 +291,14 @@ def test_scan_finds_the_inline_distance_proofs(inventory: Inventory) -> None:
     distance = [
         proof
         for proof in inventory.proofs
-        if proof.path == "chutoro-core/src/distance/mod.rs"
+        if proof.package == "chutoro-core"
+        and proof.path == "chutoro-core/src/distance/mod.rs"
     ]
     listed = [
         entry
         for entry in _entries()
-        if entry["pretty_name"].startswith("distance::kani_proofs::")
+        if entry["package"] == "chutoro-core"
+        and entry["pretty_name"].startswith("distance::kani_proofs::")
     ]
     assert listed, "the manifest must classify the distance proofs"
     assert len(distance) == len(listed), (

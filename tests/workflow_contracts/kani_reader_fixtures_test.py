@@ -13,35 +13,40 @@ Run via ``make test-workflow-contracts``.
 
 from __future__ import annotations
 
+import typing as typ
 from pathlib import Path
+
+import pytest
 
 from kani_harness_reading import Inventory, UnresolvedDeclaration, discover
 from kani_manifest_test import _validate_entry
 from kani_reader_support import _kinds, _names, _write_package
 
-def test_reader_ignores_a_proof_in_a_comment(tmp_path: Path) -> None:
-    """A proof written in a comment is a mention, not a declaration."""
-    _write_package(
-        tmp_path,
-        "// #[kani::proof]\n// fn verify_commented() {}\n",
-    )
-    names = _names(discover(tmp_path))
-    assert names == [], f"a comment must not declare a proof, got {names!r}"
 
-def test_reader_ignores_a_proof_in_a_string_literal(tmp_path: Path) -> None:
-    """A proof written inside a string literal is data, not a declaration."""
-    _write_package(
-        tmp_path,
-        'const DOC: &str = "#[kani::proof]\\nfn verify_quoted() {}";\n',
-    )
-    names = _names(discover(tmp_path))
-    assert names == [], f"a comment must not declare a proof, got {names!r}"
+@pytest.mark.parametrize(
+    ("what", "source"),
+    (
+        ("comment", "// #[kani::proof]\n// fn verify_commented() {}\n"),
+        (
+            "string literal",
+            'const DOC: &str = "#[kani::proof]\\nfn verify_quoted() {}";\n',
+        ),
+    ),
+)
 
-def test_reader_derives_a_nested_inline_module_path(tmp_path: Path) -> None:
+
+def test_reader_ignores_a_proof_that_is_not_code(
+    tmp_path: Path, write_package: typ.Callable[..., Path], what: str, source: str
+) -> None:
+    """A proof written in a comment or a string is text, not a declaration."""
+    write_package(source)
+    names = _names(discover(tmp_path))
+    assert names == [], f"a {what} must not declare a proof, got {names!r}"
+
+
+def test_reader_derives_a_nested_inline_module_path(tmp_path: Path, write_package: typ.Callable[..., Path]) -> None:
     """A proof's harness path includes every inline module enclosing it."""
-    _write_package(
-        tmp_path,
-        "mod outer {\n    mod inner {\n        #[kani::proof]\n"
+    write_package("mod outer {\n    mod inner {\n        #[kani::proof]\n"
         "        fn verify_nested() {}\n    }\n}\n",
     )
     names = _names(discover(tmp_path))
@@ -49,9 +54,10 @@ def test_reader_derives_a_nested_inline_module_path(tmp_path: Path) -> None:
         f"the nested inline path must be derived, got {names!r}"
     )
 
-def test_reader_derives_a_file_based_module_path(tmp_path: Path) -> None:
+
+def test_reader_derives_a_file_based_module_path(tmp_path: Path, write_package: typ.Callable[..., Path]) -> None:
     """A file reached by ``mod name;`` contributes its module segment."""
-    crate_root = _write_package(tmp_path, "mod proofs;\n")
+    crate_root = write_package("mod proofs;\n")
     (crate_root.parent / "proofs.rs").write_text(
         "#[kani::proof]\nfn verify_file() {}\n", encoding="utf-8"
     )
@@ -60,22 +66,20 @@ def test_reader_derives_a_file_based_module_path(tmp_path: Path) -> None:
         f"the file-based module path must be derived, got {names!r}"
     )
 
-def test_reader_reports_a_cfg_attr_wrapped_proof(tmp_path: Path) -> None:
+
+def test_reader_reports_a_cfg_attr_wrapped_proof(tmp_path: Path, write_package: typ.Callable[..., Path]) -> None:
     """A proof whose existence depends on configuration cannot be classified."""
-    _write_package(
-        tmp_path,
-        '#[cfg_attr(kani, kani::proof)]\nfn verify_conditional() {}\n',
+    write_package('#[cfg_attr(kani, kani::proof)]\nfn verify_conditional() {}\n',
     )
     kinds = _kinds(discover(tmp_path))
     assert kinds == ["cfg-attr"], (
         f"a cfg_attr-wrapped proof must be reported, got {kinds!r}"
     )
 
-def test_reader_reports_a_proof_inside_a_macro(tmp_path: Path) -> None:
+
+def test_reader_reports_a_proof_inside_a_macro(tmp_path: Path, write_package: typ.Callable[..., Path]) -> None:
     """A proof that only exists after expansion cannot be attributed."""
-    _write_package(
-        tmp_path,
-        "macro_rules! declare {\n    () => {\n        #[kani::proof]\n"
+    write_package("macro_rules! declare {\n    () => {\n        #[kani::proof]\n"
         "        fn verify_expanded() {}\n    };\n}\n",
     )
     kinds = _kinds(discover(tmp_path))
@@ -83,8 +87,10 @@ def test_reader_reports_a_proof_inside_a_macro(tmp_path: Path) -> None:
         f"a proof inside a macro must be reported, got {kinds!r}"
     )
 
+
 def test_reader_reports_a_proof_bearing_source_no_module_reaches(
     tmp_path: Path,
+    write_package: typ.Callable[..., Path],
 ) -> None:
     """An orphaned proof file is reported rather than silently dropped.
 
@@ -92,7 +98,7 @@ def test_reader_reports_a_proof_bearing_source_no_module_reaches(
     unreferenced file would never run. Reporting it keeps the manifest from
     promising a result the build cannot produce.
     """
-    crate_root = _write_package(tmp_path, "")
+    crate_root = write_package("")
     (crate_root.parent / "orphan.rs").write_text(
         "#[kani::proof]\nfn verify_orphan() {}\n", encoding="utf-8"
     )
@@ -103,6 +109,7 @@ def test_reader_reports_a_proof_bearing_source_no_module_reaches(
     assert kinds == ["unreachable"], (
         f"the orphaned source must be reported, got {kinds!r}"
     )
+
 
 def test_reader_finds_a_proof_in_a_package_with_an_explicit_lib_path(
     tmp_path: Path,
@@ -129,7 +136,8 @@ def test_reader_finds_a_proof_in_a_package_with_an_explicit_lib_path(
         f"the explicitly pathed library root must be read, got {names!r}"
     )
 
-def test_reader_accepts_a_root_level_proof_identity(tmp_path: Path) -> None:
+
+def test_reader_accepts_a_root_level_proof_identity(tmp_path: Path, write_package: typ.Callable[..., Path]) -> None:
     """A proof at a crate's root has no module segment.
 
     Its harness path is the bare function name, so manifest validation must
@@ -138,7 +146,7 @@ def test_reader_accepts_a_root_level_proof_identity(tmp_path: Path) -> None:
     never agree for such a package.
     """
     names = _names(
-        discover(_write_package(tmp_path, "#[kani::proof]\nfn verify_root() {}\n").parent.parent)
+        discover(write_package("#[kani::proof]\nfn verify_root() {}\n").parent.parent)
     )
     assert names == ["verify_root"], (
         f"a root-level proof keeps its bare name, got {names!r}"
@@ -150,12 +158,14 @@ def test_reader_accepts_a_root_level_proof_identity(tmp_path: Path) -> None:
     for index, entry in enumerate(entries):
         _validate_entry(index, entry)
 
-def test_reader_finds_a_proof_in_a_binary_target(tmp_path: Path) -> None:
-    """A binary-only package's proofs compile, so they are read.
 
-    Cargo discovers ``src/bin/*.rs`` without a manifest entry, and a package
-    may declare its binary root explicitly. Neither root is a library, so a
-    library-only sweep would drop the package and its proofs silently.
+def test_reader_finds_a_proof_in_a_binary_target(tmp_path: Path) -> None:
+    """A binary-only package's proofs are reported, not inventoried.
+
+    Cargo discovers ``src/bin/*.rs`` without a manifest entry, so a
+    library-only sweep would miss the file entirely. The gate runs `cargo
+    kani --lib`, though, so a proof there never executes: it is reported
+    rather than certified as coverage.
     """
     directory = tmp_path / "binary"
     (directory / "src" / "bin").mkdir(parents=True)
@@ -165,13 +175,17 @@ def test_reader_finds_a_proof_in_a_binary_target(tmp_path: Path) -> None:
     (directory / "src" / "bin" / "prover.rs").write_text(
         "#[kani::proof]\nfn verify_binary() {}\n", encoding="utf-8"
     )
-    names = _names(discover(tmp_path))
-    assert names == ["verify_binary"], (
-        f"a discovered binary target must be read, got {names!r}"
+    inventory = discover(tmp_path)
+    assert _names(inventory) == [], (
+        f"a binary-target proof is not gate coverage, got {inventory.proofs!r}"
+    )
+    assert _kinds(inventory) == ["binary-target"], (
+        f"a binary-target proof must be reported, got {inventory.unresolved!r}"
     )
 
+
 def test_reader_finds_a_proof_in_an_explicit_binary_target(tmp_path: Path) -> None:
-    """An explicit ``[[bin]] path`` is a crate root like any other."""
+    """An explicit ``[[bin]] path`` is reported like a discovered one."""
     directory = tmp_path / "declared"
     (directory / "proofs").mkdir(parents=True)
     (directory / "Cargo.toml").write_text(
@@ -182,37 +196,42 @@ def test_reader_finds_a_proof_in_an_explicit_binary_target(tmp_path: Path) -> No
     (directory / "proofs" / "main.rs").write_text(
         "#[kani::proof]\nfn verify_declared() {}\n", encoding="utf-8"
     )
-    names = _names(discover(tmp_path))
-    assert names == ["verify_declared"], (
-        f"an explicit [[bin]] path must be read, got {names!r}"
+    inventory = discover(tmp_path)
+    assert _names(inventory) == [], (
+        f"an explicit binary target is not gate coverage, got {inventory.proofs!r}"
     )
+    assert _kinds(inventory) == ["binary-target"], (
+        f"an explicit binary target must be reported, got {inventory.unresolved!r}"
+    )
+
 
 def test_reader_reads_a_proof_after_an_inline_module_opener(
     tmp_path: Path,
+    write_package: typ.Callable[..., Path],
 ) -> None:
     """``mod proofs { #[kani::proof]`` puts the attribute on the opener's line.
 
     Rust gives no meaning to the line break before an item, so a reader that
     worked line by line would stop at ``mod`` and lose the proof.
     """
-    _write_package(
-        tmp_path,
-        "mod proofs { #[kani::proof]\n    fn verify_inline() {}\n}\n",
+    write_package("mod proofs { #[kani::proof]\n    fn verify_inline() {}\n}\n",
     )
     names = _names(discover(tmp_path))
     assert names == ["proofs::verify_inline"], (
         f"an attribute on the module opener's line must be read, got {names!r}"
     )
 
+
 def test_reader_keeps_a_module_file_without_a_proof_out_of_the_inventory(
     tmp_path: Path,
+    write_package: typ.Callable[..., Path],
 ) -> None:
     """A reachable module holding no proof adds nothing to the inventory.
 
     The negative control for module traversal: it must not invent a
     declaration for a file it read but found nothing in.
     """
-    crate_root = _write_package(tmp_path, "mod helper;\n")
+    crate_root = write_package("mod helper;\n")
     (crate_root.parent / "helper.rs").write_text(
         "pub fn work() -> bool { true }\n", encoding="utf-8"
     )
@@ -222,21 +241,21 @@ def test_reader_keeps_a_module_file_without_a_proof_out_of_the_inventory(
     kinds = _kinds(inventory)
     assert kinds == [], f"nothing must be reported, got {kinds!r}"
 
-def test_reader_reads_two_attributes_sharing_a_line(tmp_path: Path) -> None:
+
+def test_reader_reads_two_attributes_sharing_a_line(tmp_path: Path, write_package: typ.Callable[..., Path]) -> None:
     """``#[cfg(kani)] #[kani::proof]`` on one line still declares a proof.
 
     Rust gives no meaning to the line break between two outer attributes, so
     the two spellings are one declaration. Reading the line as a single
     attribute sees only ``cfg`` and loses the proof.
     """
-    _write_package(
-        tmp_path,
-        "#[cfg(kani)] #[kani::proof]\nfn verify_same_line() {}\n",
+    write_package("#[cfg(kani)] #[kani::proof]\nfn verify_same_line() {}\n",
     )
     names = _names(discover(tmp_path))
     assert names == ["verify_same_line"], (
         f"two attributes on one line must both be read, got {names!r}"
     )
+
 
 def test_reader_reports_an_orphan_beside_a_custom_root(tmp_path: Path) -> None:
     """The orphan sweep covers custom source directories, not only ``src``.
@@ -261,15 +280,14 @@ def test_reader_reports_an_orphan_beside_a_custom_root(tmp_path: Path) -> None:
         f"an orphan beside a custom root must be reported, got {kinds!r}"
     )
 
-def test_reader_reports_a_proof_behind_a_test_guard(tmp_path: Path) -> None:
+
+def test_reader_reports_a_proof_behind_a_test_guard(tmp_path: Path, write_package: typ.Callable[..., Path]) -> None:
     """The gate compiles without ``cfg(test)``, so such a proof cannot run.
 
     Recording it as a harness would let the manifest require something the
     recipe can never verify.
     """
-    _write_package(
-        tmp_path,
-        "#[cfg(all(kani, test))]\n#[kani::proof]\nfn verify_test_only() {}\n",
+    write_package("#[cfg(all(kani, test))]\n#[kani::proof]\nfn verify_test_only() {}\n",
     )
     inventory = discover(tmp_path)
     assert _names(inventory) == [], (
@@ -279,14 +297,92 @@ def test_reader_reports_a_proof_behind_a_test_guard(tmp_path: Path) -> None:
         f"a test-gated proof must be reported, got {inventory.unresolved!r}"
     )
 
-def test_reader_keeps_a_proof_behind_a_kani_guard(tmp_path: Path) -> None:
+
+def test_reader_carries_a_modules_guard_into_its_children(
+    tmp_path: Path,
+) -> None:
+    """A test guard on a module covers every proof below it.
+
+    ``cargo kani`` does not enable ``cfg(test)``, so the module is not
+    compiled at all in the gate; a proof inside it cannot run even when the
+    function carries no guard of its own.
+    """
+    crate_root = _write_package(
+        tmp_path, "#[cfg(all(kani, test))]\nmod proofs;\n"
+    )
+    (crate_root.parent / "proofs.rs").write_text(
+        "#[kani::proof]\nfn verify_child() {}\n", encoding="utf-8"
+    )
+    inventory = discover(tmp_path)
+    assert _names(inventory) == [], (
+        f"a proof under a test-gated module must not be a harness, got {inventory.proofs!r}"
+    )
+    kinds = _kinds(inventory)
+    assert kinds == ["cfg-test"], (
+        f"the proof must be reported as test-gated, got {kinds!r}"
+    )
+
+
+def test_reader_skips_an_implicit_library_when_autolib_is_false(
+    tmp_path: Path,
+) -> None:
+    """A binary that loads ``src/lib.rs`` as a module has no library target.
+
+    ``autolib = false`` tells Cargo not to build that file as a library, so
+    reading it as a crate root would visit the same source twice.
+    """
+    directory = tmp_path / "noautolib"
+    (directory / "src").mkdir(parents=True)
+    (directory / "Cargo.toml").write_text(
+        '[package]\nname = "noautolib"\nversion = "0.1.0"\nautolib = false\n\n'
+        '[[bin]]\nname = "prover"\npath = "src/main.rs"\n',
+        encoding="utf-8",
+    )
+    (directory / "src" / "main.rs").write_text(
+        '#[path = "lib.rs"]\nmod proofs;\n', encoding="utf-8"
+    )
+    (directory / "src" / "lib.rs").write_text(
+        "#[kani::proof]\nfn verify_loaded() {}\n", encoding="utf-8"
+    )
+    inventory = discover(tmp_path)
+    assert _kinds(inventory) == ["binary-target"], (
+        f"only the binary target may be reported, got {inventory.unresolved!r}"
+    )
+
+
+def test_reader_prunes_a_build_directory_beside_a_custom_root(
+    tmp_path: Path,
+) -> None:
+    """The orphan sweep never enters a build directory.
+
+    A library at a custom path puts the package directory in the sweep, and a
+    generated source under ``target`` there is not the repository's to read.
+    """
+    directory = tmp_path / "custombuild"
+    (directory / "proofs").mkdir(parents=True)
+    (directory / "target" / "debug").mkdir(parents=True)
+    (directory / "Cargo.toml").write_text(
+        '[package]\nname = "custombuild"\nversion = "0.1.0"\n\n'
+        '[lib]\npath = "proofs/root.rs"\n',
+        encoding="utf-8",
+    )
+    (directory / "proofs" / "root.rs").write_text("", encoding="utf-8")
+    (directory / "target" / "debug" / "generated.rs").write_text(
+        "#[kani::proof]\nfn verify_generated() {}\n", encoding="utf-8"
+    )
+    kinds = _kinds(discover(tmp_path))
+    assert kinds == [], (
+        f"a generated source must not be an orphan, got {kinds!r}"
+    )
+
+
+def test_reader_keeps_a_proof_behind_a_kani_guard(tmp_path: Path, write_package: typ.Callable[..., Path]) -> None:
     """The negative control: ``#[cfg(kani)]`` is the gate's own configuration."""
-    _write_package(
-        tmp_path,
-        "#[cfg(kani)]\n#[kani::proof]\nfn verify_gated() {}\n",
+    write_package("#[cfg(kani)]\n#[kani::proof]\nfn verify_gated() {}\n",
     )
     names = _names(discover(tmp_path))
     assert names == ["verify_gated"], f"a kani-gated proof must be read, got {names!r}"
+
 
 def test_reader_skips_binaries_when_autobins_is_false(tmp_path: Path) -> None:
     """A package that disables discovery does not have those binaries.
@@ -311,9 +407,10 @@ def test_reader_skips_binaries_when_autobins_is_false(tmp_path: Path) -> None:
         f"a disabled binary target must not be read twice, got {inventory.unresolved!r}"
     )
 
-def test_reader_reads_a_mod_declaration_split_over_lines(tmp_path: Path) -> None:
+
+def test_reader_reads_a_mod_declaration_split_over_lines(tmp_path: Path, write_package: typ.Callable[..., Path]) -> None:
     """Rust permits whitespace, including a newline, inside ``mod name;``."""
-    crate_root = _write_package(tmp_path, "mod\n    proofs\n;\n")
+    crate_root = write_package("mod\n    proofs\n;\n")
     (crate_root.parent / "proofs.rs").write_text(
         "#[kani::proof]\nfn verify_split() {}\n", encoding="utf-8"
     )
@@ -322,17 +419,17 @@ def test_reader_reads_a_mod_declaration_split_over_lines(tmp_path: Path) -> None
         f"a split module declaration must be read, got {names!r}"
     )
 
-def test_reader_reports_a_proof_in_a_parenthesised_macro(tmp_path: Path) -> None:
+
+def test_reader_reports_a_proof_in_a_parenthesised_macro(tmp_path: Path, write_package: typ.Callable[..., Path]) -> None:
     """A macro body may be delimited by parentheses or brackets, not only braces."""
-    _write_package(
-        tmp_path,
-        "macro_rules! declare (\n    () => {\n        #[kani::proof]\n"
+    write_package("macro_rules! declare (\n    () => {\n        #[kani::proof]\n"
         "        fn verify() {}\n    };\n);\n",
     )
     kinds = _kinds(discover(tmp_path))
     assert kinds == ["macro"], (
         f"a proof inside a parenthesised macro must be reported, got {kinds!r}"
     )
+
 
 def test_reader_sweeps_orphans_beside_every_crate_root(tmp_path: Path) -> None:
     """A binary root's directory is swept as well as ``src``.
@@ -358,14 +455,15 @@ def test_reader_sweeps_orphans_beside_every_crate_root(tmp_path: Path) -> None:
         f"an orphan beside a binary root must be reported, got {kinds!r}"
     )
 
-def test_unresolved_report_names_the_file_and_line(tmp_path: Path) -> None:
+
+def test_unresolved_report_names_the_file_and_line(tmp_path: Path, write_package: typ.Callable[..., Path]) -> None:
     """A report without a location would not be actionable in review."""
-    _write_package(
-        tmp_path,
-        "// filler\nfn other() {}\n#[cfg_attr(kani, kani::proof)]\nfn verify_conditional() {}\n",
+    write_package("// filler\nfn other() {}\n#[cfg_attr(kani, kani::proof)]\nfn verify_conditional() {}\n",
     )
     (report,) = discover(tmp_path).unresolved
-    assert isinstance(report, UnresolvedDeclaration)
+    assert isinstance(report, UnresolvedDeclaration), (
+        f"expected an unresolved report, got {report!r}"
+    )
     assert report.line == 4, f"expected the declaration's line, got {report!r}"
     assert report.path.endswith("src/lib.rs"), (
         f"expected a source path, got {report!r}"

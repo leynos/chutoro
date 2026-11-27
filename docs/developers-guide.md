@@ -3000,6 +3000,10 @@ To add a proof:
 
 1. Declare it under `#[kani::proof]` beside the code it verifies, and decide
    its tier: fast only if it completes quickly enough for every pull request.
+   The proof must compile in the gate's own configuration: `cargo kani --lib`
+   does not enable `cfg(test)` and does not compile binary targets, so a proof
+   behind a test guard or living only in a `[[bin]]` is reported by the
+   inventory contract rather than certified as coverage.
 2. Add its package, qualified path and tier to `tools/kani/harnesses.toml`.
 3. Add its qualified selector to the `kani:` target when it is fast-tier. A
    full-tier proof needs no selector, but it does need its package in the
