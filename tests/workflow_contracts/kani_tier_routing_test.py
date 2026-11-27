@@ -24,7 +24,7 @@ import pytest
 from kani_recipe_reading import (
     CHECKER_WRAPPER_RE,
     KANI_COMMAND_RE,
-    MAKEFILE_PATH,
+    KANI_MAKEFILE_PATH,
     executable_commands,
     logical_lines,
     package_names,
@@ -272,7 +272,7 @@ def test_the_checker_build_pins_the_host_triple() -> None:
     outranks both, so `<target-dir>/<host>/debug/kani_suite` is the path the
     build just wrote rather than one it might not have.
     """
-    makefile = MAKEFILE_PATH.read_text(encoding="utf-8")
+    makefile = KANI_MAKEFILE_PATH.read_text(encoding="utf-8")
     assert '--target "$$host"' in makefile, (
         "the checker build must name its target triple"
     )
@@ -288,7 +288,7 @@ def test_the_checker_is_published_by_rename() -> None:
     reader could observe a partial file. The copy therefore lands beside the
     destination and is renamed over it.
     """
-    makefile = MAKEFILE_PATH.read_text(encoding="utf-8")
+    makefile = KANI_MAKEFILE_PATH.read_text(encoding="utf-8")
     assert 'mv -f "$(KANI_SUITE_DIR)/kani_suite.$$$$"' in makefile, (
         "the checker must be published by a rename within its own directory"
     )

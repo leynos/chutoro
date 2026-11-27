@@ -28,6 +28,10 @@ from workflow_support import ROOT
 
 MAKEFILE_PATH = ROOT / "Makefile"
 
+#: The Kani tiers and the checker build live in an included fragment, so the
+#: prover surface has one owner. The contracts read that file for recipes.
+KANI_MAKEFILE_PATH = ROOT / "tools" / "kani" / "kani.mk"
+
 #: The ``kani:`` target header and its immediately following recipe lines. The
 #: capture stops at the first line that belongs to neither the recipe nor a
 #: comment, and deliberately does not stop at a blank line or a column-0 ``#``

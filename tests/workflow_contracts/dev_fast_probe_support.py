@@ -78,6 +78,7 @@ PROBE_INPUTS = (
     "tools/dev-fast/TOOLCHAIN",
     "tools/dev-fast/config.toml",
     "tools/kani/VERSION",
+    "tools/kani/kani.mk",
 )
 
 #: The compiler argument Cargo emits when the fragment's ``codegen-backend``

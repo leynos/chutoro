@@ -1549,8 +1549,8 @@ never absent; a path filter had made the job conditional on a list that could
 not enumerate every input to the proof build, and an absent required check is
 not a passing one. Second, `tools/kani/harnesses.toml` classifies all 18
 declarations, the workflow contracts bind that inventory to the Rust sources
-and the Makefile, and every `cargo kani` invocation runs through the
-`kani_suite` checker, which requires the exact multiset of successfully
+and the Kani Makefile fragment, and every `cargo kani` invocation runs through
+the `kani_suite` checker, which requires the exact multiset of successfully
 completed harnesses rather than Kani's exit status. An administrator still has
 to add `kani` to the ruleset; until that lands the job reports on every pull
 request without blocking a merge. Third, the nightly job checks out

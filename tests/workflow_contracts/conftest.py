@@ -15,7 +15,7 @@ import pytest
 from kani_recipe_reading import (
     KANI_FULL_TARGET_RE,
     KANI_TARGET_RE,
-    MAKEFILE_PATH,
+    KANI_MAKEFILE_PATH,
     recipe,
 )
 from kani_reader_support import _write_package
@@ -23,8 +23,8 @@ from kani_reader_support import _write_package
 
 @pytest.fixture(scope="module")
 def makefile() -> str:
-    """Return the Makefile's text."""
-    return MAKEFILE_PATH.read_text(encoding="utf-8")
+    """Return the Kani fragment's text."""
+    return KANI_MAKEFILE_PATH.read_text(encoding="utf-8")
 
 
 @pytest.fixture(scope="module")

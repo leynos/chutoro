@@ -47,7 +47,11 @@ GENERATED_IGNORE_PATTERN = "**/.verus/**"
 
 #: Files the Makefile reads while parsing. Without them every target stops on
 #: the parse-time checks before a recipe can run.
-MAKEFILE_SUPPORT_FILES = ("tools/dev-fast/TOOLCHAIN", "tools/kani/VERSION")
+MAKEFILE_SUPPORT_FILES = (
+    "tools/dev-fast/TOOLCHAIN",
+    "tools/kani/VERSION",
+    "tools/kani/kani.mk",
+)
 
 #: The linter version the pinned `markdownlint-cli2-action` bundles. The
 #: fallback below must run the linter the hosted lint step runs, or the

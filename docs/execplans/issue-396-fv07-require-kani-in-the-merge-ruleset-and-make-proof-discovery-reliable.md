@@ -407,6 +407,16 @@ issue text and the repository's documentation are the authority.
 - [x] Review validation of the assessment repairs: the strict parser was
       exercised against Kani 0.67.0's real output, which is the only evidence
       that the exact-match grammar still accepts what the verifier prints.
+- [x] Second assessment round, on the file-size gap. The root `Makefile` had
+      grown to 434 lines with this branch's Kani wiring, so all of it — the
+      manifest and checker variables, `kani-suite-build`, and both tiers —
+      moved to `tools/kani/kani.mk`, which the `Makefile` includes. `help`
+      already reads `$(MAKEFILE_LIST)`, so the fragment's targets remain
+      listed, and the fixture trees that copy the `Makefile` now copy the
+      fragment with it. One file CodeRabbit named,
+      `tests/workflow_contracts/trybuild_override_test.py`, was already 583
+      lines on `main` and is unchanged here apart from one import line, so it
+      is recorded as pre-existing rather than pulled into this change.
 
 ## Surprises & discoveries
 
@@ -723,3 +733,8 @@ repairs — exact verdict and summary grammar in the checker, a version-stamped
 output fixture, a nightly-freshness contract test, the enforcement wording, and
 the module splits that bring every file this branch touches inside the 400-line
 limit. The manifest mutation controls were run and recorded, not assumed.
+
+Revised 2026-11-27 (third): split the Makefile's Kani wiring into
+`tools/kani/kani.mk` after the second assessment round found the root file over
+the 400-line limit, and recorded the one remaining over-limit file as
+pre-existing on `main`.

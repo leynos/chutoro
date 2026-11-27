@@ -2971,8 +2971,10 @@ filename-based inventory never saw — and compares the package/path multiset
 with the manifest in both directions.
 `tests/workflow_contracts/kani_reader_fixtures_test.py` holds that reader's
 adversarial cases: a proof in a comment or a string, a proof inside a macro, an
-`include!` it cannot follow, a shared parent reaching a proof-bearing child,
-and a binary-only package.
+`include!` it cannot follow, and a shared parent reaching a proof-bearing child;
+`kani_layout_fixtures_test.py` holds the package-layout cases, where an
+explicit `[lib] path`, a binary root outside `src`, `autobins`/`autolib` and an
+orphaned proof each decide which source Cargo actually builds.
 `tests/workflow_contracts/kani_guard_fixtures_test.py` holds the guard cases,
 which are evaluated under the gate's own configuration: a proof behind
 `cfg(test)` or a module gated by one is reported, while `cfg(not(test))` and
@@ -2980,14 +2982,21 @@ which are evaluated under the gate's own configuration: a proof behind
 `tests/workflow_contracts/kani_path_fixtures_test.py` holds the `#[path]`
 cases: one that resolves, one that does not, raw and conditional values, a
 mention inside documentation, and an inline module that renames its children's
-directory. The package writer both modules share lives in
+directory. The package writer those modules share lives in
 `tests/workflow_contracts/kani_reader_support.py`. Cargo's own discovery is
 split from the Rust walk: `cargo_packages_reading.py` finds the workspace's
 manifests and assembles each package's roots, `cargo_targets_reading.py`
 resolves a manifest's library and binary targets, and `kani_harness_reading.py`
-reads the source behind them. `tests/workflow_contracts/kani_fast_tier_test.py`
-compares the exact fast selectors and package-scoped full sweeps in the
-`Makefile` with the manifest.
+reads the source behind them. The reader itself is split by responsibility:
+`kani_attribute_reading.py` reads what an attribute means,
+`kani_cfg_reading.py` evaluates a guard against the gate's configuration,
+`kani_module_paths.py` resolves rustc's child-file rules, `kani_module_walk.py`
+owns the traversal, and `kani_source_sweep.py` finds sources no declaration
+reaches; `rust_scanning.py` and `rust_test_discovery.py` hold the shared Rust
+lexing and the compile-contract test sweep.
+`tests/workflow_contracts/kani_fast_tier_test.py` compares the exact fast
+selectors and package-scoped full sweeps in `tools/kani/kani.mk` with the
+manifest.
 
 Every Kani invocation runs through the `kani_suite` checker, whose module root
 is `chutoro-test-support/src/ci/kani_suite/mod.rs` and whose command-line front
@@ -3038,12 +3047,12 @@ compares the installed verifier against the pin. Neither target compiles Kani
 from source; `--compile` on the underlying command is the opt-in escape hatch
 when a prebuilt release is unsuitable.
 
-The Makefile derives `KANI_VERSION` from the same file, the `kani-pr.yml`
-workflow interpolates it rather than restating it, and a workflow contract test
-fails the build if a version literal reappears in the workflow. Bumping Kani is
-therefore a change to `tools/kani/VERSION` plus, because the prebuilt route
-only covers the version its own manifest pins, a matching `PROVER_TOOLS_SOURCE`
-bump.
+The Kani fragment `tools/kani/kani.mk`, included by the `Makefile`, derives
+`KANI_VERSION` from the same file, the `kani-pr.yml` workflow interpolates it
+rather than restating it, and a workflow contract test fails the build if a
+version literal reappears in the workflow. Bumping Kani is therefore a change to
+`tools/kani/VERSION` plus, because the prebuilt route only covers the version
+its own manifest pins, a matching `PROVER_TOOLS_SOURCE` bump.
 
 The two minimum-spanning-tree (MST) harnesses are fast-tier proofs and run in
 `make kani`. The base-layer connectivity healing proof,
