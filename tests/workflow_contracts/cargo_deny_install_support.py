@@ -26,7 +26,11 @@ from dataclasses import dataclass
 from pathlib import Path
 
 REPO_ROOT = Path(__file__).resolve().parents[2]
-CARGO_DENY_VERSION = "0.22.0"
+#: Read from the repository pin so a version bump moves the fixture with it
+#: instead of leaving the two disagreeing.
+CARGO_DENY_VERSION = (
+    (REPO_ROOT / "tools" / "cargo-deny" / "VERSION").read_text(encoding="utf-8").strip()
+)
 SUPPORTED_MACHINES = ("x86_64", "aarch64")
 INSTALLER_FILES = (
     "scripts/install-cargo-deny.sh",
