@@ -4,7 +4,8 @@ This ExecPlan is a living document. The sections `Constraints`, `Tolerances`,
 `Risks`, `Progress`, `Surprises & discoveries`, `Decision log`, and
 `Outcomes & retrospective` must be kept up to date as work proceeds.
 
-Status: IN PROGRESS
+Status: COMPLETE (repository side; the live ruleset edit remains a post-merge
+administrator action)
 
 ## Purpose / big picture
 
@@ -380,7 +381,12 @@ issue text and the repository's documentation are the authority.
       its word; `mod r#type` names the module `type`; and `src/main.rs` takes
       the package's declared name, not its directory's, when automatic targets
       are matched against explicit ones.
-- [ ] Push the branch and create the draft pull request.
+- [x] Push the branch and create the pull request: #474. Sixteen further
+      review rounds followed on that candidate; their findings and fixes are
+      recorded above and in the revision note. The live `main-required-checks`
+      ruleset edit is drafted in the delivery notes and remains a post-merge
+      administrator action, so this plan's repository side is complete at the
+      published head.
 
 ## Surprises & discoveries
 
@@ -611,9 +617,11 @@ parser pins. Each axiom is exercised by the real run or the live API query
 where possible, and otherwise recorded as an external assumption.
 
 Non-vacuity: each contract has at least one seeded failure that it rejects, and
-the real Kani run covers six fast harnesses and two package-wide full sweeps.
-After the rebase onto the trunk that added the connectivity healer, the fast
-tier is seven harnesses, and the counts below are the pre-rebase evidence.
+the real Kani run covers the manifest's seven fast harnesses and two
+package-wide full sweeps. The earlier six-harness figures in this plan are
+pre-rebase evidence, taken before the trunk added the connectivity healer; the
+current counts are seven fast and eighteen in the full sweep, which is the
+manifest's own total.
 
 ## Validation commands
 
@@ -635,8 +643,9 @@ make kani 2>&1 | tee /tmp/kani-issue-396.out
 ```
 
 Expected evidence: every command exits zero, with `pipefail` making a gate's
-own failure the pipeline's; `make kani` ends with a checker line naming six
-successful harnesses; the workflow-contract suite reports its new tests passing.
+own failure the pipeline's; `make kani` ends with a checker line naming the
+manifest's seven fast harnesses; the workflow-contract suite reports its new
+tests passing.
 
 ## Outcomes & retrospective
 
@@ -680,3 +689,11 @@ non-line-anchored attributes, raw and conditional `#[path]` values, binary
 targets, repeated proof-free parents, multi-valued `-p`, and Cargo's global
 options. The checker's build now names its target and publishes by rename, and
 the artefacts' documentation follows.
+
+Revised 2026-11-27: recorded the tenth to sixteenth review rounds (module `cfg`
+guards, binary-target refusal, `cfg` predicate evaluation, `/bin/sh` quoting,
+rustc's `#[path]` directory rule, Cargo's target and binary inference, and
+make's continuation rule — each measured rather than assumed), marked the
+repository side complete at published head `7aba491`, and corrected the harness
+counts this plan had carried from before the rebase: seven fast harnesses and
+eighteen in the full sweep, the manifest's own total.
