@@ -129,22 +129,28 @@ def _discovered_binaries(
     already declares; reading it anyway would count a proof the gate never
     compiles.
     """
+    package_name = _package_name(document)
     claimed = {entry.get("name") for entry in declared if entry.get("name")}
     claimed_paths = {root.resolve() for root in explicit}
     automatic = [directory / "src" / "main.rs", *_automatic_binaries(directory)]
     return [
         root
         for root in automatic
-        if _binary_name(root) not in claimed and root.resolve() not in claimed_paths
+        if _binary_name(root, package_name) not in claimed
+        and root.resolve() not in claimed_paths
     ]
 
 
-def _binary_name(root: Path) -> str:
-    """Return the target name Cargo gives the automatic binary at `root`."""
+def _binary_name(root: Path, package_name: object) -> str:
+    """Return the target name Cargo gives the automatic binary at `root`.
+
+    ``src/main.rs`` is always the package's own target, whatever the package
+    directory is called or however an explicit target spells its path.
+    """
     if root.name != "main.rs":
         return root.stem
-    if root.parent.name == "src":
-        return root.parent.parent.name
+    if root.parent.name == "src" and isinstance(package_name, str):
+        return package_name
     return root.parent.name
 
 

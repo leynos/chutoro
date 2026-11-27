@@ -102,18 +102,32 @@ def _terminal_command(arguments: str) -> str:
 
 
 def _comment_start(arguments: str) -> int | None:
-    """Return the offset of an unquoted shell comment's ``#``, if any."""
+    """Return the offset of an unquoted shell comment's ``#``, if any.
+
+    A comment begins at a word boundary, so an escaped space keeps the hash
+    that follows it inside the word: a `build` whose space is escaped still passes
+    `--jobs=2`, and treating the hash as a comment would hide it.
+    """
     quote = ""
+    word_start = True
     index = 0
     while index < len(arguments):
         character = arguments[index]
         if quote:
             index, quote = _quoted_step(arguments, index, quote)
+            word_start = False
+            continue
+        if character == "\\":
+            index += 2
+            word_start = False
             continue
         if character in {"'", '"'}:
             quote = character
-        elif character == "#" and _begins_comment(arguments, index):
+            word_start = False
+        elif character == "#" and word_start:
             return index
+        else:
+            word_start = character.isspace()
         index += 1
     return None
 
@@ -145,11 +159,7 @@ def _operator_step(command: str, index: int, quote: str) -> tuple[int, str]:
     return index + 1, character
 
 
-def _begins_comment(arguments: str, index: int) -> bool:
-    """Return whether the ``#`` at `index` starts a shell comment."""
-    if index == 0:
-        return True
-    return arguments[index - 1].isspace()
+
 
 
 def _masked(command: str) -> bool:
@@ -204,13 +214,11 @@ def recipe(text: str, pattern: re.Pattern[str], target: str) -> str:
 def logical_lines(text: str) -> list[str]:
     """Return one recipe's commands with backslash continuations joined.
 
-    A recipe splits a command across lines for readability. Make removes a
-    backslash-newline pair *and* the recipe-prefix tab that begins the next
-    line, joining the halves with nothing: `regu\\` followed by a tab and
-    `lar` reaches the shell as `regular`. A continuation line that does not
-    begin with a tab keeps its backslash-newline pair, which make passes to
-    the shell; the pair is preserved here, because how the shell reads it
-    depends on its quoting.
+    Make passes a recipe line's backslash-newline through to the shell and
+    removes the recipe-prefix tab that begins the continuation. The shell then
+    removes the pair as a line continuation outside single quotes, so the two
+    halves are one word; inside single quotes the shell keeps the pair
+    literally, and so does this reader.
     """
     lines = text.splitlines()
     logical: list[str] = []
@@ -225,22 +233,14 @@ def _joined(lines: list[str], index: int) -> tuple[str, int]:
     """Return one logical line and the index of the line after it."""
     current = lines[index]
     index += 1
-    while _has_recipe_continuation(current, lines, index):
-        current = current[:-1] + lines[index][1:]
+    while current.endswith("\\") and index < len(lines):
+        following = lines[index][1:] if lines[index].startswith("\t") else lines[index]
+        if _open_single_quote(current):
+            current = f"{current}\n{following}"
+        else:
+            current = f"{current[:-1]}{following}"
         index += 1
-    if current.endswith("\\") and index < len(lines):
-        # A continuation without a recipe-prefix tab keeps its pair.
-        current += "\n"
     return current, index
-
-
-def _has_recipe_continuation(
-    current: str, lines: list[str], index: int
-) -> bool:
-    """Return whether `current` continues onto the tab-indented next line."""
-    if not current.endswith("\\") or index >= len(lines):
-        return False
-    return lines[index].startswith("\t")
 
 
 def _open_single_quote(text: str) -> bool:

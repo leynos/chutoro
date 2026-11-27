@@ -64,7 +64,7 @@ _ATTRIBUTE_PATH = re.compile(r"^#\[\s*(?P<path>[A-Za-z_][A-Za-z0-9_:]*)")
 #: are blanked before this runs, so a mention in either has already gone.
 _MOD_ITEM = re.compile(
     r"(?<![A-Za-z0-9_])(?:pub(?:\s*\([^)]*\))?\s+)?mod\s+"
-    r"(?P<name>[A-Za-z_][A-Za-z0-9_]*)\s*(?P<terminator>[;{])"
+    r"(?:r#)?(?P<name>[A-Za-z_][A-Za-z0-9_]*)\s*(?P<terminator>[;{])"
 )
 
 #: The ``#[path = "..."]`` attribute on a module declaration. Rust accepts an

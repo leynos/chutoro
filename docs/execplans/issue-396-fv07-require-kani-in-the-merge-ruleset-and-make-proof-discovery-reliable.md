@@ -370,6 +370,16 @@ issue text and the repository's documentation are the authority.
       automatic binary an explicit `[[bin]]` claims is not read twice. The
       guard fixtures moved to `kani_guard_fixtures_test.py`, which keeps both
       modules cohesive.
+- [x] Sixteenth review round, all six findings actioned. Make is measured to
+      keep a recipe's backslash-newline and drop the continuation's tab, so
+      the joiner now leaves the pair for the shell and removes it only outside
+      single quotes; that probe also settled the previous round's spacing
+      question. `include!` is detected on the literal-blanked text, so a
+      mention in a string is not one, and every invocation is reported once,
+      computed argument or not. An escaped space keeps a following `#` inside
+      its word; `mod r#type` names the module `type`; and `src/main.rs` takes
+      the package's declared name, not its directory's, when automatic targets
+      are matched against explicit ones.
 - [ ] Push the branch and create the draft pull request.
 
 ## Surprises & discoveries

@@ -41,6 +41,7 @@ from kani_source_reading import (
     _gated_by_test,
     _inside,
     _line_of,
+    _matching_delimiter,
     _module_chain,
     _parse,
     _proof_attributes,
@@ -470,19 +471,24 @@ class _Reader:
             )
 
     def _report_includes(self, source: _Source, relative: str) -> None:
-        """Report each literal ``include!`` the module walk cannot follow.
+        """Report each ``include!`` the module walk cannot follow.
 
         Rust compiles the named file's items into this module, so a proof
         there runs under the gate; following only ``mod`` declarations would
         omit it without a trace.
         """
-        for found in _INCLUDE.finditer(source.declarations):
+        for found in _INCLUDE.finditer(source.code):
+            opening = found.end() - 1
+            closing = _matching_delimiter(source.code, opening, "(")
+            if closing is None:
+                closing = len(source.code)
+            argument = source.declarations[opening + 1 : closing].strip()
             self._report(
                 "include",
                 relative,
                 _line_of(source.text, found.start()),
-                f"the module includes {found['path']!r} with include!, which "
-                "this reader cannot follow",
+                f"the module includes {argument!r} with include!, which this "
+                "reader cannot follow",
             )
 
     def _report_inline_paths(self, location: _Location, source: _Source) -> None:
@@ -572,9 +578,10 @@ def _declared_children(
     )
 
 
-#: A literal source include: Rust compiles the named file's items, but this
-#: walk follows only ``mod`` declarations, so the include is reported.
-_INCLUDE = re.compile(r'\binclude!\s*\(\s*"(?P<path>[^"]*)"',)
+#: A source include: Rust compiles the named file's items, but this walk
+#: follows only ``mod`` declarations, so every include is reported. The scan
+#: runs on the literal-blanked text, so a mention inside a string is not one.
+_INCLUDE = re.compile(r"\binclude!\s*\(")
 
 
 def _holds_proof(source: _Source) -> bool:

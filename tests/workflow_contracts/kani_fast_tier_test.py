@@ -92,15 +92,26 @@ def test_a_continuation_with_a_recipe_tab_joins_with_nothing() -> None:
     assert joined == ["\t$(CARGO) kani --harness=verify_one"], joined
 
 
-def test_a_continuation_without_a_tab_keeps_its_backslash() -> None:
-    """A continuation line without a tab keeps the pair, which make passes on.
+def test_a_quoted_continuation_keeps_its_backslash() -> None:
+    """Single quotes keep the pair, which make passes through to the shell.
 
-    The shell decides what the pair means, and single quotes keep it literal,
-    so the reader must not join it.
+    A quoted value split across two recipe lines is therefore not the value
+    the halves would spell joined, so the reader must not join it either.
     """
-    joined = logical_lines("\t$(CARGO) kani --config 'tools/dev-\\\nfast.toml'\n")
-    assert len(joined) == 2, joined
-    assert joined[0].endswith("dev-\\\n"), joined
+    joined = logical_lines("\t$(CARGO) kani --config 'tools/dev-\\\n\tfast.toml'\n")
+    assert len(joined) == 1, joined
+    assert "dev-\\\n" in joined[0], joined
+
+
+def test_an_escaped_space_keeps_a_hash_in_the_word() -> None:
+    """An escaped space joins the next word, so its hash is not a comment.
+
+    The checker still receives the option after it, and a reader that cut at
+    the hash would never examine that option.
+    """
+    arguments = "-p core --target-dir build\\ # --jobs=2"
+    refused = violations(arguments)
+    assert refused == ["--jobs=2"], f"the escaped hash is not a comment: {refused!r}"
 
 
 def test_a_quoted_argument_cannot_invent_a_selector() -> None:
