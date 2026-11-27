@@ -2675,8 +2675,11 @@ or feature-starved crate, not to ship.
   duplicate is an error: two `digest` generations split the hash traits in two,
   so `[[bans.deny]]` sets `deny-multiple-versions` for `digest`. The check
   includes dev-dependencies because the only current `digest` path is dev-only.
-  Registry wildcards are denied; path dependencies are exempt, since they are
-  this checkout rather than an unpinned download.
+  Registry wildcards are denied. The path-dependency exemption is narrow: path
+  dev-dependencies are exempt in every crate, and path dependencies are exempt
+  in a `publish = false` crate, but a publishable crate's ordinary path
+  dependency still needs a version, because publishing would otherwise record
+  no requirement. `chutoro-cli` is the member that carries those versions.
 
 #### Changing the pin
 

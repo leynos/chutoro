@@ -134,12 +134,43 @@ def test_all_runs_the_supply_chain_gate() -> None:
     assert {"release", "spelling", "test-workflow-contracts", "deny"} <= (prerequisites)
 
 
+def _ignore_problem(entry: object) -> str | None:
+    """Return why one advisory ignore breaks the policy, or ``None``.
+
+    The documented procedure allows an ignore only as a note with a bound,
+    so a bare string, a missing reason, or an advisory id without an expiry
+    is a hole the gate would otherwise never report.
+
+    Examples
+    --------
+    >>> _ignore_problem({"id": "RUSTSEC-0000-0000", "reason": "x", "expiry": "2026-12-31"})
+    >>> _ignore_problem({"id": "RUSTSEC-0000-0000", "reason": "x"}) is None
+    False
+    >>> _ignore_problem("RUSTSEC-0000-0000") is None
+    False
+    """
+    if not isinstance(entry, dict):
+        return f"{entry!r} must be a table carrying a reason"
+    if not entry.get("reason"):
+        return f"{entry!r} must carry a reason"
+    if "id" in entry and not entry.get("expiry"):
+        return f"{entry['id']} must carry an expiry"
+    if "id" not in entry and "crate" not in entry:
+        return f"{entry!r} must name an advisory id or a crate"
+    return None
+
+
 def test_policy_blocks_advisories_and_yanked_crates() -> None:
-    """The advisory gate must start empty and deny yanked resolutions."""
+    """The advisory gate must deny yanked crates and bound every ignore."""
     advisories = _policy()["advisories"]
     assert advisories["unmaintained"] == "workspace"
     assert advisories["yanked"] == "deny"
-    assert advisories["ignore"] == []
+    problems = [
+        problem
+        for entry in advisories["ignore"]
+        if (problem := _ignore_problem(entry)) is not None
+    ]
+    assert not problems, problems
 
 
 def test_policy_covers_every_feature_and_dev_edge() -> None:
@@ -177,7 +208,10 @@ def test_every_policy_exception_names_its_reason() -> None:
     assert "digest" in digest_comment
     assert "generation" in digest_comment
 
-    bzip2_header = _line_index(lines, "# [[licenses.exceptions]]")
+    # The needle deliberately omits the comment marker: activating the
+    # documented exception removes `# ` from the header, and the rationale
+    # must still be found immediately above it either way.
+    bzip2_header = _line_index(lines, "[[licenses.exceptions]]")
     bzip2_comment = " ".join(_comment_block_before(lines, bzip2_header))
     assert "libbz2-rs-sys" in bzip2_comment
     assert "bzip2-1.0.6" in bzip2_comment
