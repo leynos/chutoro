@@ -413,10 +413,10 @@ issue text and the repository's documentation are the authority.
       moved to `tools/kani/kani.mk`, which the `Makefile` includes. `help`
       already reads `$(MAKEFILE_LIST)`, so the fragment's targets remain
       listed, and the fixture trees that copy the `Makefile` now copy the
-      fragment with it. One file CodeRabbit named,
-      `tests/workflow_contracts/trybuild_override_test.py`, was already 583
-      lines on `main` and is unchanged here apart from one import line, so it
-      is recorded as pre-existing rather than pulled into this change.
+      fragment with it. `tests/workflow_contracts/trybuild_override_test.py`,
+      already 583 lines on `main`, was split by responsibility so that no
+      400-line exception is needed: its discovery-sweep cases moved to
+      `rust_test_discovery_test.py`.
 
 ## Surprises & discoveries
 
@@ -733,11 +733,10 @@ repairs — exact verdict and summary grammar in the checker, a version-stamped
 output fixture, a nightly-freshness contract test, the enforcement wording, and
 the module splits that bring every file this branch adds or grows inside the
 400-line limit. The manifest mutation controls were run and recorded, not
-assumed. One file the branch touches but did not grow,
-`tests/workflow_contracts/trybuild_override_test.py` at 583 lines on `main`, is
-recorded as a pre-existing policy exception rather than split inside this
-change; `AGENTS.md` states no exception, so closing it needs maintainer
-approval.
+assumed. `tests/workflow_contracts/trybuild_override_test.py`, 583 lines on
+`main` and touched here only by an import, was then split by responsibility:
+its discovery-sweep cases moved to `rust_test_discovery_test.py`, leaving 377
+and 244 lines, so no policy exception is needed.
 
 Revised 2026-11-27 (third): split the Makefile's Kani wiring into
 `tools/kani/kani.mk` after the second assessment round found the root file over
@@ -751,3 +750,8 @@ column. `-h` and a `##`-based split restore both columns, and
 `makefile_help_test.py` pins a root target and both fragment targets. Also
 corrected this plan's file-size claim to say *adds or grows*, and recorded the
 pre-existing over-limit file explicitly.
+
+Revised 2026-11-27 (fifth): rather than carry a 400-line exception that only a
+maintainer could approve, split `trybuild_override_test.py` by responsibility.
+Its discovery-sweep cases moved to `rust_test_discovery_test.py`; both files
+are now well inside the limit and the exception is withdrawn.
