@@ -67,6 +67,13 @@ pub mod tracing {
     ///
     /// [`Interest::never`]: tracing::subscriber::Interest::never
     ///
+    /// # Returns
+    ///
+    /// A [`CallsiteInterestPin`] that keeps the inert dispatcher registered for
+    /// as long as the value is alive. Dropping it returns the process to the
+    /// unpinned state, so bind it to a named local that outlives the capture
+    /// and every snapshot taken from it.
+    ///
     /// # Examples
     /// ```
     /// use chutoro_test_support::tracing::{RecordingLayer, pin_callsite_interest};

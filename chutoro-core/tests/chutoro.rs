@@ -2,49 +2,31 @@
 //!
 //! The root builds clusterings end to end and reads the session and pipeline
 //! facades back. Assignment-validation examples sit in the private
-//! `assignment_validation` child module, which this root declares with
-//! `#[path]` so those cases still run in one integration-test binary and this
-//! file stays within the module-size budget.
+//! `assignment_validation` child module, and the HNSW-parameter and memory-limit
+//! cases sit in `hnsw_params`. This root declares both with `#[path]` so those
+//! cases still run in one integration-test binary while each file stays within
+//! the module-size budget.
 
 #[path = "chutoro/assignment_validation.rs"]
 mod assignment_validation;
 mod common;
 #[path = "support/failable_source.rs"]
 mod failable_source;
+#[cfg(feature = "cpu")]
+#[path = "chutoro/hnsw_params.rs"]
+mod hnsw_params;
 
 use chutoro_core::{
     ChutoroBuilder, ChutoroError, DataSource, DataSourceError, ExecutionStrategy, MetricDescriptor,
 };
-#[cfg(feature = "cpu")]
-use chutoro_core::{
-    DistanceCacheConfig, HnswParams, estimate_peak_bytes,
-    estimate_peak_bytes_for_hnsw_params_with_concurrency,
-};
 use common::Dummy;
 use failable_source::{FailableSource, FailureMode};
 use rstest::{fixture, rstest};
-use std::{num::NonZeroUsize, sync::Arc};
+use std::sync::Arc;
 use tracing::Level;
 use tracing_subscriber::layer::SubscriberExt;
 
 use chutoro_test_support::tracing::{RecordingLayer, pin_callsite_interest};
-
-/// Mirrors the concurrency the memory guard derives for this test thread.
-///
-/// The guard sizes concurrent search state from the ambient Rayon pool, and the
-/// tests call it from the same context, so the wide pool is the honest width.
-#[cfg(feature = "cpu")]
-fn ambient_search_concurrency() -> NonZeroUsize {
-    NonZeroUsize::new(rayon::current_num_threads()).unwrap_or(NonZeroUsize::MIN)
-}
-
-/// Returns the cluster size the memory-limit fixtures configure.
-const fn cluster_size() -> NonZeroUsize {
-    match NonZeroUsize::new(2) {
-        Some(size) => size,
-        None => NonZeroUsize::MIN,
-    }
-}
 
 #[fixture]
 fn dummy() -> Dummy {
@@ -221,127 +203,6 @@ fn run_maps_hnsw_errors(#[case] mode: FailureMode) {
             "expected HNSW error, got {err:?}"
         ),
     }
-}
-
-#[cfg(feature = "cpu")]
-#[rstest]
-fn run_memory_limit_uses_builder_hnsw_params(dummy: Dummy) {
-    let hnsw_params = HnswParams::new(4, 16).expect("parameters must be valid");
-    let estimated_bytes = estimate_peak_bytes_for_hnsw_params_with_concurrency(
-        dummy.len(),
-        cluster_size(),
-        &hnsw_params,
-        ambient_search_concurrency(),
-    );
-    assert_ne!(estimated_bytes, estimate_peak_bytes(dummy.len(), 16));
-
-    let chutoro = ChutoroBuilder::new()
-        .with_min_cluster_size(2)
-        .with_execution_strategy(ExecutionStrategy::CpuOnly)
-        .with_hnsw_params(hnsw_params)
-        .with_max_bytes(estimated_bytes - 1)
-        .build()
-        .expect("configuration must be valid");
-
-    let err = chutoro
-        .run(&dummy)
-        .expect_err("configured memory limit must be enforced");
-    assert!(matches!(
-        err,
-        ChutoroError::MemoryLimitExceeded {
-            point_count,
-            estimated_bytes: actual_estimated_bytes,
-            ..
-        } if point_count == dummy.len() && actual_estimated_bytes == estimated_bytes
-    ));
-}
-
-#[cfg(feature = "cpu")]
-#[rstest]
-fn run_memory_limit_uses_configured_distance_cache_capacity(dummy: Dummy) {
-    let default_params = HnswParams::new(16, 64).expect("parameters must be valid");
-    let cache_capacity =
-        NonZeroUsize::new(DistanceCacheConfig::DEFAULT_MAX_ENTRIES.saturating_mul(2))
-            .expect("doubled default cache capacity must be non-zero");
-    let hnsw_params = default_params
-        .clone()
-        .with_distance_cache_max_entries(cache_capacity);
-    let searches = ambient_search_concurrency();
-    let default_estimate = estimate_peak_bytes_for_hnsw_params_with_concurrency(
-        dummy.len(),
-        cluster_size(),
-        &default_params,
-        searches,
-    );
-    let parameter_aware_estimate = estimate_peak_bytes_for_hnsw_params_with_concurrency(
-        dummy.len(),
-        cluster_size(),
-        &hnsw_params,
-        searches,
-    );
-    let max_bytes = parameter_aware_estimate - 1;
-    assert!(
-        max_bytes > default_estimate,
-        "the configured cache must increase the estimate beyond the default cache"
-    );
-
-    let chutoro = ChutoroBuilder::new()
-        .with_min_cluster_size(2)
-        .with_execution_strategy(ExecutionStrategy::CpuOnly)
-        .with_hnsw_params(hnsw_params)
-        .with_max_bytes(max_bytes)
-        .build()
-        .expect("configuration must be valid");
-
-    let error = chutoro
-        .run(&dummy)
-        .expect_err("parameter-aware memory limit must be enforced");
-    assert!(matches!(
-        error,
-        ChutoroError::MemoryLimitExceeded {
-            estimated_bytes,
-            ..
-        } if estimated_bytes == parameter_aware_estimate
-    ));
-}
-
-#[cfg(feature = "cpu")]
-#[rstest]
-fn run_passes_builder_hnsw_params_to_cpu_pipeline(dummy: Dummy) {
-    let _pin = pin_callsite_interest();
-    let hnsw_params = HnswParams::new(1, 2).expect("parameters must be valid");
-    let layer = RecordingLayer::default();
-    let subscriber = tracing_subscriber::registry().with(layer.clone());
-    let chutoro = ChutoroBuilder::new()
-        .with_min_cluster_size(2)
-        .with_execution_strategy(ExecutionStrategy::CpuOnly)
-        .with_hnsw_params(hnsw_params)
-        .build()
-        .expect("configuration must be valid");
-
-    let result = tracing::subscriber::with_default(subscriber, || chutoro.run(&dummy))
-        .expect("custom HNSW configuration must complete the CPU pipeline");
-    assert_eq!(result.assignments().len(), dummy.len());
-
-    let event = layer
-        .events()
-        .into_iter()
-        .find(|event| {
-            event
-                .fields
-                .get("message")
-                .is_some_and(|message| message == "building CPU HNSW index")
-        })
-        .expect("CPU pipeline must record its HNSW construction parameters");
-    assert_eq!(event.fields.get("max_connections"), Some(&"1".to_owned()));
-    assert_eq!(
-        event.fields.get("configured_ef_construction"),
-        Some(&"2".to_owned())
-    );
-    assert_eq!(
-        event.fields.get("effective_ef_construction"),
-        Some(&"2".to_owned())
-    );
 }
 
 #[cfg(not(feature = "gpu"))]
