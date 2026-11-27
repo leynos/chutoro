@@ -46,7 +46,7 @@ from rust_source_fixtures import (
     SIBLINGS,
     SPAWNER,
 )
-from rust_source_reading import compile_contract_tests, discovered_tests
+from rust_test_discovery import compile_contract_tests, discovered_tests
 
 from workflow_support import ROOT as REPO_ROOT
 

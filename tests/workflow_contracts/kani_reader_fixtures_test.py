@@ -55,16 +55,30 @@ def test_reader_derives_a_nested_inline_module_path(tmp_path: Path, write_packag
     )
 
 
-def test_reader_derives_a_file_based_module_path(tmp_path: Path, write_package: typ.Callable[..., Path]) -> None:
-    """A file reached by ``mod name;`` contributes its module segment."""
-    crate_root = write_package("mod proofs;\n")
-    (crate_root.parent / "proofs.rs").write_text(
-        "#[kani::proof]\nfn verify_file() {}\n", encoding="utf-8"
-    )
+@pytest.mark.parametrize(
+    ("declaration", "expected"),
+    (
+        ("mod proofs;\n", "proofs::verify_file"),
+        ("mod\n    proofs\n;\n", "proofs::verify_split"),
+    ),
+    ids=("one line", "split over lines"),
+)
+def test_reader_derives_a_file_based_module_path(
+    tmp_path: Path,
+    write_package: typ.Callable[..., Path],
+    declaration: str,
+    expected: str,
+) -> None:
+    """A ``mod name;`` declaration contributes its module segment.
+
+    Rust permits whitespace, including a newline, between the keyword and the
+    name, so both spellings must resolve to the same child file.
+    """
+    crate_root = write_package(declaration)
+    proof = f"#[kani::proof]\nfn {expected.split('::')[-1]}() {{}}\n"
+    (crate_root.parent / "proofs.rs").write_text(proof, encoding="utf-8")
     names = _names(discover(tmp_path))
-    assert names == ["proofs::verify_file"], (
-        f"the file-based module path must be derived, got {names!r}"
-    )
+    assert names == [expected], f"the module path must be derived, got {names!r}"
 
 
 def test_reader_reports_a_cfg_attr_wrapped_proof(tmp_path: Path, write_package: typ.Callable[..., Path]) -> None:
@@ -200,18 +214,6 @@ def test_reader_reports_an_included_source(
     inventory = discover(tmp_path)
     assert _kinds(inventory) == ["include"], (
         f"an include! must be reported, got {inventory.unresolved!r}"
-    )
-
-
-def test_reader_reads_a_mod_declaration_split_over_lines(tmp_path: Path, write_package: typ.Callable[..., Path]) -> None:
-    """Rust permits whitespace, including a newline, inside ``mod name;``."""
-    crate_root = write_package("mod\n    proofs\n;\n")
-    (crate_root.parent / "proofs.rs").write_text(
-        "#[kani::proof]\nfn verify_split() {}\n", encoding="utf-8"
-    )
-    names = _names(discover(tmp_path))
-    assert names == ["proofs::verify_split"], (
-        f"a split module declaration must be read, got {names!r}"
     )
 
 

@@ -262,7 +262,7 @@ def _module_item(lexed: _Lexed, match: re.Match[str]) -> _ModuleItem | None:
     if _inside(match.start(), lexed.macros):
         return None
     inline = match["terminator"] == "{"
-    extents = _attached_attributes(lexed.declarations, lexed.code, match.start())
+    extents = _attached_attributes(lexed.code, match.start())
     pairs = [
         (lexed.declarations[start:end], lexed.code[start:end])
         for start, end in extents

@@ -80,15 +80,12 @@ def _attribute_start(text: str, end: int) -> int | None:
     return None
 
 
-def _attached_attributes(
-    declarations: str, code: str, start: int
-) -> list[tuple[int, int]]:
+def _attached_attributes(code: str, start: int) -> list[tuple[int, int]]:
     """Return the extents of the attributes attached at `start`.
 
-    `declarations` keeps the ``#[path]`` value and decides what text an
-    attribute carries; `code` has literals blanked and decides where its
-    brackets are. A ``[`` or ``]`` inside a doc string is text, and counting it
-    would put the attribute's opening at the wrong offset.
+    `code` has literals blanked, so it decides where an attribute's brackets
+    are: a ``[`` or ``]`` inside a doc string is text, and counting it would put
+    the attribute's opening at the wrong offset.
 
     Attributes are found by working backwards from the declaration, so an
     attribute on the same line and one spread over several lines are both read.
@@ -151,20 +148,10 @@ def _proof_attributes(code: str, start: int) -> list[str]:
     a brace separates items rather than decorating one, so the enclosing
     module's own attribute cannot be adopted by its first child.
     """
-    found: list[str] = []
-    position = start
-    while True:
-        while position > 0 and code[position - 1].isspace():
-            position -= 1
-        if position == 0 or code[position - 1] in "{};":
-            break
-        end = position
-        opening = _attribute_start(code, end)
-        if opening is None:
-            break
-        found.insert(0, _normalised(code[opening:end]))
-        position = opening
-    return found
+    return [
+        _normalised(code[opening:end])
+        for opening, end in _attached_attributes(code, start)
+    ]
 
 
 def _attribute_end(text: str, opening: int) -> int | None:
