@@ -13,7 +13,10 @@ The override contract that consumes the sweep lives in
 Run via ``make test-workflow-contracts``.
 """
 
+from __future__ import annotations
+
 import pathlib
+import typing as typ
 
 import pytest
 from rust_source_fixtures import (
@@ -27,7 +30,6 @@ from rust_source_fixtures import (
     NESTED_ASYNC,
     QUALIFIED,
     RAW_STRING_WITH_A_QUOTE,
-    RETRIES_ONLY,
     RSTEST,
     SIBLINGS,
     SPAWNER,
