@@ -735,8 +735,8 @@ the module splits that bring every file this branch adds or grows inside the
 400-line limit. The manifest mutation controls were run and recorded, not
 assumed. `tests/workflow_contracts/trybuild_override_test.py`, 583 lines on
 `main` and touched here only by an import, was then split by responsibility:
-its discovery-sweep cases moved to `rust_test_discovery_test.py`, leaving 361
-and 244 lines, so no policy exception is needed.
+its discovery-sweep cases moved to `rust_test_discovery_test.py`, leaving 360
+and 246 lines, so no policy exception is needed.
 
 Revised 2026-11-27 (third): split the Makefile's Kani wiring into
 `tools/kani/kani.mk` after the second assessment round found the root file over

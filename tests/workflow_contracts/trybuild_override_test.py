@@ -19,7 +19,6 @@ Run via ``make test-workflow-contracts``.
 """
 
 import math
-import pathlib
 import re
 import tomllib
 import typing as typ
@@ -30,7 +29,7 @@ from rust_source_fixtures import (
     EXTENDING,
     RETRIES_ONLY,
 )
-from rust_test_discovery import compile_contract_tests, discovered_tests
+from rust_test_discovery import discovered_tests
 
 from workflow_support import ROOT as REPO_ROOT
 
