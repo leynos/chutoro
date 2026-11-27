@@ -28,7 +28,7 @@ KANI_FRAGMENT_PATH = REPO_ROOT / "tools" / "kani" / "kani.mk"
 
 @pytest.fixture(scope="module")
 def help_lines() -> list[str]:
-    """Return `make help`'s output lines, with its heading removed."""
+    """Return `make help`'s output lines."""
     completed = subprocess.run(
         ["make", "--no-print-directory", "help"],
         cwd=REPO_ROOT,
@@ -71,6 +71,13 @@ def test_help_names_each_target_with_its_description(
     )
     assert "Makefile" not in line and "kani.mk" not in line, (
         f"help must not print the source file as the target, got {line!r}"
+    )
+
+
+def test_help_keeps_its_heading(help_lines: list[str]) -> None:
+    """The heading stays on the first line whatever the include list holds."""
+    assert help_lines[0] == "Available targets:", (
+        f"help must open with its heading, got {help_lines[:2]!r}"
     )
 
 

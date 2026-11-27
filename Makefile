@@ -318,7 +318,7 @@ test-scheduling-contract: ## Run the HNSW critical-section scheduling regression
 # columns stay target-and-description whatever the include list grows to.
 help: ## Show available targets
 	@grep -hE '^[a-zA-Z_-]+:.*?##' $(MAKEFILE_LIST) | \
-	awk -F'##' '{ split($$1, name, ":"); printf "  %-20s %s\n", name[1], $$2 }'
+	awk -F'##' 'BEGIN { printf "Available targets:\n" } { split($$1, name, ":"); printf "  %-20s %s\n", name[1], $$2 }'
 
 YAMLLINT ?= yamllint
 ACTIONLINT ?= actionlint
