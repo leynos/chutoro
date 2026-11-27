@@ -157,14 +157,26 @@ def test_the_kani_job_cannot_be_skipped(workflow: dict[str, object]) -> None:
         "no step of the Kani gate may set continue-on-error; a failed proof "
         f"must fail the job. Found {tolerant!r}"
     )
+    steps = _steps(workflow)
+    # `always()` is allowed only on the disk reading that closes the job, so a
+    # failed suite still records its headroom. Anywhere else it could run a
+    # step after an earlier failure or during cancellation. Identifying the
+    # step by position rather than by accepting any `always()` is what keeps
+    # checkout from acquiring one unnoticed.
+    closing = len(steps) - 1
+    assert closing >= 0 and steps[closing].get("run") == "df -h .", (
+        "the job must end with the disk reading, got "
+        f"{steps[closing].get('run') if closing >= 0 else None!r}"
+    )
     conditional = [
         (step.get("name"), step.get("if"))
-        for step in _steps(workflow)
-        if "if" in step and _normalised(step.get("if")) != "always()"
+        for index, step in enumerate(steps)
+        if "if" in step
+        and (_normalised(step.get("if")) != "always()" or index != closing)
     ]
     assert not conditional, (
         "no setup, install or verification step may be conditional; the disk "
-        f"reading after the suite is the only exception. Found {conditional!r}"
+        f"reading closing the job is the only exception. Found {conditional!r}"
     )
 
 

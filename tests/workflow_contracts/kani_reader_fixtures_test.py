@@ -2,15 +2,11 @@
 
 Every case here builds a tiny package whose Rust source spells a construct the
 inventory reader has to classify, and asserts what :func:`discover` makes of
-it. The shapes are the ones a real tree can contain: a proof inside a comment
-or a string literal, a ``#[path]`` that resolves, one that does not, one in a
-raw string, one in a shape the reader cannot read, an inline module, a module
-loaded from elsewhere, a proof reached only through a shared parent, and a
-package whose only crate root is a binary.
-
-They live apart from :mod:`kani_manifest_test` so each module stays inside the
-file-length limit; that module keeps the repository-wide comparison between
-``tools/kani/harnesses.toml`` and the tree.
+it: a proof inside a comment or a string literal, a proof behind a guard, a
+proof inside a macro definition, a package whose only crate root is a binary,
+and a proof-bearing file no module reaches. The path-attribute cases live in
+:mod:`kani_path_fixtures_test`, beside the package writer both modules share in
+:mod:`kani_reader_support`.
 
 Run via ``make test-workflow-contracts``.
 """
@@ -21,32 +17,7 @@ from pathlib import Path
 
 from kani_harness_reading import Inventory, UnresolvedDeclaration, discover
 from kani_manifest_test import _validate_entry
-
-#: A package manifest, enough for the sweep to recognise a package.
-PACKAGE_MANIFEST = '[package]\nname = "{name}"\nversion = "0.1.0"\n'
-
-
-def _write_package(root: Path, source: str, name: str = "fixture") -> Path:
-    """Create a one-file package under `root` and return its crate root."""
-    directory = root / name
-    (directory / "src").mkdir(parents=True)
-    (directory / "Cargo.toml").write_text(
-        PACKAGE_MANIFEST.format(name=name), encoding="utf-8"
-    )
-    crate_root = directory / "src" / "lib.rs"
-    crate_root.write_text(source, encoding="utf-8")
-    return crate_root
-
-
-def _names(inventory: Inventory) -> list[str]:
-    """Return the harness names the inventory found, sorted."""
-    return sorted(proof.pretty_name for proof in inventory.proofs)
-
-
-def _kinds(inventory: Inventory) -> list[str]:
-    """Return the kinds of unresolved report, sorted."""
-    return sorted(report.kind for report in inventory.unresolved)
-
+from kani_reader_support import _kinds, _names, _write_package
 
 def test_reader_ignores_a_proof_in_a_comment(tmp_path: Path) -> None:
     """A proof written in a comment is a mention, not a declaration."""
@@ -57,7 +28,6 @@ def test_reader_ignores_a_proof_in_a_comment(tmp_path: Path) -> None:
     names = _names(discover(tmp_path))
     assert names == [], f"a comment must not declare a proof, got {names!r}"
 
-
 def test_reader_ignores_a_proof_in_a_string_literal(tmp_path: Path) -> None:
     """A proof written inside a string literal is data, not a declaration."""
     _write_package(
@@ -66,7 +36,6 @@ def test_reader_ignores_a_proof_in_a_string_literal(tmp_path: Path) -> None:
     )
     names = _names(discover(tmp_path))
     assert names == [], f"a comment must not declare a proof, got {names!r}"
-
 
 def test_reader_derives_a_nested_inline_module_path(tmp_path: Path) -> None:
     """A proof's harness path includes every inline module enclosing it."""
@@ -80,7 +49,6 @@ def test_reader_derives_a_nested_inline_module_path(tmp_path: Path) -> None:
         f"the nested inline path must be derived, got {names!r}"
     )
 
-
 def test_reader_derives_a_file_based_module_path(tmp_path: Path) -> None:
     """A file reached by ``mod name;`` contributes its module segment."""
     crate_root = _write_package(tmp_path, "mod proofs;\n")
@@ -91,34 +59,6 @@ def test_reader_derives_a_file_based_module_path(tmp_path: Path) -> None:
     assert names == ["proofs::verify_file"], (
         f"the file-based module path must be derived, got {names!r}"
     )
-
-
-def test_reader_reports_an_unresolvable_path_attribute(tmp_path: Path) -> None:
-    """A ``#[path]`` naming no file is reported rather than skipped."""
-    _write_package(tmp_path, '#[path = "absent.rs"]\nmod proofs;\n')
-    kinds = _kinds(discover(tmp_path))
-    assert kinds == ["path-attribute"], (
-        f"an unresolvable #[path] must be reported, got {kinds!r}"
-    )
-
-
-def test_reader_follows_a_resolvable_path_attribute(tmp_path: Path) -> None:
-    """A ``#[path]`` naming a real file still contributes its module's name.
-
-    Rust takes the module's name from the declaration, not from the file's
-    location, so a resolvable path attribute leaves the harness identity
-    derivable. Reporting these instead would fail the contract on the
-    repository's ordinary test-only ``#[path]`` modules.
-    """
-    crate_root = _write_package(tmp_path, '#[path = "elsewhere.rs"]\nmod proofs;\n')
-    (crate_root.parent / "elsewhere.rs").write_text(
-        "#[kani::proof]\nfn verify_moved() {}\n", encoding="utf-8"
-    )
-    names = _names(discover(tmp_path))
-    assert names == ["proofs::verify_moved"], (
-        f"a resolvable #[path] must contribute its module name, got {names!r}"
-    )
-
 
 def test_reader_reports_a_cfg_attr_wrapped_proof(tmp_path: Path) -> None:
     """A proof whose existence depends on configuration cannot be classified."""
@@ -131,7 +71,6 @@ def test_reader_reports_a_cfg_attr_wrapped_proof(tmp_path: Path) -> None:
         f"a cfg_attr-wrapped proof must be reported, got {kinds!r}"
     )
 
-
 def test_reader_reports_a_proof_inside_a_macro(tmp_path: Path) -> None:
     """A proof that only exists after expansion cannot be attributed."""
     _write_package(
@@ -143,7 +82,6 @@ def test_reader_reports_a_proof_inside_a_macro(tmp_path: Path) -> None:
     assert kinds == ["macro"], (
         f"a proof inside a macro must be reported, got {kinds!r}"
     )
-
 
 def test_reader_reports_a_proof_bearing_source_no_module_reaches(
     tmp_path: Path,
@@ -165,60 +103,6 @@ def test_reader_reports_a_proof_bearing_source_no_module_reaches(
     assert kinds == ["unreachable"], (
         f"the orphaned source must be reported, got {kinds!r}"
     )
-
-
-def test_reader_resolves_a_path_loaded_module_children_beside_it(
-    tmp_path: Path,
-) -> None:
-    """A ``#[path]``-loaded file resolves its children from its own directory.
-
-    Rust gives a path-loaded file the ``mod.rs`` directory rule: a ``mod
-    child;`` inside it reads ``child.rs`` beside it, not from a directory
-    named after its stem. Reading the other way would look for the child in a
-    directory Rust never uses and report its proof unreachable.
-    """
-    crate_root = _write_package(tmp_path, '#[path = "elsewhere.rs"]\nmod proofs;\n')
-    (crate_root.parent / "elsewhere.rs").write_text(
-        "mod nested;\n", encoding="utf-8"
-    )
-    (crate_root.parent / "nested.rs").write_text(
-        "#[kani::proof]\nfn verify_nested() {}\n", encoding="utf-8"
-    )
-    inventory = discover(tmp_path)
-    assert _names(inventory) == ["proofs::nested::verify_nested"], (
-        f"expected the child beside the path-loaded file, got {_names(inventory)!r}"
-    )
-    assert _kinds(inventory) == [], f"expected no reports, got {inventory.unresolved!r}"
-
-
-def test_reader_applies_an_inline_module_path_attribute(
-    tmp_path: Path,
-) -> None:
-    """An inline module's ``#[path]`` renames the directory its children use.
-
-    For ``#[path = "thread_files"] mod thread { #[path = "tls.rs"] mod
-    local_data; }`` Rust loads ``thread_files/tls.rs``, while the harness
-    identity stays ``thread::local_data::...``. Reading the child from
-    ``thread/tls.rs`` would miss a valid proof or read the wrong file.
-    """
-    (_write_package(tmp_path, ""))
-    crate_root = _write_package(
-        tmp_path,
-        '#[path = "thread_files"]\nmod thread {\n    #[path = "tls.rs"]\n'
-        "    mod local_data;\n}\n",
-        name="other",
-    )
-    directory = crate_root.parent / "thread_files"
-    directory.mkdir()
-    (directory / "tls.rs").write_text(
-        "#[kani::proof]\nfn verify_tls() {}\n", encoding="utf-8"
-    )
-    inventory = discover(tmp_path)
-    names = _names(inventory)
-    assert names == ["thread::local_data::verify_tls"], (
-        f"the inline #[path] must name the child's directory, got {names!r}"
-    )
-
 
 def test_reader_finds_a_proof_in_a_package_with_an_explicit_lib_path(
     tmp_path: Path,
@@ -245,7 +129,6 @@ def test_reader_finds_a_proof_in_a_package_with_an_explicit_lib_path(
         f"the explicitly pathed library root must be read, got {names!r}"
     )
 
-
 def test_reader_accepts_a_root_level_proof_identity(tmp_path: Path) -> None:
     """A proof at a crate's root has no module segment.
 
@@ -267,7 +150,6 @@ def test_reader_accepts_a_root_level_proof_identity(tmp_path: Path) -> None:
     for index, entry in enumerate(entries):
         _validate_entry(index, entry)
 
-
 def test_reader_finds_a_proof_in_a_binary_target(tmp_path: Path) -> None:
     """A binary-only package's proofs compile, so they are read.
 
@@ -288,7 +170,6 @@ def test_reader_finds_a_proof_in_a_binary_target(tmp_path: Path) -> None:
         f"a discovered binary target must be read, got {names!r}"
     )
 
-
 def test_reader_finds_a_proof_in_an_explicit_binary_target(tmp_path: Path) -> None:
     """An explicit ``[[bin]] path`` is a crate root like any other."""
     directory = tmp_path / "declared"
@@ -306,34 +187,6 @@ def test_reader_finds_a_proof_in_an_explicit_binary_target(tmp_path: Path) -> No
         f"an explicit [[bin]] path must be read, got {names!r}"
     )
 
-
-def test_reader_reads_a_raw_string_path_attribute(tmp_path: Path) -> None:
-    """Rust accepts a raw string for a ``#[path]`` value."""
-    crate_root = _write_package(
-        tmp_path, '#[path = r"elsewhere.rs"] mod proofs;\n'
-    )
-    (crate_root.parent / "elsewhere.rs").write_text(
-        "#[kani::proof]\nfn verify_raw() {}\n", encoding="utf-8"
-    )
-    names = _names(discover(tmp_path))
-    assert names == ["proofs::verify_raw"], (
-        f"a raw-string #[path] must be read, got {names!r}"
-    )
-
-
-def test_reader_reports_an_unreadable_path_value(tmp_path: Path) -> None:
-    """A ``#[path]`` shape this reader cannot parse is reported, not guessed.
-
-    Falling back to the default location would look for the module where the
-    attribute does not point, so a proof that moved would vanish silently.
-    """
-    _write_package(tmp_path, '#[path = concat!("a", ".rs")] mod proofs;\n')
-    kinds = _kinds(discover(tmp_path))
-    assert kinds == ["path-attribute"], (
-        f"an unreadable #[path] value must be reported, got {kinds!r}"
-    )
-
-
 def test_reader_reads_a_proof_after_an_inline_module_opener(
     tmp_path: Path,
 ) -> None:
@@ -350,48 +203,6 @@ def test_reader_reads_a_proof_after_an_inline_module_opener(
     assert names == ["proofs::verify_inline"], (
         f"an attribute on the module opener's line must be read, got {names!r}"
     )
-
-
-def test_reader_reads_a_multiline_path_attribute(tmp_path: Path) -> None:
-    """A ``#[path]`` spread over lines still names the file it wraps.
-
-    Rust permits the value to sit on its own line. A reader that stopped at the
-    closing bracket's line would lose the value and treat an ordinary module as
-    if it had no path at all.
-    """
-    crate_root = _write_package(
-        tmp_path,
-        '#[path =\n    "elsewhere.rs"\n]\nmod proofs;\n',
-    )
-    (crate_root.parent / "elsewhere.rs").write_text(
-        "#[kani::proof]\nfn verify_moved() {}\n", encoding="utf-8"
-    )
-    names = _names(discover(tmp_path))
-    assert names == ["proofs::verify_moved"], (
-        f"the multiline #[path] must be read, got {names!r}"
-    )
-
-
-def test_reader_finds_a_module_declared_after_a_same_line_attribute(
-    tmp_path: Path,
-) -> None:
-    """``#[path = "elsewhere.rs"] mod proofs;`` declares ``proofs``.
-
-    The attribute and the declaration share a line, so a pattern anchored at
-    the line start finds neither. The module is ordinary Rust and its proof
-    must be discovered.
-    """
-    crate_root = _write_package(
-        tmp_path, '#[path = "elsewhere.rs"] mod proofs;\n'
-    )
-    (crate_root.parent / "elsewhere.rs").write_text(
-        "#[kani::proof]\nfn verify_same_line() {}\n", encoding="utf-8"
-    )
-    names = _names(discover(tmp_path))
-    assert names == ["proofs::verify_same_line"], (
-        f"a same-line attribute must not hide the declaration, got {names!r}"
-    )
-
 
 def test_reader_keeps_a_module_file_without_a_proof_out_of_the_inventory(
     tmp_path: Path,
@@ -411,7 +222,6 @@ def test_reader_keeps_a_module_file_without_a_proof_out_of_the_inventory(
     kinds = _kinds(inventory)
     assert kinds == [], f"nothing must be reported, got {kinds!r}"
 
-
 def test_reader_reads_two_attributes_sharing_a_line(tmp_path: Path) -> None:
     """``#[cfg(kani)] #[kani::proof]`` on one line still declares a proof.
 
@@ -427,158 +237,6 @@ def test_reader_reads_two_attributes_sharing_a_line(tmp_path: Path) -> None:
     assert names == ["verify_same_line"], (
         f"two attributes on one line must both be read, got {names!r}"
     )
-
-
-def test_reader_does_not_carry_an_attribute_past_an_item_boundary(
-    tmp_path: Path,
-) -> None:
-    """A ``#[path]`` belongs to the declaration it precedes, not the next one.
-
-    ``#[path = "one.rs"] mod first;`` followed by ``pub mod second;`` gives
-    ``first`` the file and leaves ``second`` without one. A scan that starts
-    after ``second``'s visibility qualifier and walks back past the semicolon
-    attaches the earlier item's attribute to it, so a valid tree would fail
-    the manifest contract.
-    """
-    crate_root = _write_package(
-        tmp_path,
-        '#[path = "one.rs"] mod first;\npub mod second;\n',
-    )
-    directory = crate_root.parent
-    (directory / "one.rs").write_text("", encoding="utf-8")
-    (directory / "second.rs").write_text("", encoding="utf-8")
-    inventory = discover(tmp_path)
-    kinds = _kinds(inventory)
-    assert kinds == [], (
-        f"both declarations resolve, so nothing may be reported, got {kinds!r}"
-    )
-
-
-def test_reader_reports_a_proof_below_a_repeated_proof_free_module(
-    tmp_path: Path,
-) -> None:
-    """A shared parent's child keeps one identity, so the second is reported.
-
-    Two declarations share a ``#[path]`` to a file holding no proof of its
-    own, but that file's child module holds one. The child is read once, under
-    the first path, so its second identity is lost; the repeat is reported
-    rather than silently dropping it. Sharing a parent whose subtree holds no
-    proof stays accepted, which the negative control below covers.
-    """
-    crate_root = _write_package(
-        tmp_path,
-        '#[path = "shared.rs"] mod first;\n#[path = "shared.rs"] mod second;\n',
-    )
-    # A `#[path]`-loaded file resolves its own children from its directory,
-    # so `shared.rs`'s `mod proofs;` reads `src/proofs.rs`.
-    (crate_root.parent / "shared.rs").write_text(
-        "mod proofs;\n", encoding="utf-8"
-    )
-    (crate_root.parent / "proofs.rs").write_text(
-        "#[kani::proof]\nfn verify_shared() {}\n", encoding="utf-8"
-    )
-    kinds = _kinds(discover(tmp_path))
-    assert kinds == ["repeated-source"], (
-        f"a lost identity below a repeated parent must be reported, got {kinds!r}"
-    )
-
-
-def test_reader_accepts_a_repeated_proof_free_subtree(tmp_path: Path) -> None:
-    """The negative control for the repeat above: no proof, no report.
-
-    Sharing a test-only source between two ``#[path]`` modules is ordinary
-    Rust, and a subtree that declares no harness loses no identity when it is
-    read once.
-    """
-    crate_root = _write_package(
-        tmp_path,
-        '#[path = "shared.rs"] mod first;\n#[path = "shared.rs"] mod second;\n',
-    )
-    (crate_root.parent / "shared.rs").write_text(
-        "mod helper;\n", encoding="utf-8"
-    )
-    (crate_root.parent / "helper.rs").write_text(
-        "pub fn work() -> bool { true }\n", encoding="utf-8"
-    )
-    inventory = discover(tmp_path)
-    assert _kinds(inventory) == [], (
-        f"a proof-free repeat must stay accepted, got {inventory.unresolved!r}"
-    )
-
-
-def test_reader_terminates_on_a_self_referential_path_module(
-    tmp_path: Path,
-) -> None:
-    """A shared module that declares itself is Rust, and must not loop.
-
-    Two declarations share a file whose only child is itself, so the module
-    graph is cyclic. The repeat walk keeps its own visited set, because the
-    module path grows on each visit and would otherwise never repeat.
-    """
-    crate_root = _write_package(
-        tmp_path,
-        '#[path = "loop.rs"] mod first;\n#[path = "loop.rs"] mod second;\n',
-    )
-    (crate_root.parent / "loop.rs").write_text(
-        '#[path = "loop.rs"] mod inner;\n', encoding="utf-8"
-    )
-    inventory = discover(tmp_path)
-    assert _names(inventory) == [], (
-        f"a self-referential module declares no proof, got {inventory.proofs!r}"
-    )
-
-
-def test_reader_reports_a_conditional_path_attribute(tmp_path: Path) -> None:
-    """A ``cfg_attr`` path applies only under the named configuration.
-
-    Whether the module's file moves depends on configuration this reader does
-    not evaluate, so the declaration is reported rather than resolved by the
-    default rule. The proof below sits outside ``src``, which is exactly where
-    the default rule would never look.
-    """
-    directory = tmp_path / "conditional"
-    (directory / "src").mkdir(parents=True)
-    (directory / "Cargo.toml").write_text(
-        '[package]\nname = "conditional"\nversion = "0.1.0"\n',
-        encoding="utf-8",
-    )
-    (directory / "src" / "lib.rs").write_text(
-        '#[cfg_attr(kani, path = "../proofs.rs")]\nmod proofs;\n',
-        encoding="utf-8",
-    )
-    (directory / "proofs.rs").write_text(
-        "#[kani::proof]\nfn verify_conditional() {}\n", encoding="utf-8"
-    )
-    kinds = _kinds(discover(tmp_path))
-    assert kinds == ["path-attribute"], (
-        f"a conditional #[path] must be reported, got {kinds!r}"
-    )
-
-
-def test_reader_ignores_a_path_mentioned_in_a_doc_attribute(
-    tmp_path: Path,
-) -> None:
-    """Documentation may name a ``#[path]`` without declaring one.
-
-    The doc string is an attribute's value, not an outer attribute of the
-    declaration, so it neither provides a path nor makes the real module
-    unresolvable.
-    """
-    crate_root = _write_package(
-        tmp_path,
-        '#[doc = r#"#[path = \\"absent.rs\\"]"#]\nmod proofs;\n',
-    )
-    (crate_root.parent / "proofs.rs").write_text(
-        "#[kani::proof]\nfn verify_documented() {}\n", encoding="utf-8"
-    )
-    inventory = discover(tmp_path)
-    assert _names(inventory) == ["proofs::verify_documented"], (
-        f"a doc mention must not redirect the module, got {inventory.proofs!r}"
-    )
-    assert _kinds(inventory) == [], (
-        f"a doc mention must not be reported, got {inventory.unresolved!r}"
-    )
-
 
 def test_reader_reports_an_orphan_beside_a_custom_root(tmp_path: Path) -> None:
     """The orphan sweep covers custom source directories, not only ``src``.
@@ -603,6 +261,102 @@ def test_reader_reports_an_orphan_beside_a_custom_root(tmp_path: Path) -> None:
         f"an orphan beside a custom root must be reported, got {kinds!r}"
     )
 
+def test_reader_reports_a_proof_behind_a_test_guard(tmp_path: Path) -> None:
+    """The gate compiles without ``cfg(test)``, so such a proof cannot run.
+
+    Recording it as a harness would let the manifest require something the
+    recipe can never verify.
+    """
+    _write_package(
+        tmp_path,
+        "#[cfg(all(kani, test))]\n#[kani::proof]\nfn verify_test_only() {}\n",
+    )
+    inventory = discover(tmp_path)
+    assert _names(inventory) == [], (
+        f"a test-gated proof must not be a harness, got {inventory.proofs!r}"
+    )
+    assert _kinds(inventory) == ["cfg-test"], (
+        f"a test-gated proof must be reported, got {inventory.unresolved!r}"
+    )
+
+def test_reader_keeps_a_proof_behind_a_kani_guard(tmp_path: Path) -> None:
+    """The negative control: ``#[cfg(kani)]`` is the gate's own configuration."""
+    _write_package(
+        tmp_path,
+        "#[cfg(kani)]\n#[kani::proof]\nfn verify_gated() {}\n",
+    )
+    names = _names(discover(tmp_path))
+    assert names == ["verify_gated"], f"a kani-gated proof must be read, got {names!r}"
+
+def test_reader_skips_binaries_when_autobins_is_false(tmp_path: Path) -> None:
+    """A package that disables discovery does not have those binaries.
+
+    The file is loaded as a module on purpose, so reading it again as a binary
+    would visit the same source twice and report a repeat that is not there.
+    """
+    directory = tmp_path / "noautobins"
+    (directory / "src" / "bin").mkdir(parents=True)
+    (directory / "Cargo.toml").write_text(
+        '[package]\nname = "noautobins"\nversion = "0.1.0"\nautobins = false\n',
+        encoding="utf-8",
+    )
+    (directory / "src" / "lib.rs").write_text(
+        '#[path = "bin/helper.rs"]\nmod helper;\n', encoding="utf-8"
+    )
+    (directory / "src" / "bin" / "helper.rs").write_text(
+        "#[kani::proof]\nfn verify_helper() {}\n", encoding="utf-8"
+    )
+    inventory = discover(tmp_path)
+    assert _kinds(inventory) == [], (
+        f"a disabled binary target must not be read twice, got {inventory.unresolved!r}"
+    )
+
+def test_reader_reads_a_mod_declaration_split_over_lines(tmp_path: Path) -> None:
+    """Rust permits whitespace, including a newline, inside ``mod name;``."""
+    crate_root = _write_package(tmp_path, "mod\n    proofs\n;\n")
+    (crate_root.parent / "proofs.rs").write_text(
+        "#[kani::proof]\nfn verify_split() {}\n", encoding="utf-8"
+    )
+    names = _names(discover(tmp_path))
+    assert names == ["proofs::verify_split"], (
+        f"a split module declaration must be read, got {names!r}"
+    )
+
+def test_reader_reports_a_proof_in_a_parenthesised_macro(tmp_path: Path) -> None:
+    """A macro body may be delimited by parentheses or brackets, not only braces."""
+    _write_package(
+        tmp_path,
+        "macro_rules! declare (\n    () => {\n        #[kani::proof]\n"
+        "        fn verify() {}\n    };\n);\n",
+    )
+    kinds = _kinds(discover(tmp_path))
+    assert kinds == ["macro"], (
+        f"a proof inside a parenthesised macro must be reported, got {kinds!r}"
+    )
+
+def test_reader_sweeps_orphans_beside_every_crate_root(tmp_path: Path) -> None:
+    """A binary root's directory is swept as well as ``src``.
+
+    The package holds a library at ``src`` and a binary at ``proofs/main.rs``;
+    an unreferenced proof beside the binary must still be reported.
+    """
+    directory = tmp_path / "twinned"
+    (directory / "src").mkdir(parents=True)
+    (directory / "proofs").mkdir()
+    (directory / "Cargo.toml").write_text(
+        '[package]\nname = "twinned"\nversion = "0.1.0"\n\n'
+        '[[bin]]\nname = "prover"\npath = "proofs/main.rs"\n',
+        encoding="utf-8",
+    )
+    (directory / "src" / "lib.rs").write_text("", encoding="utf-8")
+    (directory / "proofs" / "main.rs").write_text("", encoding="utf-8")
+    (directory / "proofs" / "orphan.rs").write_text(
+        "#[kani::proof]\nfn verify_orphan() {}\n", encoding="utf-8"
+    )
+    kinds = _kinds(discover(tmp_path))
+    assert kinds == ["unreachable"], (
+        f"an orphan beside a binary root must be reported, got {kinds!r}"
+    )
 
 def test_unresolved_report_names_the_file_and_line(tmp_path: Path) -> None:
     """A report without a location would not be actionable in review."""

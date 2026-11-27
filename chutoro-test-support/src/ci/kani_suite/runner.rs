@@ -15,8 +15,8 @@
 
 use thiserror::Error;
 
+use super::cargo_options;
 use super::parser;
-use super::words;
 
 /// A Kani option the checker cannot work with, with the reason it is refused.
 pub(super) const FORBIDDEN_FLAGS: &[(&str, &str)] = &[
@@ -218,7 +218,7 @@ pub fn parse_command(words: &[String], package: &str) -> Result<Delegated, Comma
     let Some((program, args)) = command.split_first() else {
         return Err(CommandError::Empty);
     };
-    let subcommand = words::subcommand_index(args);
+    let subcommand = cargo_options::subcommand_index(args);
     if args.get(subcommand).map(String::as_str) != Some("kani") {
         return Err(CommandError::NotCargoKani {
             args: args.to_vec(),
@@ -291,6 +291,24 @@ mod tests {
                 "a second package must be rejected, got {outcome:?}"
             ),
         }
+    }
+
+    #[test]
+    fn a_compact_package_option_selects_its_package() {
+        let words = ["cargo", "kani", "-ppkg", "--lib", "--exact"];
+        let delegated =
+            parse_command(&owned(&words), "pkg").expect("a compact -p selects the package");
+        assert_eq!(delegated.package, "pkg");
+    }
+
+    #[test]
+    fn a_compact_package_option_still_refuses_a_second_package() {
+        let words = ["cargo", "kani", "-ppkg", "other", "--lib", "--exact"];
+        let outcome = parse_command(&owned(&words), "pkg");
+        assert!(
+            matches!(outcome, Err(CommandError::Package { .. })),
+            "a compact -p followed by a second package must be rejected, got {outcome:?}"
+        );
     }
 
     #[rstest]

@@ -83,8 +83,9 @@ PACKAGE_ARGUMENT_RE = re.compile(
 
 #: Recipe text that swallows a failure. GNU make reads a leading ``-`` as
 #: ignore-the-status, and a trailing ``|| true`` (or ``|| :``) does the same
-#: for the shell.
-SWALLOWING_SUFFIXES = ("|| true", "||true", "|| :", "||:")
+#: for the shell. The shell ignores spacing around its tokens, so `||   true`
+#: is the same operator; matching a fixed list of spellings would accept it.
+_MASKING_SUFFIX = re.compile(r"\|\|\s*(?:true|:)\s*$")
 
 #: A shell comment, which ends the command before anything written after it.
 _SHELL_COMMENT = re.compile(r"(?:^|\s)#.*$")
@@ -108,7 +109,7 @@ def _terminal_command(arguments: str) -> str:
 
 def _masked(command: str) -> bool:
     """Report whether `command` swallows its own failure."""
-    return command.endswith(SWALLOWING_SUFFIXES)
+    return _MASKING_SUFFIX.search(command) is not None
 
 
 class RecipeError(ValueError):
@@ -128,17 +129,22 @@ def logical_lines(text: str) -> list[str]:
 
     A recipe splits a command across lines for readability; make joins them
     before the shell sees them, so the contract must join them too. A line
-    that ends in a backslash continues; the continuation's leading tab is kept
-    and is matched by the patterns' whitespace.
+    that ends in a backslash continues, and make removes the recipe-prefix tab
+    that begins the continuation: a `--harness=` whose value is on the
+    next line reaches the shell as `--harness=verify`. One tab is removed, so
+    any further indentation survives.
     """
     logical: list[str] = []
     pending = ""
+    joining = False
     for line in text.splitlines():
-        continued = line.endswith("\\")
-        pending += line[:-1] if continued else line
+        current = line[1:] if joining and line.startswith("\t") else line
+        continued = current.endswith("\\")
+        pending += current[:-1] if continued else current
         if not continued:
             logical.append(pending)
             pending = ""
+        joining = continued
     if pending:
         logical.append(pending)
     return logical
@@ -153,9 +159,21 @@ def executable_commands(text: str) -> list[re.Match[str]]:
     ]
 
 
+def terminal_arguments(arguments: str) -> str:
+    """Return the arguments the shell actually passes.
+
+    A shell comment is not part of the command: anything written after one
+    never reaches the checker. Every reading that compares or counts arguments
+    goes through this, so a commented-out option cannot be counted.
+    """
+    return _terminal_command(arguments)
+
+
 def names(arguments: str, pattern: re.Pattern[str]) -> list[str]:
     """Return the values `pattern` finds in one command's arguments."""
-    return [found["name"] for found in pattern.finditer(arguments)]
+    return [
+        found["name"] for found in pattern.finditer(terminal_arguments(arguments))
+    ]
 
 
 def selections(text: str) -> list[tuple[str, list[str]]]:

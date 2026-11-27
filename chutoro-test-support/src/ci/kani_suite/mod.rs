@@ -15,11 +15,13 @@
 //!
 //! The modules divide by responsibility: [`manifest`] validates the inventory,
 //! [`runner`] validates the delegated command, [`parser`] walks its arguments
-//! while [`words`] interprets each one, [`process`] executes the command while
+//! while [`words`] interprets each one and [`cargo_options`] finds the
+//! subcommand behind Cargo's own options, [`process`] executes the command while
 //! streaming and capturing its output, [`mod@line`] recognizes each printed line,
 //! [`output`] tracks the run those lines describe, and [`verdict`] compares
 //! the result with the expected set. Only [`check`] combines them.
 
+pub mod cargo_options;
 pub mod line;
 pub mod manifest;
 pub mod output;

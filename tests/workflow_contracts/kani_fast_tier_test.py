@@ -25,6 +25,7 @@ from kani_manifest_test import _entries
 from kani_recipe_reading import (
     RecipeError,
     executable_commands,
+    logical_lines,
     selections,
     violations,
 )
@@ -68,6 +69,7 @@ def test_nonexecuting_recipe_text_selects_no_harness(recipe: str) -> None:
         ("\t$(CARGO) kani -p chutoro-core || :", "|| :"),
         ("\t-$(CARGO) kani -p chutoro-core", "prefixed with '-'"),
         ("\t$(CARGO) kani -p chutoro-core --harness verify_x ||true", "||true"),
+        ("\t$(CARGO) kani -p chutoro-core --harness verify_x ||   true", "||   true"),
     ),
 )
 def test_masked_recipe_lines_are_rejected(recipe: str, forbidden: str) -> None:
@@ -77,6 +79,17 @@ def test_masked_recipe_lines_are_rejected(recipe: str, forbidden: str) -> None:
     assert forbidden in str(raised.value), (
         f"the rejection must name the masking ({forbidden!r}), got {raised.value}"
     )
+
+
+def test_a_continuation_drops_its_recipe_prefix_tab() -> None:
+    """Make removes the tab that begins a continued recipe line.
+
+    A value that sits on the continuation would otherwise be joined with a tab
+    in front of it, and a reading that did not remove it would see one token
+    rather than the option and its value.
+    """
+    joined = logical_lines("\t$(CARGO) kani --harness=\\\n\tverify_one\n")
+    assert joined == ["\t$(CARGO) kani --harness=verify_one"], joined
 
 
 def test_a_shell_comment_ends_the_read_command() -> None:

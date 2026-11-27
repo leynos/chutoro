@@ -63,8 +63,8 @@ _ATTRIBUTE_PATH = re.compile(r"^#\[\s*(?P<path>[A-Za-z_][A-Za-z0-9_:]*)")
 #: A word boundary keeps ``model`` and ``modular`` out. Comments and literals
 #: are blanked before this runs, so a mention in either has already gone.
 _MOD_ITEM = re.compile(
-    r"(?<![A-Za-z0-9_])(?:pub(?:[ \t]*\([^)]*\))?[ \t]+)?mod[ \t]+"
-    r"(?P<name>[A-Za-z_][A-Za-z0-9_]*)[ \t]*(?P<terminator>[;{])"
+    r"(?<![A-Za-z0-9_])(?:pub(?:\s*\([^)]*\))?\s+)?mod\s+"
+    r"(?P<name>[A-Za-z_][A-Za-z0-9_]*)\s*(?P<terminator>[;{])"
 )
 
 #: The ``#[path = "..."]`` attribute on a module declaration. Rust accepts an
@@ -88,10 +88,16 @@ _CONDITIONAL_PATH = re.compile(r"\bpath\s*=")
 #: A macro definition whose body might contain proof declarations. Kani cannot
 #: see a harness that only exists after expansion in a way this reader can
 #: attribute to a module path, so the contract reports one rather than guessing.
+#:
+#: The body may be delimited by braces, parentheses or brackets; all three are
+#: ordinary, and recognising only braces would miss a proof inside the others.
 _MACRO_DEFINITION = re.compile(
     r"\b(?:macro_rules\s*!\s*[A-Za-z_][A-Za-z0-9_]*|macro\s+[A-Za-z_][A-Za-z0-9_]*)"
-    r"\s*\{"
+    r"\s*(?P<opening>[{([])"
 )
+
+#: The closing delimiter for each macro-body opening.
+_MACRO_CLOSING: typ.Final[dict[str, str]] = {"{": "}", "(": ")", "[": "]"}
 
 #: Rust permits whitespace around ``::``. Attributes are normalised through
 #: this before their path is read, so ``#[kani :: proof]`` is one attribute.
@@ -122,6 +128,10 @@ class _ModuleItem:
         cannot read. Such a declaration is reported rather than resolved by
         the default rule, because guessing would look for the module in a
         place the attribute does not name.
+    attributes
+        The attributes attached to the declaration, each as its own text. A
+        ``#[cfg(...)]`` here gates every declaration inside an inline module,
+        which is how a test-only proof can sit behind a module.
     """
 
     name: str
@@ -130,6 +140,7 @@ class _ModuleItem:
     inline: bool
     path_value: str | None
     path_unreadable: bool = False
+    attributes: tuple[str, ...] = ()
 
 
 @dataclasses.dataclass(frozen=True)
@@ -207,8 +218,15 @@ def _attribute_start(text: str, end: int) -> int | None:
     return None
 
 
-def _attached_attributes(declarations: str, start: int) -> list[str]:
-    """Return the attributes attached to the item declared at `start`.
+def _attached_attributes(
+    declarations: str, code: str, start: int
+) -> list[tuple[int, int]]:
+    """Return the extents of the attributes attached at `start`.
+
+    `declarations` keeps the ``#[path]`` value and decides what text an
+    attribute carries; `code` has literals blanked and decides where its
+    brackets are. A ``[`` or ``]`` inside a doc string is text, and counting it
+    would put the attribute's opening at the wrong offset.
 
     Attributes are found by working backwards from the declaration, so an
     attribute on the same line and one spread over several lines are both read.
@@ -232,26 +250,27 @@ def _attached_attributes(declarations: str, start: int) -> list[str]:
     in `start`, so anything else here is the previous item's own last token,
     and scanning back from it would attach that item's attribute to this one.
 
-    Each attribute is returned on its own rather than joined: an attribute's
-    value may itself contain text shaped like another attribute -- a
-    ``#[doc]`` string naming ``#[path = "x.rs"]`` is the ordinary way to write
-    documentation about one -- and a search across the joined text would read
+    Each attribute's extent is returned rather than its text, so the caller
+    can read the value from `declarations` and the structure from `code`: an
+    attribute's value may itself contain text shaped like another attribute --
+    a ``#[doc]`` string naming ``#[path = "x.rs"]`` is the ordinary way to
+    write documentation about one -- and a search across joined text would read
     that mention as the declaration's own path.
     """
-    attached: list[str] = []
+    attached: list[tuple[int, int]] = []
     position = start
     while True:
-        while position > 0 and declarations[position - 1].isspace():
+        while position > 0 and code[position - 1].isspace():
             position -= 1
-        if position == 0 or declarations[position - 1] in "{};":
+        if position == 0 or code[position - 1] in "{};":
             break
-        if declarations[position - 1] != "]":
+        if code[position - 1] != "]":
             break
         end = position
-        opening = _attribute_start(declarations, end)
+        opening = _attribute_start(code, end)
         if opening is None:
             break
-        attached.insert(0, declarations[opening:end])
+        attached.insert(0, (opening, end))
         position = opening
     return attached
 
@@ -323,15 +342,41 @@ def _proof_kind(attributes: typ.Iterable[str]) -> str | None:
     return None
 
 
-def _macro_spans(code: str, depths: list[int]) -> tuple[tuple[int, int], ...]:
+def _macro_spans(code: str) -> tuple[tuple[int, int], ...]:
     """Return the extents of macro definition bodies in `code`."""
     spans: list[tuple[int, int]] = []
     for match in _MACRO_DEFINITION.finditer(code):
         opening = match.end() - 1
-        closing = _matching_brace(code, depths, opening)
+        closing = _matching_delimiter(code, opening, match["opening"])
         if closing is not None:
             spans.append((opening, closing))
     return tuple(spans)
+
+
+def _matching_delimiter(code: str, opening: int, delimiter: str) -> int | None:
+    """Return the offset of the delimiter closing the one at `opening`.
+
+    A macro body may be delimited by any of the three bracket pairs, and only
+    the same pair closes it: a ``}`` inside a parenthesised body is part of the
+    body's tokens, not its end. Nesting of the same pair is counted, which is
+    the shape a macro body takes.
+    """
+    closing = _MACRO_CLOSING[delimiter]
+    depth = 0
+    for offset in range(opening, len(code)):
+        depth += _delimiter_delta(code[offset], delimiter, closing)
+        if depth == 0:
+            return offset
+    return None
+
+
+def _delimiter_delta(character: str, opening: str, closing: str) -> int:
+    """Return how `character` changes the delimiter depth."""
+    if character == opening:
+        return 1
+    if character == closing:
+        return -1
+    return 0
 
 
 def _inside(offset: int, spans: typ.Iterable[tuple[int, int]]) -> bool:
@@ -382,7 +427,7 @@ def _lex(text: str) -> _Lexed:
         code=code,
         declarations=declarations,
         depths=depths,
-        macros=_macro_spans(code, depths),
+        macros=_macro_spans(code),
     )
 
 
@@ -391,9 +436,12 @@ def _module_item(lexed: _Lexed, match: re.Match[str]) -> _ModuleItem | None:
     if _inside(match.start(), lexed.macros):
         return None
     inline = match["terminator"] == "{"
-    value, unreadable = _declared_path(
-        _attached_attributes(lexed.declarations, match.start())
-    )
+    extents = _attached_attributes(lexed.declarations, lexed.code, match.start())
+    pairs = [
+        (lexed.declarations[start:end], lexed.code[start:end])
+        for start, end in extents
+    ]
+    value, unreadable = _declared_path(pairs)
     return _ModuleItem(
         name=match["name"],
         start=match.start(),
@@ -401,26 +449,32 @@ def _module_item(lexed: _Lexed, match: re.Match[str]) -> _ModuleItem | None:
         inline=inline,
         path_value=value,
         path_unreadable=unreadable,
+        attributes=tuple(text for text, _ in pairs),
     )
 
 
-def _declared_path(attributes: typ.Iterable[str]) -> tuple[str | None, bool]:
+def _declared_path(
+    attributes: typ.Iterable[tuple[str, str]],
+) -> tuple[str | None, bool]:
     """Return a declaration's ``#[path]`` value and whether it is unreadable.
 
-    Only an attribute whose own path is ``path`` is read, so a ``#[doc]``
-    string that mentions one is not mistaken for a real assignment. A path in
-    a shape the reader cannot read is reported as unreadable rather than
-    treated as absent, because the default rule would look for the module where
-    the attribute does not point.
+    Each attribute is a pair: the text that carries its value, and the same
+    span with literals blanked. Only an attribute whose own path is ``path``
+    is read, so a ``#[doc]`` string that mentions one is not mistaken for a
+    real assignment, and a conditional path is searched in the blanked text so
+    an example inside a doc string is not read as an assignment. A path in a
+    shape the reader cannot read is reported as unreadable rather than treated
+    as absent, because the default rule would look for the module where the
+    attribute does not point.
     """
-    for attribute in attributes:
-        found = _PATH_ATTRIBUTE.match(attribute)
+    for text, structure in attributes:
+        found = _PATH_ATTRIBUTE.match(text)
         if found is not None:
             return _path_value(found), False
-        path = _attribute_path(attribute)
+        path = _attribute_path(text)
         if path == "path":
             return None, True
-        if path == "cfg_attr" and _CONDITIONAL_PATH.search(attribute):
+        if path == "cfg_attr" and _CONDITIONAL_PATH.search(structure):
             return None, True
     return None, False
 
@@ -429,6 +483,17 @@ def _path_value(found: re.Match[str]) -> str:
     """Return the path an attribute match carries, quoted or raw."""
     value = found["value"]
     return value if value is not None else found["raw"]
+
+
+#: A ``cfg`` or ``cfg_attr`` guard whose body names the test configuration.
+#: ``cargo kani`` compiles the library without ``cfg(test)``, so a proof behind
+#: such a guard exists in the source but never runs under the gate.
+_TEST_GUARD = re.compile(r"\bcfg(?:_attr)?\s*\([^)]*\btest\b")
+
+
+def _gated_by_test(attributes: typ.Iterable[str]) -> bool:
+    """Return whether a ``cfg`` guard in `attributes` names the test cfg."""
+    return any(_TEST_GUARD.search(attribute) is not None for attribute in attributes)
 
 
 def _module_end(lexed: _Lexed, match: re.Match[str]) -> int:

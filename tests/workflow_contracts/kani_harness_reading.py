@@ -37,12 +37,13 @@ from rust_source_reading import _FUNCTION
 from kani_source_reading import (
     _ModuleItem,
     _Source,
+    _gated_by_test,
     _inside,
     _line_of,
     _module_chain,
     _parse,
-    _proof_kind,
     _proof_attributes,
+    _proof_kind,
 )
 from workflow_support import ROOT
 
@@ -364,7 +365,8 @@ class _Reader:
     ) -> None:
         """Record each proof in one file, or report why it cannot be."""
         for match in _FUNCTION.finditer(source.code):
-            kind = _proof_kind(_proof_attributes(source.code, match.start()))
+            attributes = _proof_attributes(source.code, match.start())
+            kind = _proof_kind(attributes)
             if kind is None:
                 continue
             line = _line_of(source.text, match.start())
@@ -386,6 +388,20 @@ class _Reader:
                 )
                 continue
             chain = _module_chain(source.modules, match.start())
+            # The gate compiles the library without `cfg(test)`, so a proof
+            # behind a test guard exists in the source but never runs. Counting
+            # it as a harness would let the manifest require something the
+            # recipe cannot verify.
+            guards = [*attributes, *(attr for item in chain for attr in item.attributes)]
+            if _gated_by_test(guards):
+                self._report(
+                    "cfg-test",
+                    relative,
+                    line,
+                    "proof is behind a cfg(test) guard, which the Kani gate "
+                    "does not enable, so it cannot run",
+                )
+                continue
             pretty = "::".join(
                 (*module, *(item.name for item in chain), match["name"])
             )
@@ -405,6 +421,7 @@ class _Reader:
         module: tuple[str, ...],
     ) -> None:
         """Follow each file-based module declaration in one file."""
+        self._report_inline_paths(location, source)
         for item, child, child_module in _declared_children(
             location, source, module
         ):
@@ -412,6 +429,16 @@ class _Reader:
                 self._report_missing_path(location, source, item)
                 continue
             self.visit(child.file, child_module, via_path=child.via_path)
+
+    def _report_inline_paths(self, location: _Location, source: _Source) -> None:
+        """Report an inline module whose own ``#[path]`` cannot be read.
+
+        That value renames the directory its children use, so a child resolved
+        without it would be looked for where Rust may not put it.
+        """
+        for item in source.modules:
+            if item.inline and item.path_unreadable:
+                self._report_missing_path(location, source, item)
 
     def _report_missing_path(
         self, location: _Location, source: _Source, item: _ModuleItem
@@ -453,14 +480,21 @@ def _declared_children(
     ``child`` is None when the declaration names no readable file; the caller
     decides whether that is a report (a ``#[path]``) or Rust's own error (a
     plain ``mod name;``).
+
+    A child whose enclosing inline module has an unreadable ``#[path]`` gets
+    None too: that module's directory is unknown, so resolving the child
+    against the module's name would look where Rust may not.
     """
     for item in source.modules:
         if item.inline:
             continue
         chain = _module_chain(source.modules, item.start)
+        guessed = item.path_unreadable or any(
+            parent.path_unreadable for parent in chain
+        )
         child = (
             None
-            if item.path_unreadable
+            if guessed
             else _child_file(location, chain, item.name, item.path_value)
         )
         child_location = (
@@ -485,9 +519,17 @@ def _manifests(root: Path) -> list[Path]:
     discard each by path would make the sweep quadratic in the wrong thing.
     """
     found: list[Path] = []
+    seen: set[Path] = set()
     pending = [root]
     while pending:
-        entries = sorted(pending.pop().iterdir())
+        directory = pending.pop()
+        resolved = directory.resolve()
+        # A directory symlink may point at an ancestor, so the same tree could
+        # otherwise be queued again under an ever-longer path.
+        if resolved in seen:
+            continue
+        seen.add(resolved)
+        entries = sorted(directory.iterdir())
         found.extend(entry for entry in entries if _is_manifest(entry))
         pending.extend(entry for entry in entries if _is_package_tree(entry))
     return sorted(found)
@@ -555,6 +597,11 @@ def _binary_roots(document: dict[str, typ.Any], directory: Path) -> list[Path]:
     no binaries at all, in which case Cargo discovers ``src/main.rs`` and each
     ``src/bin/*.rs``. Both are read, because a proof in a binary target is
     compiled exactly as one in a library is.
+
+    A package that sets ``autobins = false`` turns discovery off, usually
+    because a library loads those files as modules on purpose. Reading them
+    again as binaries would visit the same source twice and report a
+    ``repeated-source`` that is not there.
     """
     declared = document.get("bin")
     explicit = [
@@ -562,6 +609,10 @@ def _binary_roots(document: dict[str, typ.Any], directory: Path) -> list[Path]:
         for entry in declared or []
         if isinstance(entry, dict) and isinstance(entry.get("path"), str)
     ]
+    package = document.get("package")
+    autobins = package.get("autobins") if isinstance(package, dict) else None
+    if autobins is False:
+        return [root for root in explicit if root.is_file()]
     discovered = [directory / "src" / "main.rs"]
     binaries = directory / "src" / "bin"
     if binaries.is_dir():
@@ -615,33 +666,38 @@ def _holds_proof(source: _Source) -> bool:
     )
 
 
-def _unreached(package: _Package, visited: frozenset[Path]) -> list[Path]:
-    """Return proof-bearing sources under `package` that no module reached.
+def _unreached(packages: typ.Iterable[_Package], visited: frozenset[Path]) -> list[Path]:
+    """Return proof-bearing sources under `packages` that no module reached.
 
-    The sweep covers the package's own source directories, not only ``src``.
-    A library may live at a custom ``[lib] path``, and an unreferenced file
-    beside it would otherwise be read by nothing and reported by nothing, so a
-    proof that stopped being declared would leave the inventory in silence.
+    The sweep covers every crate root's source directories, not only ``src``
+    and not only the first root. A package may hold a library at ``src`` and a
+    binary elsewhere; a proof left beside the binary would otherwise be read by
+    nothing and reported by nothing, so a declaration that stopped being
+    reached would leave the inventory in silence.
     """
     found: list[Path] = []
-    for directory in _source_directories(package):
-        for path in sorted(directory.rglob("*.rs")):
-            if path.resolve() in visited:
-                continue
-            source = _parse(path)
-            if source is not None and _holds_proof(source):
-                found.append(path)
+    seen: set[Path] = set()
+    for path in sorted(_sweep_files(packages)):
+        resolved = path.resolve()
+        if resolved in visited or resolved in seen:
+            continue
+        seen.add(resolved)
+        source = _parse(path)
+        if source is not None and _holds_proof(source):
+            found.append(path)
     return found
 
 
-def _source_directories(package: _Package) -> list[Path]:
-    """Return the directories to sweep for a package, without duplicates."""
-    directories = [package.directory / "src", package.root.parent]
-    unique: dict[Path, None] = {}
-    for directory in directories:
-        if directory.is_dir():
-            unique.setdefault(directory.resolve(), None)
-    return list(unique)
+def _sweep_files(packages: typ.Iterable[_Package]) -> typ.Iterator[Path]:
+    """Yield each source file under the packages' own directories once."""
+    directories: dict[Path, None] = {}
+    for package in packages:
+        candidates = [package.directory / "src", package.root.parent]
+        for directory in candidates:
+            if directory.is_dir():
+                directories.setdefault(directory.resolve(), None)
+    for directory in sorted(directories):
+        yield from directory.rglob("*.rs")
 
 
 def discover(root: Path = ROOT) -> Inventory:
@@ -680,7 +736,7 @@ def discover(root: Path = ROOT) -> Inventory:
             reader.visit(package.root, (), is_crate_root=True)
         proofs.extend(reader.proofs)
         unresolved.extend(reader.unresolved)
-        for path in _unreached(roots[0], reader.visited):
+        for path in _unreached(roots, reader.visited):
             unresolved.append(
                 UnresolvedDeclaration(
                     kind="unreachable",

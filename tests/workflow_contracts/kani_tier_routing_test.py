@@ -30,6 +30,7 @@ from kani_recipe_reading import (
     logical_lines,
     names,
     selections,
+    terminal_arguments,
     wrappers,
 )
 from workflow_support import ROOT
@@ -92,7 +93,7 @@ def test_the_wrapper_names_the_package_the_command_selects(
             continue
         wrapper = CHECKER_WRAPPER_RE.match(line)
         assert wrapper is not None, f"unwrapped Kani command: {line!r}"
-        packages = names(command["arguments"], PACKAGE_ARGUMENT_RE)
+        packages = names(terminal_arguments(command["arguments"]), PACKAGE_ARGUMENT_RE)
         assert packages == [wrapper["package"]], (
             "the wrapper's --package must match the delegated command's -p: "
             f"{wrapper['package']!r} against {packages!r} in {line!r}"
@@ -167,13 +168,26 @@ def _recorded(log: Path) -> list[list[str]]:
     ]
 
 
+#: A `--harness` selector in either spelling: `--harness NAME` or
+#: `--harness=NAME`. Both reach the checker as the same option.
+_SELECTOR_RE = re.compile(r"--harness(?:=|\s+)(?P<name>\S+)")
+
+
 def _selectors(argv: list[str]) -> list[str]:
     """Return the `--harness` values in one recorded invocation."""
-    return [
-        argv[index + 1]
-        for index, argument in enumerate(argv[:-1])
-        if argument == "--harness"
-    ]
+    found: list[str] = []
+    index = 0
+    while index < len(argv):
+        argument = argv[index]
+        if argument == "--harness" and index + 1 < len(argv):
+            found.append(argv[index + 1])
+            index += 2
+            continue
+        attached = re.fullmatch(r"--harness=(?P<name>.+)", argument)
+        if attached is not None:
+            found.append(attached["name"])
+        index += 1
+    return found
 
 
 @pytest.mark.parametrize("target", TIERS)
@@ -204,10 +218,10 @@ def test_make_tier_runs_the_checker_for_each_command_in_order(
     assert all(f"--scope\t{scope}" in "\t".join(argv) for argv in recorded), (
         f"every {target} call must name the {scope} scope: {recorded!r}"
     )
-    expected = [name for _, names in commands for name in names]
-    actual = [selector for argv in recorded for selector in _selectors(argv)]
+    expected = [names for _, names in commands]
+    actual = [_selectors(argv) for argv in recorded]
     assert actual == expected, (
-        "the checked selectors must run in recipe order: "
+        "the checked selectors must run in recipe order, one list per call: "
         f"expected {expected!r}, got {actual!r}"
     )
 
@@ -244,12 +258,11 @@ def test_a_failing_checker_stops_the_tier(
         f"the {target} tier must stop at call {fail_at}, recorded "
         f"{len(recorded)} calls"
     )
-    if _selectors(recorded[-1]):
-        expected = [name for _, names in commands for name in names]
-        assert _selectors(recorded[-1]) == [expected[fail_at - 1]], (
-            "the failing call must be the selector at its position: "
-            f"expected {expected[fail_at - 1]!r}, recorded {recorded[-1]!r}"
-        )
+    expected = commands[fail_at - 1][1]
+    assert _selectors(recorded[-1]) == expected, (
+        "the failing call must be the one at that position: "
+        f"expected {expected!r}, recorded {recorded[-1]!r}"
+    )
 
 
 def test_the_checker_build_pins_the_host_triple() -> None:
@@ -320,7 +333,7 @@ def test_make_dry_run_shows_each_wrapped_call(fast_recipe: str) -> None:
     printed = [
         found.group(1)
         for line in commands
-        if (found := re.search(r"--harness\s+(\S+)", line)) is not None
+        if (found := _SELECTOR_RE.search(line)) is not None
     ]
     assert printed == expected, (
         f"the dry run must show the selectors in recipe order: {printed!r}"

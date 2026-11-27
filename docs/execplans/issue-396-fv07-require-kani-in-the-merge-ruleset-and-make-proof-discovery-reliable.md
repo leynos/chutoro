@@ -281,6 +281,25 @@ issue text and the repository's documentation are the authority.
       prover-job contract refuses a job-level `if` or `continue-on-error` on
       the nightly job as well as its steps; and the required-context contract
       checks that each owning trigger's branch filter reaches `main`.
+- [x] Tenth review round, all 21 findings actioned. The substantive ones
+      close further ways a run could pass as the wrong proof: a compact
+      `-pkg` was unrecorded (so a second package looked like a valid command),
+      a proof behind `cfg(test)` was certified though the gate never compiles
+      it, `autobins = false` was ignored, a macro body delimited by
+      parentheses or brackets was not seen, `mod` split over lines was not
+      read, and an inline module's unreadable `#[path]` was skipped rather
+      than reported. Attribute brackets are now counted in the
+      literal-blanked text, so a doc string's bracket cannot move an
+      attribute's start. The recipe reader drops the continuation's
+      recipe-prefix tab as make does and recognises `||   true` as masking;
+      the orphan sweep covers every crate root's directories; the manifest
+      walk cannot loop on a directory symlink. The contracts reject a
+      manifest version the Rust loader refuses, evaluate branch filters as
+      globs with ordered exclusions, require the activity types that matter,
+      allow `always()` only on the closing disk reading, and compare selectors
+      per invocation. The reader fixtures split into general and path
+      modules over a shared support module, and the Cargo-option reader moved
+      to `cargo_options.rs`, which keeps every changed file inside its bounds.
 - [ ] Push the branch and create the draft pull request.
 
 ## Surprises & discoveries

@@ -13,9 +13,9 @@ use super::words;
 #[derive(Debug, Default)]
 pub(super) struct Parser {
     /// Packages the command selects.
-    packages: Vec<String>,
+    pub(super) packages: Vec<String>,
     /// Harness selectors the command passes.
-    selectors: Vec<String>,
+    pub(super) selectors: Vec<String>,
     /// Whether `--exact` was supplied.
     exact: bool,
     /// Whether `--lib` was supplied.
@@ -63,6 +63,12 @@ impl Parser {
         index: usize,
         argument: &str,
     ) -> Result<usize, CommandError> {
+        // A compact `-pkg` carries its value in the same word, and takes the
+        // same list as `-p pkg`.
+        if let Some(value) = words::compact_package(argument) {
+            self.packages.push(value.to_owned());
+            return Ok(self.consume_extra_packages(args, index + 1));
+        }
         let Some(valued) = words::Valued::of(argument) else {
             return Ok(index + 1);
         };
@@ -72,21 +78,26 @@ impl Parser {
             });
         };
         valued.store(self, value)?;
-        let mut next = index + 2;
-        if !valued.repeats() {
-            return Ok(next);
+        if !matches!(valued, words::Valued::Package) {
+            return Ok(index + 2);
         }
-        // Cargo's package option takes a list, so every following word that is
-        // not an option is another package. Recording only the first would let
-        // a second package's harness satisfy the expected set.
+        Ok(self.consume_extra_packages(args, index + 2))
+    }
+
+    /// Record each further word as another package, stopping at an option.
+    ///
+    /// Cargo's package option takes a list, so every following word that is
+    /// not an option is another package. Recording only the first would let a
+    /// second package's harness satisfy the expected set.
+    fn consume_extra_packages(&mut self, args: &[String], mut next: usize) -> usize {
         while let Some(extra) = args.get(next) {
             if extra.starts_with('-') {
                 break;
             }
-            self.push_package(extra.clone());
+            self.packages.push(extra.clone());
             next += 1;
         }
-        Ok(next)
+        next
     }
 
     /// Consume an option whose value is attached with `=`.
@@ -106,16 +117,6 @@ impl Parser {
             self.packages.push(value.to_owned());
         }
         Ok(())
-    }
-
-    /// Record one package.
-    pub(super) fn push_package(&mut self, package: String) {
-        self.packages.push(package);
-    }
-
-    /// Record one harness selector.
-    pub(super) fn push_selector(&mut self, selector: String) {
-        self.selectors.push(selector);
     }
 
     /// Check the collected state and build the delegated command.

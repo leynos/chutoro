@@ -240,10 +240,54 @@ def test_the_owning_trigger_covers_every_pull_request(
         _require_unfiltered(workflow, context, configured)
 
 
+#: The activity types a required job must run on. A pull request is checked
+#: when it opens, when it gains a commit, and when it reopens; a `types` list
+#: that omits one of these leaves the required check absent for that change.
+REQUIRED_TYPES = ("opened", "synchronize", "reopened")
+
+
+def _branch_pattern_regex(pattern: str) -> re.Pattern[str]:
+    """Translate one GitHub branch filter into a regular expression.
+
+    GitHub's filter syntax is not literal membership: ``*`` matches any run of
+    characters except ``/``, ``**`` matches across separators, and ``?`` is one
+    character. Treating the values as literal names would accept
+    ``branches-ignore: ['m*']``, which does exclude ``main``.
+    """
+    parts: list[str] = []
+    index = 0
+    while index < len(pattern):
+        if pattern[index : index + 2] == "**":
+            parts.append(".*")
+            index += 2
+            continue
+        character = pattern[index]
+        parts.append({"*": "[^/]*", "?": "[^/]"}.get(character, re.escape(character)))
+        index += 1
+    return re.compile("".join(parts))
+
+
+def _selected_by(patterns: typ.Iterable[str], branch: str) -> bool:
+    """Return whether `patterns` select `branch`, honouring ordered exclusions.
+
+    A pattern beginning with ``!`` removes branches the earlier patterns
+    selected, and a later positive pattern can select them again. The final
+    decision is what GitHub uses.
+    """
+    selected = False
+    for pattern in patterns:
+        if pattern.startswith("!"):
+            if _branch_pattern_regex(pattern[1:]).fullmatch(branch):
+                selected = False
+        elif _branch_pattern_regex(pattern).fullmatch(branch):
+            selected = True
+    return selected
+
+
 def _require_unfiltered(
     workflow: str, context: str, configured: dict[str, typ.Any]
 ) -> None:
-    """Require a trigger with no path filter and no branch filter on main."""
+    """Require a trigger that reaches main for every relevant activity."""
     filters = [key for key in ("paths", "paths-ignore") if key in configured]
     assert not filters, (
         f"{workflow}:{context} is a required check, so its pull_request "
@@ -251,16 +295,77 @@ def _require_unfiltered(
     )
     branches = configured.get("branches")
     if branches is not None:
-        assert "main" in branches, (
+        assert _selected_by(branches, "main"), (
             f"{workflow}:{context} is a required check, so its pull_request "
-            f"trigger must include main; found branches {branches!r}"
+            f"trigger must select main; found branches {branches!r}"
         )
     ignored = configured.get("branches-ignore")
     if ignored is not None:
-        assert "main" not in ignored, (
+        excluded = [
+            pattern
+            for pattern in ignored
+            if _branch_pattern_regex(pattern).fullmatch("main")
+        ]
+        assert not excluded, (
             f"{workflow}:{context} is a required check, so its pull_request "
-            f"trigger must not exclude main; found branches-ignore {ignored!r}"
+            f"trigger must not exclude main; found branches-ignore {excluded!r}"
         )
+    types = configured.get("types")
+    if types is not None:
+        missing = [kind for kind in REQUIRED_TYPES if kind not in types]
+        assert not missing, (
+            f"{workflow}:{context} is a required check, so its pull_request "
+            f"trigger must run on {missing!r} as well; found types {types!r}"
+        )
+
+
+@pytest.mark.parametrize(
+    ("patterns", "expected"),
+    (
+        (("main",), True),
+        (("**",), True),
+        (("m*",), True),
+        (("ma?n",), True),
+        (("develop",), False),
+        (("main", "!main"), False),
+        (("!main", "main"), True),
+    ),
+)
+def test_branch_patterns_follow_github_filtering(
+    patterns: tuple[str, ...], expected: bool
+) -> None:
+    """A branch filter is a glob with ordered exclusions, not literal names.
+
+    ``m*`` matches ``main``, and a later positive pattern can undo a ``!``
+    exclusion, so a literal membership test would accept configurations that
+    exclude the protected branch.
+    """
+    assert _selected_by(patterns, "main") is expected, (
+        f"{patterns!r} selecting main must be {expected}"
+    )
+
+
+@pytest.mark.parametrize(
+    ("configured", "rejected"),
+    (
+        ({"branches-ignore": ["m*"]}, True),
+        ({"branches": ["main", "!main"]}, True),
+        ({"branches": ["develop"]}, True),
+        ({"types": ["closed"]}, True),
+        ({"branches": ["**"]}, False),
+        ({"types": ["opened", "synchronize", "reopened"]}, False),
+        ({}, False),
+    ),
+)
+def test_a_trigger_that_misses_an_activity_is_rejected(
+    configured: dict[str, typ.Any], rejected: bool
+) -> None:
+    """Every spelling that leaves main unchecked must fail the trigger check."""
+    if not rejected:
+        _require_unfiltered("fixture.yml", "build-test", configured)
+        return
+    with pytest.raises(AssertionError):
+        _require_unfiltered("fixture.yml", "build-test", configured)
 
 
 def test_the_documented_required_contexts_match_the_contract() -> None:

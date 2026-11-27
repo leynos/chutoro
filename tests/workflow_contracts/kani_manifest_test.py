@@ -21,6 +21,7 @@ Run via ``make test-workflow-contracts``.
 from __future__ import annotations
 
 import collections
+import dataclasses
 import re
 import tomllib
 import typing as typ
@@ -44,6 +45,11 @@ ENTRY_KEYS = frozenset({"package", "pretty_name", "tier"})
 #: The only keys the document may carry.
 DOCUMENT_KEYS = frozenset({"version", "harness"})
 
+#: The only manifest version the Rust loader reads. A document that names any
+#: other is rejected there, so accepting it here would report a healthy
+#: manifest that the checker cannot load.
+MANIFEST_VERSION = 1
+
 
 class ManifestError(ValueError):
     """Raised when the manifest does not have the shape its consumers assume."""
@@ -65,11 +71,16 @@ def _entries(path: Path = MANIFEST_PATH) -> list[dict[str, typ.Any]]:
 
 
 def _checked_document(path: Path) -> dict[str, typ.Any]:
-    """Return the parsed document, rejecting keys no consumer expects."""
+    """Return the parsed document, rejecting keys and versions no consumer expects."""
     document = _document(path)
     unknown = set(document) - DOCUMENT_KEYS
     if unknown:
         raise ManifestError(f"unknown manifest keys: {sorted(unknown)}")
+    version = document.get("version")
+    if version != MANIFEST_VERSION:
+        raise ManifestError(
+            f"manifest version {version!r}; expected {MANIFEST_VERSION}"
+        )
     return document
 
 
@@ -178,6 +189,24 @@ def inventory() -> Inventory:
     return discover()
 
 
+def test_manifest_version_must_be_the_one_the_loader_reads(
+    tmp_path: Path,
+) -> None:
+    """The Python contract must reject what the Rust loader rejects.
+
+    A version the checker cannot load would otherwise pass every Python check
+    and fail only when `make kani` runs.
+    """
+    path = tmp_path / "harnesses.toml"
+    path.write_text(
+        'version = 2\n[[harness]]\npackage = "p"\n'
+        'pretty_name = "a::b"\ntier = "fast"\n',
+        encoding="utf-8",
+    )
+    with pytest.raises(ManifestError):
+        _entries(path)
+
+
 def test_manifest_entries_are_well_formed(manifest: list[dict[str, typ.Any]]) -> None:
     """Every entry names a package, a qualified proof, and a known tier."""
     assert manifest, "the manifest must classify at least one harness"
@@ -241,7 +270,7 @@ def test_source_scan_reports_no_unresolved_declaration(inventory: Inventory) -> 
     assert not inventory.unresolved, (
         "the proof scan could not attribute these constructs; each must be "
         "restructured so its harness path is derivable, or recorded with the "
-        f"reason it cannot be: {[(report.kind, report.path, report.line) for report in inventory.unresolved]!r}"
+        f"reason it cannot be: {[dataclasses.astuple(report) for report in inventory.unresolved]!r}"
     )
 
 

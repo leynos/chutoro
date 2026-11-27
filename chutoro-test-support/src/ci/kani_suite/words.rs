@@ -42,28 +42,34 @@ impl Valued {
         }
     }
 
-    /// Return whether this option accepts several values in a row.
-    ///
-    /// Cargo's package option takes a list; the others take exactly one value.
-    pub(super) const fn repeats(self) -> bool {
-        matches!(self, Self::Package)
-    }
-
     /// Store or check `value` for the option this value names.
     pub(super) fn store(self, parser: &mut Parser, value: String) -> Result<(), CommandError> {
         match self {
             Self::OutputFormat => check_output_format(&value),
             Self::Package => {
-                parser.push_package(value);
+                parser.packages.push(value);
                 Ok(())
             }
             Self::Harness => {
-                parser.push_selector(value);
+                parser.selectors.push(value);
                 Ok(())
             }
             Self::Binary => Err(CommandError::BinaryTarget { name: value }),
         }
     }
+}
+
+/// Return the package a compact `-p` option selects, if `argument` is one.
+///
+/// Cargo's short option takes its value with no separator, so `-pkg` is the
+/// same option as `-p pkg`. Reading only the separated and `=` forms would
+/// leave it unrecorded, and a command that selected a package would then look
+/// like one that selected none -- or worse, its second package would be read
+/// as another word entirely.
+pub(super) fn compact_package(argument: &str) -> Option<&str> {
+    argument
+        .strip_prefix("-p")
+        .filter(|value| !value.is_empty() && !value.starts_with('='))
 }
 
 /// Report whether `argument` spells the refused option `flag`.
@@ -106,104 +112,4 @@ pub(super) fn repeated(names: &[String]) -> Vec<String> {
         .filter(|(_, count)| *count > 1)
         .map(|(name, _)| name.to_owned())
         .collect()
-}
-
-/// Return the index of the subcommand in `args`, after Cargo's global options.
-///
-/// Cargo accepts both a toolchain selector (`+nightly`) and its global options
-/// before the subcommand: `cargo --config net.offline=true kani` is a valid
-/// invocation, and the repository exposes `CARGO` as a command-line override so
-/// a caller can spell it that way. Both are skipped so this check is about the
-/// subcommand rather than about how the toolchain or configuration is spelled.
-/// An option this does not recognise is left in place, so an unexpected word
-/// fails as a wrong subcommand rather than being silently ignored.
-pub(super) fn subcommand_index(args: &[String]) -> usize {
-    let mut index = 0;
-    while let Some(word) = args.get(index) {
-        if word.starts_with('+') {
-            index += 1;
-            continue;
-        }
-        let Some(consumed) = cargo_global_option(word) else {
-            break;
-        };
-        index += consumed;
-    }
-    index
-}
-
-/// Return how many words the Cargo global option at `word` occupies.
-///
-/// A value-taking option spelled as one word (`--config=x`) occupies one; the
-/// separated spelling occupies two. A flag occupies one. None means the word is
-/// not a global option, so the caller has reached the subcommand.
-fn cargo_global_option(word: &str) -> Option<usize> {
-    const VALUED: &[&str] = &[
-        "--color",
-        "--config",
-        "--explain",
-        "--manifest-path",
-        "--target-dir",
-        "-C",
-        "-Z",
-    ];
-    // Quiet is deliberately absent: this checker refuses a run whose output
-    // is suppressed, and a quiet word before the subcommand is no exception.
-    // Leaving it unrecognised makes the invocation fail as a wrong
-    // subcommand, which is the safe direction.
-    const FLAGS: &[&str] = &["--frozen", "--locked", "--offline", "--verbose", "-v"];
-    if FLAGS.contains(&word) {
-        return Some(1);
-    }
-    if VALUED.contains(&word) {
-        return Some(2);
-    }
-    let (name, _) = word.split_once('=')?;
-    VALUED.contains(&name).then_some(1)
-}
-
-#[cfg(test)]
-mod tests {
-    //! Unit tests for the Cargo words this module interprets.
-
-    use rstest::rstest;
-
-    use super::*;
-
-    /// Return a parameterised case's words as owned arguments.
-    fn owned(args: &[&str]) -> Vec<String> {
-        args.iter().map(|word| (*word).to_owned()).collect()
-    }
-
-    #[rstest]
-    #[case(&["kani"], 0, "a plain command")]
-    #[case(&["+nightly", "kani"], 1, "a toolchain selector")]
-    #[case(&["--config", "net.offline=true", "kani"], 2, "a separated option")]
-    #[case(&["--config=net.offline=true", "kani"], 1, "an attached option")]
-    #[case(&["--locked", "+nightly", "kani"], 2, "a flag before the selector")]
-    fn the_subcommand_follows_cargo_global_options(
-        #[case] args: &[&str],
-        #[case] expected: usize,
-        #[case] what: &str,
-    ) {
-        let words = owned(args);
-        assert_eq!(
-            subcommand_index(&words),
-            expected,
-            "{what} must resolve to its subcommand"
-        );
-    }
-
-    #[rstest]
-    #[case("--config", Some(2), "a separated value")]
-    #[case("--config=net.offline=true", Some(1), "an attached value")]
-    #[case("--locked", Some(1), "a flag")]
-    #[case("kani", None, "the subcommand")]
-    fn only_cargo_global_options_are_consumed(
-        #[case] word: &str,
-        #[case] expected: Option<usize>,
-        #[case] what: &str,
-    ) {
-        assert_eq!(cargo_global_option(word), expected, "{what}");
-    }
 }
