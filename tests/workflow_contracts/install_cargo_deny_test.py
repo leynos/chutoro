@@ -108,9 +108,9 @@ def test_default_install_directory_is_the_cargo_bin_directory(
 ) -> None:
     """Without an override the binary must be where `cargo deny` searches.
 
-    The Makefile puts ``${HOME}/.cargo/bin`` ahead of the rest of ``PATH``, so
-    an installer default anywhere else would leave `make deny` resolving some
-    other cargo-deny.
+    Cargo searches ``${CARGO_HOME:-${HOME}/.cargo}/bin`` before ``PATH`` for an
+    external subcommand, so an installer default anywhere else would leave
+    `make deny` resolving some other cargo-deny.
     """
     installer = prepare(tmp_path, default_dir=True)
 
@@ -119,6 +119,25 @@ def test_default_install_directory_is_the_cargo_bin_directory(
     assert completed.returncode == 0, completed.stderr
     assert installer.install_dir == installer.home / ".cargo" / "bin"
     assert _installed_binary(installer).is_file()
+
+
+def test_cargo_home_moves_the_default_install_directory(tmp_path: Path) -> None:
+    """A set `CARGO_HOME` must decide the default, not `HOME`.
+
+    Cargo checks `CARGO_HOME/bin` before `PATH`, so a binary left in the
+    `HOME` default while `CARGO_HOME` points elsewhere would lose to whatever
+    that directory already holds, and the installer could report success for a
+    binary `make deny` never runs.
+    """
+    cargo_home = tmp_path / "cargo-home"
+    installer = prepare(tmp_path, default_dir=True, cargo_home=cargo_home)
+
+    completed = installer.install()
+
+    assert completed.returncode == 0, completed.stderr
+    assert installer.install_dir == cargo_home / "bin"
+    assert _installed_binary(installer).is_file()
+    assert not (installer.home / ".cargo" / "bin" / "cargo-deny").exists()
 
 
 def test_checksum_mismatch_fails_without_installing(tmp_path: Path) -> None:

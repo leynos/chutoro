@@ -36,12 +36,14 @@ case "${CARGO_DENY_HOST_ARCH}" in
     ;;
 esac
 
-# `~/.cargo/bin` is the directory `cargo` searches first for a subcommand, and
-# the Makefile puts it ahead of the rest of PATH, so the default install is the
-# binary `make deny` resolves. CI keeps this default for the same reason: a
-# binary installed anywhere else would be shadowed inside `make`. The installer
-# replaces whatever is at the destination, so a stale binary never survives.
-INSTALL_DIR="${CARGO_DENY_INSTALL_DIR:-${HOME}/.cargo/bin}"
+# Cargo searches `$CARGO_HOME/bin` before PATH for an external subcommand, so
+# that directory is the only place where `make deny` is certain to run the
+# binary installed here; `~/.cargo/bin` is at once that directory when
+# `CARGO_HOME` is unset and the directory the Makefile prefers. Installing
+# anywhere else would leave an existing `$CARGO_HOME/bin/cargo-deny` in front
+# of the pin. The installer replaces whatever is at the destination, so a stale
+# binary never survives.
+INSTALL_DIR="${CARGO_DENY_INSTALL_DIR:-${CARGO_HOME:-${HOME}/.cargo}/bin}"
 BINARY="${INSTALL_DIR}/cargo-deny"
 STEM="cargo-deny-${CARGO_DENY_VERSION}-${CARGO_DENY_ARCHIVE_ARCH}-unknown-linux-musl"
 ARCHIVE="${STEM}.tar.gz"

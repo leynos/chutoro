@@ -203,6 +203,7 @@ def prepare(
     *,
     request: Request = Request(),
     default_dir: bool = False,
+    cargo_home: Path | None = None,
 ) -> InstallerRun:
     """Build a private installer pinned to a locally built archive.
 
@@ -212,8 +213,10 @@ def prepare(
     is the only way to reach the installer's post-download validation.
 
     ``default_dir`` leaves ``CARGO_DENY_INSTALL_DIR`` unset, so the installer
-    resolves ``${HOME}/.cargo/bin`` exactly as it does on a developer's
-    machine. Every other contract overrides the directory, which is what makes
+    resolves ``${CARGO_HOME:-${HOME}/.cargo}/bin`` exactly as it does on a
+    developer's machine. ``cargo_home`` sets ``CARGO_HOME`` for that mode and
+    moves the expected directory with it, because Cargo searches there before
+    PATH. Every other contract overrides the directory, which is what makes
     this the only mode that exercises the default.
     """
     home = tmp_path / "home"
@@ -230,16 +233,20 @@ def prepare(
     _recording_curl(bin_dir, archive, download_log)
     _recording_uname(bin_dir, system=platform.system, machine=platform.machine)
 
-    install_dir = home / ".cargo" / "bin" if default_dir else tmp_path / "prefix"
     values = os.environ.copy()
     # An inherited override would silently redirect every contract below.
     values.pop("CARGO_DENY_INSTALL_DIR", None)
+    values.pop("CARGO_HOME", None)
     values.update(
         {
             "PATH": f"{bin_dir}{os.pathsep}{values['PATH']}",
             "HOME": str(home),
         }
     )
+    if cargo_home is not None:
+        values["CARGO_HOME"] = str(cargo_home)
+    default_root = cargo_home if cargo_home is not None else home / ".cargo"
+    install_dir = default_root / "bin" if default_dir else tmp_path / "prefix"
     if not default_dir:
         values["CARGO_DENY_INSTALL_DIR"] = str(install_dir)
 
