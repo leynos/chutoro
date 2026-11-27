@@ -167,6 +167,11 @@ def _control_operators(command: str) -> list[str]:
                 quote = ""
             index += 1
             continue
+        if character == "\\":
+            # An escaped quote is text, not the start of a quoted run, so the
+            # operator after it is still an operator.
+            index += 2
+            continue
         if character in {"'", '"'}:
             quote = character
             index += 1
@@ -208,27 +213,53 @@ def recipe(text: str, pattern: re.Pattern[str], target: str) -> str:
 def logical_lines(text: str) -> list[str]:
     """Return one recipe's commands with backslash continuations joined.
 
-    A recipe splits a command across lines for readability; make joins them
-    before the shell sees them, so the contract must join them too. A line
-    that ends in a backslash continues, and make removes the recipe-prefix tab
-    that begins the continuation: a `--harness=` whose value is on the
-    next line reaches the shell as `--harness=verify`. One tab is removed, so
-    any further indentation survives.
+    Make passes a recipe line's backslash-newline through to the shell, and
+    the shell removes it as a line continuation; the tab that begins the next
+    line is then whitespace, so the two halves are separate words. The join
+    therefore replaces the pair with one space, which keeps a value split
+    across lines from being read as one word.
+
+    Inside single quotes the shell keeps the pair literally, so it is
+    preserved here: a quoted path split across lines is not the path its
+    halves would spell joined.
     """
     logical: list[str] = []
     pending = ""
-    joining = False
+    strip_tab = False
     for line in text.splitlines():
-        current = line[1:] if joining and line.startswith("\t") else line
+        current = line[1:] if strip_tab and line.startswith("\t") else line
+        if current.endswith("\\") and _open_single_quote(pending + current):
+            pending += current + "\n"
+            strip_tab = False
+            continue
         continued = current.endswith("\\")
-        pending += current[:-1] if continued else current
+        pending += f"{current[:-1]} " if continued else current
         if not continued:
             logical.append(pending)
             pending = ""
-        joining = continued
+        strip_tab = continued
     if pending:
         logical.append(pending)
     return logical
+
+
+def _open_single_quote(text: str) -> bool:
+    """Return whether `text` ends inside a single-quoted run."""
+    quote = ""
+    index = 0
+    while index < len(text):
+        index, quote = _quote_step(text, index, quote)
+    return quote == "'"
+
+
+def _quote_step(text: str, index: int, quote: str) -> tuple[int, str]:
+    """Advance one character of a quoted run, or open or close one."""
+    character = text[index]
+    if quote == '"' and character == "\\":
+        return index + 2, quote
+    if character in {"'", '"'} and quote in {"", character}:
+        return index + 1, "" if quote else character
+    return index + 1, quote
 
 
 def executable_commands(text: str) -> list[re.Match[str]]:

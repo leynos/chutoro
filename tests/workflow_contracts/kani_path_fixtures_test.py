@@ -147,6 +147,53 @@ def test_reader_reads_a_path_in_every_spelling(
     )
 
 
+def test_reader_drops_the_stem_directory_for_a_top_level_inline_path(
+    tmp_path: Path,
+) -> None:
+    """A path-bearing inline block in ``outer.rs`` resolves from ``src/``.
+
+    Rust reads ``#[path = "tf"] mod thread { .. }`` in a stem-directory file
+    without first descending into ``outer/``, while a plain inline block there
+    does descend; both shapes are exercised here.
+    """
+    crate_root = _write_package(tmp_path, "mod outer;\n")
+    (crate_root.parent / "outer.rs").write_text(
+        '#[path = "tf"]\nmod thread {\n    mod inner;\n}\n', encoding="utf-8"
+    )
+    (crate_root.parent / "tf").mkdir()
+    (crate_root.parent / "tf" / "inner.rs").write_text(
+        "#[kani::proof]\nfn verify_popped() {}\n", encoding="utf-8"
+    )
+    names = _names(discover(tmp_path))
+    assert names == ["outer::thread::inner::verify_popped"], (
+        f"the stem directory must not be added, got {names!r}"
+    )
+
+
+def test_reader_keeps_the_stem_directory_inside_a_plain_inline_block(
+    tmp_path: Path,
+) -> None:
+    """A plain inline block in ``outer.rs`` nests under ``outer/``.
+
+    The negative control for the case above: only a path on the first block
+    replaces the stem directory.
+    """
+    crate_root = _write_package(tmp_path, "mod outer;\n")
+    (crate_root.parent / "outer.rs").write_text(
+        'mod a {\n    #[path = "tf"]\n    mod thread {\n        mod inner;\n'
+        "    }\n}\n",
+        encoding="utf-8",
+    )
+    (crate_root.parent / "outer" / "a" / "tf").mkdir(parents=True)
+    (crate_root.parent / "outer" / "a" / "tf" / "inner.rs").write_text(
+        "#[kani::proof]\nfn verify_nested() {}\n", encoding="utf-8"
+    )
+    names = _names(discover(tmp_path))
+    assert names == ["outer::a::thread::inner::verify_nested"], (
+        f"the stem directory must be kept for a plain block, got {names!r}"
+    )
+
+
 def test_reader_does_not_carry_an_attribute_past_an_item_boundary(
     tmp_path: Path,
     write_package: typ.Callable[..., Path],

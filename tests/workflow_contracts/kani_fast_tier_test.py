@@ -18,6 +18,7 @@ Run via ``make test-workflow-contracts``.
 from __future__ import annotations
 
 import collections
+import re
 
 import pytest
 
@@ -81,15 +82,25 @@ def test_masked_recipe_lines_are_rejected(recipe: str, forbidden: str) -> None:
     )
 
 
-def test_a_continuation_drops_its_recipe_prefix_tab() -> None:
-    """Make removes the tab that begins a continued recipe line.
+def test_a_continuation_is_a_word_boundary() -> None:
+    """The shell's line continuation leaves the next line's tab as a separator.
 
-    A value that sits on the continuation would otherwise be joined with a tab
-    in front of it, and a reading that did not remove it would see one token
-    rather than the option and its value.
+    Joining the halves with nothing would read a value split across lines as
+    one word, which is not what the shell passes.
     """
     joined = logical_lines("\t$(CARGO) kani --harness=\\\n\tverify_one\n")
-    assert joined == ["\t$(CARGO) kani --harness=verify_one"], joined
+    assert joined == ["\t$(CARGO) kani --harness= verify_one"], joined
+
+
+def test_a_quoted_continuation_keeps_its_backslash() -> None:
+    """Single quotes keep a backslash-newline pair, which make passes through.
+
+    The shell does not join the pair inside quotes, so a quoted path split
+    across lines is not the path the halves would spell if joined.
+    """
+    joined = logical_lines("\t$(CARGO) kani --config 'tools/dev-\\\n\tfast.toml'\n")
+    assert len(joined) == 1, joined
+    assert "dev-\\\n" in joined[0], joined
 
 
 def test_a_shell_comment_ends_the_read_command() -> None:
@@ -219,21 +230,29 @@ def test_fast_selectors_are_exactly_the_manifest_fast_tier(
     )
 
 
-def test_fast_selectors_are_qualified_paths(fast_recipe: str) -> None:
-    """A fast selector must be the qualified path Kani prints.
+#: One segment of a harness path: a Rust identifier.
+_SELECTOR_IDENTIFIER = re.compile(r"[A-Za-z_][A-Za-z0-9_]*")
 
-    An unqualified selector is ambiguous under any future sibling, and it does
-    not match the identity the manifest and the checker compare.
+
+def test_fast_selectors_are_identifier_paths(fast_recipe: str) -> None:
+    """A fast selector must be the path Kani prints, segment by segment.
+
+    A crate-root proof's harness is the bare function name, so a separator is
+    not required; every segment must still be a Rust identifier, because
+    anything else does not match the identity the manifest and the checker
+    compare.
     """
-    unqualified = sorted(
+    malformed = sorted(
         name
         for _, names in selections(fast_recipe)
         for name in names
-        if "::" not in name
+        if not all(
+            _SELECTOR_IDENTIFIER.fullmatch(segment) for segment in name.split("::")
+        )
     )
-    assert not unqualified, (
-        "every fast-tier --harness selector must be the fully qualified path "
-        f"the manifest lists; these are not: {unqualified!r}"
+    assert not malformed, (
+        "every fast-tier --harness selector must be the path the manifest "
+        f"lists; these are not: {malformed!r}"
     )
 
 

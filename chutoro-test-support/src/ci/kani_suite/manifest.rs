@@ -162,7 +162,7 @@ impl Manifest {
     /// use chutoro_test_support::ci::kani_suite::manifest::Manifest;
     ///
     /// let document = "version = 1\n[[harness]]\npackage = \"pkg\"\n\
-    ///                  pretty_name = \"verify_one\"\ntier = \"full\"";
+    ///                  pretty_name = \"proofs::\"\ntier = \"full\"";
     /// assert!(Manifest::parse(document, "inline").is_err());
     /// ```
     pub fn parse(text: &str, origin: &str) -> Result<Self, ManifestError> {
@@ -252,16 +252,19 @@ fn validate_entry(index: usize, entry: &Harness) -> Result<(), ManifestError> {
     Ok(())
 }
 
-/// Report whether `name` is a `::`-separated path of Rust identifiers.
+/// Report whether `name` is a path of Rust identifiers.
+///
+/// A proof declared at a crate's root has no module segment, so its harness
+/// name is the bare function name; requiring a separator would reject the
+/// identity the source reader reports for it.
 fn is_qualified(name: &str) -> bool {
-    name.split("::").count() > 1
-        && name.split("::").all(|segment| {
-            let mut characters = segment.chars();
-            characters
-                .next()
-                .is_some_and(|first| first.is_ascii_alphabetic() || first == '_')
-                && characters.all(|character| character.is_ascii_alphanumeric() || character == '_')
-        })
+    name.split("::").all(|segment| {
+        let mut characters = segment.chars();
+        characters
+            .next()
+            .is_some_and(|first| first.is_ascii_alphabetic() || first == '_')
+            && characters.all(|character| character.is_ascii_alphanumeric() || character == '_')
+    })
 }
 
 #[cfg(test)]
@@ -341,14 +344,9 @@ mod tests {
     }
 
     #[test]
-    fn rejects_an_unqualified_path() {
-        assert_eq!(
-            Manifest::parse(&document("fast", "pkg", "verify_one"), "inline"),
-            Err(ManifestError::Unqualified {
-                index: 0,
-                pretty_name: "verify_one".to_owned(),
-            })
-        );
+    fn accepts_a_root_name_and_rejects_a_malformed_path() {
+        assert!(Manifest::parse(&document("fast", "pkg", "verify_one"), "inline").is_ok());
+        assert!(Manifest::parse(&document("fast", "pkg", "proofs::"), "inline").is_err());
     }
 
     #[test]

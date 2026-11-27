@@ -323,6 +323,31 @@ def test_reader_carries_a_modules_guard_into_its_children(
     )
 
 
+def test_reader_resolves_a_package_named_binary_to_main(
+    tmp_path: Path,
+) -> None:
+    """A name-only ``[[bin]]`` matching the package reads ``src/main.rs``.
+
+    Cargo's inference for that name is the package's own ``src/main.rs``, not
+    ``src/bin/<name>.rs``; reading the wrong path would leave the package with
+    no binary root and its proofs unread.
+    """
+    directory = tmp_path / "selfnamed"
+    (directory / "src").mkdir(parents=True)
+    (directory / "Cargo.toml").write_text(
+        '[package]\nname = "selfnamed"\nversion = "0.1.0"\nautobins = false\n\n'
+        '[[bin]]\nname = "selfnamed"\n',
+        encoding="utf-8",
+    )
+    (directory / "src" / "main.rs").write_text(
+        "#[kani::proof]\nfn verify_main() {}\n", encoding="utf-8"
+    )
+    inventory = discover(tmp_path)
+    assert _kinds(inventory) == ["binary-target"], (
+        f"the package-named binary must be read, got {inventory.unresolved!r}"
+    )
+
+
 def test_reader_infers_a_named_binary_before_disabling_discovery(
     tmp_path: Path,
 ) -> None:

@@ -192,9 +192,26 @@ def _path_base(location: _Location, chain: tuple[_ModuleItem, ...]) -> Path:
     """
     if not chain:
         return location.file.parent
-    return _child_directory(location).joinpath(
-        *(_inline_directory(item) for item in chain)
+    return _inline_base(location, chain)
+
+
+def _inline_base(location: _Location, chain: tuple[_ModuleItem, ...]) -> Path:
+    """Return the directory an inline module chain resolves its files from.
+
+    A file module's children normally live under a directory named after the
+    file's stem (``src/outer.rs`` gives ``src/outer/``). A ``#[path]`` on the
+    first inline block replaces that directory rather than nesting inside it:
+    ``#[path = "tf"] mod thread { mod inner; }`` in ``src/outer.rs`` reads
+    ``src/tf/inner.rs``, and ``mod a { #[path = "tf"] mod thread { .. } }``
+    reads ``src/outer/a/tf/inner.rs``. The stem therefore applies only when
+    the first block carries no path of its own.
+    """
+    base = (
+        location.file.parent
+        if chain and chain[0].path_value is not None
+        else _child_directory(location)
     )
+    return base.joinpath(*(_inline_directory(item) for item in chain))
 
 
 def _child_file(
@@ -207,9 +224,7 @@ def _child_file(
     if path_value is not None:
         candidate = _path_base(location, chain) / path_value
         return candidate if candidate.is_file() else None
-    directory = _child_directory(location).joinpath(
-        *(_inline_directory(item) for item in chain)
-    )
+    directory = _inline_base(location, chain)
     for candidate in (directory / f"{name}.rs", directory / name / "mod.rs"):
         if candidate.is_file():
             return candidate

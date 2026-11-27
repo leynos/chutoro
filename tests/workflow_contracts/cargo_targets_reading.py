@@ -95,11 +95,13 @@ def _binary_roots(document: dict[str, typ.Any], directory: Path) -> list[Path]:
     again as binaries would visit the same source twice and report a
     ``repeated-source`` that is not there.
     """
+    package = document.get("package")
+    package_name = package.get("name") if isinstance(package, dict) else None
     explicit = [
         root
         for entry in document.get("bin") or []
         if isinstance(entry, dict)
-        for root in _declared_binary(directory, entry)
+        for root in _declared_binary(directory, entry, package_name)
     ]
     if _autobins_disabled(document):
         return [root for root in explicit if root.is_file()]
@@ -107,19 +109,23 @@ def _binary_roots(document: dict[str, typ.Any], directory: Path) -> list[Path]:
     return [*explicit, *(root for root in discovered if root.is_file())]
 
 
-def _declared_binary(directory: Path, entry: dict[str, typ.Any]) -> list[Path]:
+def _declared_binary(
+    directory: Path, entry: dict[str, typ.Any], package_name: object
+) -> list[Path]:
     """Return the path one ``[[bin]]`` entry names, explicit or inferred.
 
-    Cargo resolves a declaration that gives only a name to ``src/bin/<name>.rs``
-    (or ``src/bin/<name>/main.rs``), exactly as it resolves an automatic
-    target. That resolution happens whether or not auto-discovery is enabled,
-    because the declaration is the caller's.
+    Cargo resolves a declaration that gives only a name to ``src/main.rs``
+    when the name is the package's own, and to ``src/bin/<name>.rs`` (or
+    ``src/bin/<name>/main.rs``) otherwise. That resolution happens whether or
+    not auto-discovery is enabled, because the declaration is the caller's.
     """
     if isinstance(entry.get("path"), str):
         return [directory / entry["path"]]
     name = entry.get("name")
     if not isinstance(name, str) or not name:
         return []
+    if name == package_name:
+        return [directory / "src" / "main.rs"]
     binaries = directory / "src" / "bin"
     return [binaries / f"{name}.rs", binaries / name / "main.rs"]
 

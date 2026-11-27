@@ -333,9 +333,10 @@ issue text and the repository's documentation are the authority.
       (library and binary roots). Declined: converting the CLI fixture to
       `cap_std`, because `dylint.toml` records a deliberate
       `no_std_fs_operations` exclusion for the gate-binary test crates; and
-      preserving a single-quoted backslash-newline, because GNU make removes
-      that pair while reading the recipe, regardless of quoting, which is what
-      the shared joiner already models.
+      preserving a single-quoted backslash-newline. That second reason was
+      wrong, and the fourteenth round corrected it: GNU make passes the pair
+      through in recipe text, and the shell decides, so `/bin/sh` keeps it
+      inside single quotes. The joiner now models that.
 - [x] Thirteenth review round, all three findings actioned: the checker build
       pins `--target-dir` as well as `--target`, so a `build.target-dir` in the
       caller's `CARGO` override cannot leave the copy reading a directory the
@@ -343,6 +344,20 @@ issue text and the repository's documentation are the authority.
       name-only `[[bin]]` resolves `src/bin/<name>.rs` before `autobins` is
       considered, since the declaration is the caller's while `autobins` only
       disables the targets nobody declared.
+- [x] Fourteenth review round, all six findings actioned, including the
+      correction of a declined reason. The Rust loader now accepts a
+      crate-root harness name, matching the Python contract and the reader;
+      a path-bearing inline block at the top of a stem-directory file
+      resolves from the file's directory rather than nesting under the stem
+      (measured against rustc 1.89: `#[path = "tf"] mod thread { mod inner; }`
+      in `src/outer.rs` reads `src/tf/inner.rs`, while the same block nested
+      in `mod a` reads `src/outer/a/tf/inner.rs`); a name-only `[[bin]]`
+      matching the package resolves to `src/main.rs`; the fast-tier selector
+      check validates identifier segments rather than requiring `::`; and the
+      control-operator scan treats an unquoted backslash as an escape, so an
+      escaped quote cannot hide a `;`. The continuation joiner now replaces
+      an unquoted backslash-newline with a word boundary and preserves the
+      pair inside single quotes, which is what make and the shell do.
 - [ ] Push the branch and create the draft pull request.
 
 ## Surprises & discoveries
