@@ -316,4 +316,38 @@ mod tests {
         let report = parse(output).expect("a coloured verdict parses");
         assert_eq!(report.successful(), vec!["a::verify_one"]);
     }
+
+    #[test]
+    fn refuses_a_verdict_that_merely_starts_with_the_success_word() {
+        // A prefix match would certify a changed marker as a proof. The status
+        // is matched exactly, so an extended one is an undetermined outcome
+        // that the verdict refuses.
+        let output = concat!(
+            "Checking harness a::verify_one...\n",
+            "VERIFICATION:- SUCCESSFUL_BUT_CHANGED\n",
+            "Manual Harness Summary:\n",
+            "Complete - 1 successfully verified harnesses, 0 failures, 1 total.\n",
+        );
+        let report = parse(output).expect("the record still parses");
+        assert_eq!(
+            report.results.first().map(|result| result.outcome),
+            Some(Outcome::Other)
+        );
+        assert_eq!(report.successful(), Vec::<&str>::new());
+    }
+
+    #[test]
+    fn refuses_a_summary_whose_words_are_not_the_ones_kani_prints() {
+        // Three integers in a line are not the summary. Without the exact
+        // separators the totals stay absent, and a run with no totals is
+        // refused by the verdict rather than read as complete.
+        let output = concat!(
+            "Checking harness a::verify_one...\n",
+            "VERIFICATION:- SUCCESSFUL\n",
+            "Manual Harness Summary:\n",
+            "Complete - 1 verified harnesses, 0 failures, 1 total.\n",
+        );
+        let report = parse(output).expect("a missing summary is not a parse error");
+        assert_eq!(report.summary, None);
+    }
 }

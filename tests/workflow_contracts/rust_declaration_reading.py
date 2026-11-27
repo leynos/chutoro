@@ -41,14 +41,8 @@ from __future__ import annotations
 
 import re
 
-from rust_source_reading import (
-    _FUNCTION,
-    _blank,
-    _brace_depths,
-    _is_test,
-    _matching_brace,
-    _regions,
-)
+from rust_scanning import _blank, _brace_depths, _matching_brace, _regions
+from rust_source_reading import _FUNCTION, _is_test
 
 #: Any module header, whichever module is wanted. Compiled once rather than per
 #: name, because the caller asks about one module in a file that may hold

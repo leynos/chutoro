@@ -5,9 +5,12 @@
 //! so a case exercises the whole path the Makefile uses: argument validation,
 //! the delegated environment, streaming, parsing, and the comparison.
 //!
-//! The fixture's version banner is read from `tools/kani/VERSION` rather than
-//! restated, so a version bump moves the fixture with the pin instead of
-//! leaving a second copy to drift.
+//! The fixture's version banner is recorded independently, in
+//! `tests/fixtures/kani_suite_observed_version.txt`, because the scripted
+//! output was captured from a real run of one verifier version. Taking the
+//! banner from the live pin instead would let a version bump rewrite the
+//! banner while leaving the scripted output unexamined. The two are compared
+//! by a test, so a bump fails until the fixture is re-captured and re-read.
 //!
 //! This module lives under `tests/kani_suite_support/` so Cargo does not treat
 //! it as a standalone test crate; `kani_suite_cli.rs` pulls it in with
@@ -21,8 +24,16 @@ use std::sync::atomic::{AtomicUsize, Ordering};
 
 use rstest::fixture;
 
-/// The Kani version pin the fixture banners must carry.
-pub const VERSION: &str = include_str!("../../../tools/kani/VERSION");
+/// The Kani version the fixture's scripted output was captured from.
+///
+/// This is deliberately a separate record from the repository pin: it says
+/// what produced the strings the tests assert against, not what the gate
+/// currently installs.
+pub const OBSERVED_VERSION: &str = include_str!("../fixtures/kani_suite_observed_version.txt");
+
+/// The repository's pinned Kani version, which the fixture must be refreshed
+/// against whenever it moves.
+pub const PINNED_VERSION: &str = include_str!("../../../tools/kani/VERSION");
 
 /// Distinguishes fixtures created concurrently by the test harness.
 static NEXT_FIXTURE: AtomicUsize = AtomicUsize::new(0);
@@ -153,7 +164,7 @@ impl Case {
         for selector in selectors {
             command.arg("--harness").arg(selector);
         }
-        command.env("FAKE_KANI_VERSION", VERSION.trim());
+        command.env("FAKE_KANI_VERSION", OBSERVED_VERSION.trim());
         required(command.output(), "run the checker")
     }
 }

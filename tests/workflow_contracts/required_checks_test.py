@@ -26,9 +26,9 @@ from __future__ import annotations
 
 import re
 import typing as typ
-from pathlib import Path
 
 import pytest
+from github_branch_patterns import branch_pattern_regex, selected_by
 from workflow_support import ROOT, all_workflow_documents
 
 GUIDE_PATH = ROOT / "docs" / "developers-guide.md"
@@ -246,76 +246,6 @@ def test_the_owning_trigger_covers_every_pull_request(
 REQUIRED_TYPES = ("opened", "synchronize", "reopened")
 
 
-#: The regular expression for a `*` wildcard: any run without a separator.
-_WILDCARD = "[^/]*"
-
-#: The regular expression for `**`: any run, separators included.
-_ANY = ".*"
-
-
-def _branch_pattern_regex(pattern: str) -> re.Pattern[str]:
-    """Translate one GitHub branch filter into a regular expression.
-
-    GitHub's filter syntax is not literal membership: ``*`` matches any run of
-    characters except ``/``, ``**`` matches across separators, ``?`` and ``+``
-    quantify the preceding character, and ``[]`` is a character class with
-    ``!`` for negation. Treating the values as literal names would accept
-    ``branches-ignore: ['m*']``, which does exclude ``main``, and treating
-    ``?`` as a wildcard would accept ``ma?n``, which does not reach it.
-    """
-    parts: list[str] = []
-    index = 0
-    while index < len(pattern):
-        atom, index = _pattern_atom(pattern, index)
-        if atom in {"?", "+"} and parts:
-            parts[-1] = f"{parts[-1]}{atom}"
-        else:
-            parts.append(atom)
-    return re.compile("".join(parts))
-
-
-def _pattern_atom(pattern: str, index: int) -> tuple[str, int]:
-    """Return the next regular-expression atom and the offset after it."""
-    character = pattern[index]
-    if character == "*":
-        if pattern[index : index + 2] == "**":
-            return _ANY, index + 2
-        return _WILDCARD, index + 1
-    if character in "?+":
-        return character, index + 1
-    if character == "[":
-        return _character_class(pattern, index)
-    return re.escape(character), index + 1
-
-
-def _character_class(pattern: str, index: int) -> tuple[str, int]:
-    """Return one bracket expression's regex and the offset after it."""
-    end = pattern.find("]", index + 1)
-    if end < 0:
-        return re.escape("["), index + 1
-    body = pattern[index + 1 : end]
-    if body.startswith("!"):
-        body = "^" + body[1:]
-    return f"[{body}]", end + 1
-
-
-def _selected_by(patterns: typ.Iterable[str], branch: str) -> bool:
-    """Return whether `patterns` select `branch`, honouring ordered exclusions.
-
-    A pattern beginning with ``!`` removes branches the earlier patterns
-    selected, and a later positive pattern can select them again. The final
-    decision is what GitHub uses.
-    """
-    selected = False
-    for pattern in patterns:
-        if pattern.startswith("!"):
-            if _branch_pattern_regex(pattern[1:]).fullmatch(branch):
-                selected = False
-        elif _branch_pattern_regex(pattern).fullmatch(branch):
-            selected = True
-    return selected
-
-
 def _require_unfiltered(
     workflow: str, context: str, configured: dict[str, typ.Any]
 ) -> None:
@@ -342,7 +272,7 @@ def _require_main_selected(
     """Require the branch filters to select main and not exclude it."""
     branches = configured.get("branches")
     if branches is not None:
-        assert _selected_by(branches, "main"), (
+        assert selected_by(branches, "main"), (
             f"{workflow}:{context} is a required check, so its pull_request "
             f"trigger must select main; found branches {branches!r}"
         )
@@ -352,7 +282,7 @@ def _require_main_selected(
     excluded = [
         pattern
         for pattern in ignored
-        if _branch_pattern_regex(pattern).fullmatch("main")
+        if branch_pattern_regex(pattern).fullmatch("main")
     ]
     assert not excluded, (
         f"{workflow}:{context} is a required check, so its pull_request "
@@ -398,7 +328,7 @@ def test_branch_patterns_follow_github_filtering(
     exclusion, so a literal membership test would accept configurations that
     exclude the protected branch.
     """
-    assert _selected_by(patterns, "main") is expected, (
+    assert selected_by(patterns, "main") is expected, (
         f"{patterns!r} selecting main must be {expected}"
     )
 

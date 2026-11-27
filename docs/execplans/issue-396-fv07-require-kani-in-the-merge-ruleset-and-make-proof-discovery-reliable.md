@@ -387,6 +387,26 @@ issue text and the repository's documentation are the authority.
       ruleset edit is drafted in the delivery notes and remains a post-merge
       administrator action, so this plan's repository side is complete at the
       published head.
+- [x] Pre-readiness assessments at `f4d10de`. Both applicable conversations
+      (ExecPlan completeness and the original issue) returned "not complete"
+      with concrete gaps, each verified against the source and repaired. The
+      parser now matches Kani's verdict words exactly rather than by prefix and
+      parses the summary's totals grammar literally, with rejection tests for
+      both; the CLI fixture records the verifier version it was captured from
+      in `tests/fixtures/kani_suite_observed_version.txt` and fails when the
+      pin moves without it; `nightly_kani_test.py` guards the freshness
+      behaviour that had no contract; the `kani-pr.yml` header describes
+      enforcement as pending rather than active; and every Python file this
+      branch adds or grows is now under the 400-line limit. The three manifest
+      mutation controls were run and recorded: removing an entry, adding an
+      undeclared proof, and duplicating an entry each fail
+      `kani_manifest_test.py` with the expected diagnostic, and each mutation
+      was restored afterwards. Re-validated: `make check-fmt`, `make lint`,
+      `make test` (1677 cases), `make test-workflow-contracts` (1393),
+      `make kani` (seven fast harnesses).
+- [x] Review validation of the assessment repairs: the strict parser was
+      exercised against Kani 0.67.0's real output, which is the only evidence
+      that the exact-match grammar still accepts what the verifier prints.
 
 ## Surprises & discoveries
 
@@ -697,3 +717,9 @@ make's continuation rule — each measured rather than assumed), marked the
 repository side complete at published head `7aba491`, and corrected the harness
 counts this plan had carried from before the rebase: seven fast harnesses and
 eighteen in the full sweep, the manifest's own total.
+
+Revised 2026-11-27 (second): recorded the pre-readiness assessments and their
+repairs — exact verdict and summary grammar in the checker, a version-stamped
+output fixture, a nightly-freshness contract test, the enforcement wording, and
+the module splits that bring every file this branch touches inside the 400-line
+limit. The manifest mutation controls were run and recorded, not assumed.

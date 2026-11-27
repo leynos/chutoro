@@ -5,9 +5,12 @@
 //! whole path the Makefile uses: argument validation, the delegated
 //! environment, streaming, parsing, and the comparison.
 //!
-//! The fixture's version banner is read from `tools/kani/VERSION` rather than
-//! restated, so a version bump moves the fixture with the pin instead of
-//! leaving a second copy to drift.
+//! The fixture's version banner is the version its scripted output was
+//! captured from, recorded in `tests/fixtures/kani_suite_observed_version.txt`
+//! and compared with the repository pin by
+//! [`the_fixture_records_the_version_it_was_captured_from`]. A pin bump
+//! therefore fails until the fixture is re-captured, instead of rewriting the
+//! banner while leaving the scripted output unexamined.
 //!
 //! The fake verifier is a POSIX shell script marked executable, so the whole
 //! integration test is gated on Unix. A non-Unix host gets no tests rather
@@ -23,7 +26,7 @@ mod support;
 use std::process::Command;
 
 use rstest::rstest;
-use support::{Case, FixtureError, VERSION, case};
+use support::{Case, FixtureError, OBSERVED_VERSION, PINNED_VERSION, case};
 
 /// The captured stream a case's expectation is checked against.
 #[derive(Debug, Clone, Copy)]
@@ -95,7 +98,10 @@ fn accepts_an_exact_successful_run(case: Result<Case, FixtureError>) -> Result<(
     accepted(&output, "verified 1 harness(es) for fixture (fast)")?;
     // The delegated verifier's own banner proves the run was streamed, not
     // merely parsed from a captured file.
-    accepted(&output, &format!("Kani Rust Verifier {}", VERSION.trim()))
+    accepted(
+        &output,
+        &format!("Kani Rust Verifier {}", OBSERVED_VERSION.trim()),
+    )
 }
 
 /// One rejection case: what the fake prints, and the diagnostic it must earn.
@@ -246,4 +252,17 @@ fn rejects_a_command_that_selects_another_package(
         .output();
     let output = raw.map_err(|error| error.to_string())?;
     rejected(&output, "must select exactly package")
+}
+
+#[test]
+fn the_fixture_records_the_version_it_was_captured_from() {
+    assert_eq!(
+        OBSERVED_VERSION.trim(),
+        PINNED_VERSION.trim(),
+        "the scripted Kani output was captured from {} but the repository pins {}; \
+         re-capture tests/fixtures/kani_suite_fake.sh from a real run and update \
+         tests/fixtures/kani_suite_observed_version.txt",
+        OBSERVED_VERSION.trim(),
+        PINNED_VERSION.trim(),
+    );
 }

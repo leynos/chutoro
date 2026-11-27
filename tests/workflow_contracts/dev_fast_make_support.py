@@ -17,7 +17,6 @@ import subprocess
 from pathlib import Path
 
 import pytest
-
 from kani_recipe_reading import logical_lines
 
 REPO_ROOT = Path(__file__).resolve().parents[2]
@@ -57,22 +56,6 @@ def _make_output(
     return completed.stdout
 
 
-def _logical_lines(output: str) -> list[str]:
-    """Return a dry run's shell commands with backslash continuations joined.
-
-    `make` hands the shell one command per logical line: a recipe written
-    across several lines with trailing backslashes is a single invocation, and
-    `shlex` rejects a lone trailing backslash outright. Joining first is
-    therefore both the faithful reading and the one that cannot raise on a
-    multi-line recipe.
-
-    This delegates to the tier contract's joiner, which reads the same Make
-    output for the same reason. One implementation is what keeps the two from
-    disagreeing about where a command ends.
-    """
-    return logical_lines(output)
-
-
 def _cargo_invocations(output: str) -> list[tuple[str, list[str]]]:
     """Return each evaluated probe-cargo recipe with its shell tokens.
 
@@ -82,11 +65,12 @@ def _cargo_invocations(output: str) -> list[tuple[str, list[str]]]:
     Reading the line as a single command would report `fetch` as the verb and
     hide the nextest run behind it.
 
-    Continuations are joined first, because a multi-line recipe is one command
-    to the shell and an unjoined trailing backslash is an unparseable token.
+    Continuations are joined first by the tier contract's joiner, because a
+    multi-line recipe is one command to the shell and an unjoined trailing
+    backslash is an unparseable token.
     """
     invocations: list[tuple[str, list[str]]] = []
-    for line in _logical_lines(output):
+    for line in logical_lines(output):
         tokens = shlex.split(line)
         starts = [
             index for index, token in enumerate(tokens) if token == "probe-cargo"
