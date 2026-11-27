@@ -312,9 +312,13 @@ test-scheduling-contract: ## Run the HNSW critical-section scheduling regression
 		-E 'test(=hnsw::cpu::trim_tests::direct_trim_scoring_stays_on_the_calling_worker)' \
 		--no-tests=fail
 
+# `grep` prefixes each match with the file it came from once more than one
+# file is named, and `$(MAKEFILE_LIST)` is always at least two files now that
+# the Kani wiring is an included fragment. `-h` suppresses that prefix, so the
+# columns stay target-and-description whatever the include list grows to.
 help: ## Show available targets
-	@grep -E '^[a-zA-Z_-]+:.*?##' $(MAKEFILE_LIST) | \
-	awk 'BEGIN {FS=":"; printf "Available targets:\n"} {printf "  %-20s %s\n", $$1, $$2}'
+	@grep -hE '^[a-zA-Z_-]+:.*?##' $(MAKEFILE_LIST) | \
+	awk -F'##' '{ split($$1, name, ":"); printf "  %-20s %s\n", name[1], $$2 }'
 
 YAMLLINT ?= yamllint
 ACTIONLINT ?= actionlint

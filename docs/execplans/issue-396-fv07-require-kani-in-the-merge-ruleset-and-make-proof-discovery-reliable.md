@@ -731,10 +731,23 @@ eighteen in the full sweep, the manifest's own total.
 Revised 2026-11-27 (second): recorded the pre-readiness assessments and their
 repairs — exact verdict and summary grammar in the checker, a version-stamped
 output fixture, a nightly-freshness contract test, the enforcement wording, and
-the module splits that bring every file this branch touches inside the 400-line
-limit. The manifest mutation controls were run and recorded, not assumed.
+the module splits that bring every file this branch adds or grows inside the
+400-line limit. The manifest mutation controls were run and recorded, not
+assumed. One file the branch touches but did not grow,
+`tests/workflow_contracts/trybuild_override_test.py` at 583 lines on `main`, is
+recorded as a pre-existing policy exception rather than split inside this
+change; `AGENTS.md` states no exception, so closing it needs maintainer
+approval.
 
 Revised 2026-11-27 (third): split the Makefile's Kani wiring into
 `tools/kani/kani.mk` after the second assessment round found the root file over
 the 400-line limit, and recorded the one remaining over-limit file as
 pre-existing on `main`.
+
+Revised 2026-11-27 (fourth): after the third review pass, fixed `make help`,
+whose column layout broke once `$(MAKEFILE_LIST)` named an include: `grep`
+prefixed each match with its filename and the target slid into the description
+column. `-h` and a `##`-based split restore both columns, and
+`makefile_help_test.py` pins a root target and both fragment targets. Also
+corrected this plan's file-size claim to say *adds or grows*, and recorded the
+pre-existing over-limit file explicitly.
