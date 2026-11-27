@@ -1,4 +1,4 @@
-.PHONY: help all clean test test-doc build release typecheck lint lint-clippy lint-whitaker fmt check-fmt markdownlint nixie spelling install-kani install-verus kani kani-check kani-full verus bench test-workflow-contracts test-scheduling-contract interrogate
+.PHONY: help all clean test test-doc build release typecheck lint lint-clippy lint-whitaker fmt check-fmt markdownlint nixie spelling deny install-kani install-verus kani kani-check kani-full verus bench test-workflow-contracts test-scheduling-contract interrogate
 
 # `lint-clippy` and `lint-whitaker` share Cargo's package cache and the
 # compiler-admission pool. Running them under `make -j` makes two builds
@@ -175,7 +175,7 @@ STANDARD_RUSTFLAGS := -Dmissing_docs -Dmissing_crate_level_docs $(STANDARD_LINKE
 build: target/debug/$(APP) ## Build debug binary
 release: target/release/$(APP) ## Build release binary
 
-all: release spelling test-workflow-contracts ## Default target builds release binary and checks spelling
+all: release spelling test-workflow-contracts deny ## Default target builds release binary and checks spelling
 
 clean: ## Remove build artefacts
 	$(CARGO) clean
@@ -272,6 +272,13 @@ markdownlint: spelling ## Lint Markdown files and enforce spelling
 
 spelling: ## Enforce en-GB-oxendict spelling
 	$(TYPOS_CONFIG_BUILDER) gate --repository .
+
+# `--locked` and `--config` are cargo-deny's global options and must precede
+# the `check` subcommand. The advisory database is fetched on every run, so CI
+# does not cache it: a stale database would be a silent gap in the gate rather
+# than a speed-up.
+deny: ## Check advisories, licences, and duplicate crates
+	$(CARGO) deny --locked --config deny.toml check advisories bans licenses
 
 nixie: ## Validate Mermaid diagrams
 	find . -type f -name '*.md' -not -path './target/*' -not -path './.verus/*' \

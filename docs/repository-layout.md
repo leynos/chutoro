@@ -38,6 +38,7 @@ _Figure 1: Compact repository tree for contributor orientation._
 | `AGENTS.md`           | Normative repository instructions for automation agents and maintainers using those workflows. |
 | `Cargo.toml`          | Workspace manifest and shared Cargo configuration for the Rust crates.                         |
 | `Cargo.lock`          | Locked dependency graph for reproducible workspace builds.                                     |
+| `deny.toml`           | Supply-chain policy for advisories, licences, and duplicate crates.                            |
 | `Makefile`            | Canonical command entrypoint for build, format, lint, test, proof, and documentation gates.    |
 | `README.md`           | Project overview and public entrypoint.                                                        |
 | `rust-toolchain.toml` | Rust toolchain selection for the workspace.                                                    |
@@ -81,6 +82,7 @@ _Table 3: Documentation and planning responsibilities._
 | `.github/`             | GitHub workflows, Dependabot configuration, and repository automation. |
 | `.codescene/`          | CodeScene code health rule configuration.                              |
 | `scripts/`             | Maintainer scripts for proof tooling and operational support.          |
+| `tools/cargo-deny/`    | `cargo-deny` version and checksum pins for the supply-chain installer. |
 | `tools/dev-fast/`      | Pinned nightly and explicit Cargo fragment for debug Make targets.     |
 | `tools/mold/`          | Linux `mold` version and checksum pins for the installer.              |
 | `tools/`               | Other tool-specific support files that do not belong to a Rust crate.  |

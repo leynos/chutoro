@@ -316,3 +316,51 @@ jobs:
             printf -- '- size: %s\n' \
               "$(du -sh .verus 2>/dev/null | cut -f1)"
           } >> "$GITHUB_STEP_SUMMARY"
+
+  cargo-deny:
+    # A public repository's hosted minutes are free, and the check needs one
+    # core and no coverage instrumentation, so it does not warrant a paid
+    # runner. Being independent of `build-test` is deliberate: a supply-chain
+    # failure names a dependency, and a reader should not have to wait behind
+    # the coverage lane to see it.
+    runs-on: ubuntu-latest
+    # A cold advisory-database clone dominates the run; the checks themselves
+    # take seconds. Ten minutes covers a slow clone without holding a runner
+    # for a gate that has already hung.
+    timeout-minutes: 10
+    permissions:
+      contents: read
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+      - name: Setup Rust
+        uses: leynos/shared-actions/.github/actions/setup-rust@ab6505246c6b043b742a225e428e00448c0a37af
+        with:
+          # The build standard installs the linker on Linux for every
+          # `setup-rust` step, even one whose job never links anything; the
+          # repository's build-standard contract requires it.
+          install-mold: 'true'
+          # `cargo deny` shells out to `cargo metadata`; it never compiles the
+          # workspace, so a compiler cache would only add a writer for a path
+          # this job never reads.
+          use-sccache: 'false'
+      - name: Install cargo-deny
+        # No install directory override, deliberately. The installer defaults
+        # to `${HOME}/.cargo/bin`, and the Makefile prepends that same
+        # directory to PATH for every recipe, so `make deny` resolves the
+        # binary this step installed. Any other directory would be shadowed
+        # inside `make`, which is how a policy would end up applied by a
+        # cargo-deny nobody pinned.
+        run: scripts/install-cargo-deny.sh
+      - name: Check cargo-deny
+        # Printing whatever `cargo deny` answered would not catch a different
+        # cargo-deny that the Makefile's PATH would prefer, so the step
+        # requires the reported version to be the pin.
+        run: |
+          pinned="$(tr -d '[:space:]' < tools/cargo-deny/VERSION)"
+          reported="$(cargo deny --version)"
+          if [[ "${reported}" != "cargo-deny ${pinned}" ]]; then
+            printf 'expected cargo-deny %s, got %s\n' "${pinned}" "${reported}" >&2
+            exit 1
+          fi
+      - name: Check supply chain
+        run: make deny

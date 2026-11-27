@@ -421,6 +421,7 @@ Table: Every workflow job, the runner it uses, and what it does.
 | `benchmark-regressions.yml` | `benchmark-smoke`            | `ubicloud-standard-2` on a non-fork, non-Dependabot pull request, `ubuntu-latest` otherwise | Criterion discovery smoke check               |
 | `benchmark-regressions.yml` | `benchmark-baseline-compare` | `ubuntu-latest`                                                                             | Compare against the previous commit           |
 | `ci.yml`                    | `build-test`                 | `ubicloud-standard-4`, `ubuntu-latest` for a fork or Dependabot                             | Format, lint, spelling, contracts, coverage   |
+| `ci.yml`                    | `cargo-deny`                 | `ubuntu-latest`                                                                             | Advisory, licence and duplicate-crate policy  |
 | `ci.yml`                    | `verus-proofs`               | `ubicloud-standard-2`, `ubuntu-latest` for a fork or Dependabot                             | Verus edge-harvest proofs                     |
 | `coverage-main.yml`         | `coverage-upload`            | `ubicloud-standard-4`                                                                       | Upload trunk coverage and advance the ratchet |
 | `dependabot-automerge.yml`  | `automerge`                  | callee-selected                                                                             | Reusable workflow, API-bound                  |
@@ -447,15 +448,23 @@ version and digest are pinned.
 | mdtablefix    | `leynos/shared-actions/.github/actions/install-mdtablefix` | Action input, currently 0.6.1                                                             |
 | cargo-nextest | `scripts/install-nextest.sh`                               | `tools/nextest/VERSION` and `SHA256SUMS`                                                  |
 | sccache       | `scripts/install-sccache.sh`                               | `tools/sccache/VERSION` and `SHA256SUMS`                                                  |
+| cargo-deny    | `scripts/install-cargo-deny.sh`                            | `tools/cargo-deny/VERSION` and `SHA256SUMS`                                               |
 | Kani          | `make install-kani`                                        | `tools/kani/VERSION`                                                                      |
 | Verus         | `make install-verus`                                       | `tools/verus/VERSION` and `SHA256SUMS`                                                    |
 
-The two remaining repository scripts share `scripts/lib/pinned-download.sh`,
-which reads the pinned version, looks the archive's SHA-256 up in the sibling
+The repository installer scripts share `scripts/lib/pinned-download.sh`, which
+reads the pinned version, looks the archive's SHA-256 up in the sibling
 manifest, and fails closed when either is missing or does not match. That
 helper is for repository installer scripts only; it is not a general download
-utility and must not be sourced from application code. Each script also probes
-for its own executable first, so a warm cache repeats no download.
+utility and must not be sourced from application code. The nextest and sccache
+scripts probe for their own executable first, so a warm cache repeats no
+download. The cargo-deny installer deliberately does not: a version string
+costs an attacker nothing, so it always fetches and verifies the archive. The
+default install directory is `${CARGO_HOME:-$HOME/.cargo}/bin`, which Cargo
+searches before `PATH` for a subcommand and which the Makefile also puts first;
+pass `CARGO_DENY_INSTALL_DIR` to install elsewhere for a one-off, but keep the
+default where `make deny` must use the pin, because the default is the only
+directory that is certain to win.
 
 ### The shared prover tool
 
@@ -2613,6 +2622,115 @@ covers security updates. Both match `arrow*` and `parquet`. Do not accept a
 single-package update from either category: update all three direct workspace
 requirements together, regenerate `Cargo.lock`, and run the Arrow/Parquet
 compile-pass test before the full quality gates.
+
+### The supply-chain gate
+
+`deny.toml` is the project's dependency policy, and `make deny` is the single
+command that applies it:
+
+```sh
+cargo deny --locked --config deny.toml check advisories bans licenses
+```
+
+Install the pinned tool first with `scripts/install-cargo-deny.sh`. It writes to
+`${CARGO_HOME:-$HOME/.cargo}/bin`, which Cargo searches before `PATH` and
+which the Makefile already puts first; set `CARGO_DENY_INSTALL_DIR` to install
+elsewhere. The installer always fetches and verifies the pinned archive, so
+running it before a gate costs one small download rather than trusting whatever
+binary is already on `PATH`.
+
+The `cargo-deny` job in `ci.yml` runs the same target, so a local pass and a CI
+pass mean the same thing. It is an independent job with no `needs`, `if` or
+`continue-on-error`: a dependency that trips the policy fails the supply-chain
+lane even when every other lane is green. The job installs the pinned tool
+through `scripts/install-cargo-deny.sh` with no directory override, because the
+installer's default is `${CARGO_HOME:-$HOME/.cargo}/bin`, which Cargo searches
+before `PATH`; a binary installed anywhere else could lose to an existing one
+there. A following step requires `cargo deny --version` to match
+`tools/cargo-deny/VERSION`, so a different binary fails the job instead of
+silently applying a policy the pin was never checked against. sccache is
+disabled: the check runs `cargo metadata` and never compiles the workspace.
+
+The policy covers the workspace graph with `--all-features` and no target
+filter, so a dependency reached only from a benchmark, a test-support crate, or
+a platform-specific `cfg` is still checked. The compile-test fixture manifests
+under `chutoro-compile-contracts/tests/fixtures/` are not workspace members and
+are therefore outside the policy; they exist to compile a deliberately broken
+or feature-starved crate, not to ship.
+
+#### What the checks enforce
+
+- **Advisories.** Vulnerabilities fail the gate. `unmaintained` reports only
+  when a workspace member depends on the crate directly, so an advisory on a
+  transitive crate this project does not choose is visible in `cargo tree` but
+  does not block unrelated work. Yanked versions are denied outright.
+- **Licences.** The allowlist in `deny.toml` is exactly the set the resolved
+  graph requires. A new licence is a policy change: add it deliberately, in the
+  same pull request that introduces the crate, with a reason in the review. A
+  licence that only one crate needs belongs in `[[licenses.exceptions]]` beside
+  that crate name, not in the global `allow` list. The `libbz2-rs-sys` entry is
+  commented out until roadmap 10.1.2 adds the crate; uncomment it with the
+  dependency.
+- **Bans.** Duplicate versions warn, because the workspace does not control
+  the transitive `getrandom`, `hashbrown` and similar generations. One
+  duplicate is an error: two `digest` generations split the hash traits in two,
+  so `[[bans.deny]]` sets `deny-multiple-versions` for `digest`. The check
+  includes dev-dependencies because the only current `digest` path is dev-only.
+  Registry wildcards are denied. The path-dependency exemption is narrow: path
+  dev-dependencies are exempt in every crate, and path dependencies are exempt
+  in a `publish = false` crate, but a publishable crate's ordinary path
+  dependency still needs a version, because publishing would otherwise record
+  no requirement. `chutoro-cli` is the member that carries those versions.
+
+#### Changing the pin
+
+`tools/cargo-deny/VERSION` and `tools/cargo-deny/SHA256SUMS` are the only
+source of truth for the tool. To move the pin:
+
+1. Download every supported archive from the new release and verify each
+   published `.sha256` against the file it names.
+2. Update `VERSION` and `SHA256SUMS` together; the supported assets are the
+   `x86_64` and `aarch64` `unknown-linux-musl` archives.
+3. Run `scripts/install-cargo-deny.sh` to replace the local binary, then
+   `make deny` and `make test-workflow-contracts`.
+
+The digest in `SHA256SUMS` is fetched from the same GitHub release as the
+archive, so it detects a corrupted or substituted download but not a
+compromised release. Treat a version bump as a change of trust: read the
+release notes and the diff before updating the pin. Nothing is cached: the
+installer re-downloads and re-verifies every time, because a binary that
+reports the pinned version is not evidence that it is the pinned binary.
+
+#### Adding an advisory ignore
+
+An advisory may be ignored only with a `reason` and an `expiry`:
+
+```toml
+ignore = [
+  { id = "RUSTSEC-0000-0000", reason = "not reachable from this code path", expiry = "2026-12-31" },
+]
+```
+
+An ignore without an expiry is a permanent hole, and an expired ignore is
+reported as a normal advisory again. Fix the dependency first; ignore only what
+the project cannot fix, and record why in the pull request that adds the entry.
+
+The gate found live work on the day it was introduced. `RUSTSEC-2026-0595`,
+which the RustSec database assigned on 2026-11-23, applies to `parquet` 60.1.0,
+where writing an encrypted file with a bloom filter put the filter's header and
+bitsets in plaintext. The branch had already passed `make deny` that morning;
+the advisory landed afterwards, and the next run failed on it. Moving `parquet`,
+`arrow-array` and `arrow-schema` to 60.2.0 together cleared it. That is the
+behaviour to expect: the database moves under a branch, and a green run is only
+green for the graph and the database it actually saw.
+
+#### Required check
+
+Adding the job does not make it required. A repository maintainer must add the
+`cargo-deny` job to the GitHub `main` ruleset's required status checks;
+otherwise a red supply-chain lane can be merged through. The ruleset lives in
+repository settings, not in this checkout, so it cannot be changed by a pull
+request here.
 
 ## CodeScene rule overrides
 
