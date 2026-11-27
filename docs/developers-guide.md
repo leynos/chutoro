@@ -1358,6 +1358,14 @@ it, because a single test can still spawn an unscoped thread.
 must stay a single-test binary: a second test would observe whatever interest
 the first one cached.
 
+The pin narrows the exposure; it does not remove every ordering.
+`DefaultCallsite::register` reads the registry's `has_just_one` flag before
+computing interest and stores the result unconditionally afterwards, so a
+registration that straddles a `Dispatch::new` can still overwrite a corrected
+interest with `never`. That window belongs to `tracing-core`, and no downstream
+sequence of dispatches closes it. Create the pin immediately before the
+recording subscriber so the unprotected interval is limited to dispatch setup.
+
 ### Fallible fixture policy
 
 Test helpers, fixtures, and support functions must not panic to report their

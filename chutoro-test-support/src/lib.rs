@@ -36,6 +36,18 @@ pub mod tracing {
     /// recording subscriber, and keep it alive until `with_default` returns and
     /// every snapshot has been taken.
     ///
+    /// ## Residual upstream race
+    ///
+    /// `DefaultCallsite::register` reads the registry's `has_just_one` flag
+    /// before it computes interest, and stores the computed interest
+    /// unconditionally afterwards. A registration that straddles a
+    /// `Dispatch::new` can therefore store `never` after the rebuild that would
+    /// have corrected it, even with several dispatches live. No sequence of
+    /// downstream dispatches closes that window; it needs a fix in
+    /// `tracing-core` itself. Create the pin immediately before the recording
+    /// subscriber so the unprotected interval is limited to dispatch setup,
+    /// rather than the whole time a capture test is running.
+    ///
     /// [`Dispatch`]: tracing::Dispatch
     /// [`Interest`]: tracing::subscriber::Interest
     /// [`Interest::never`]: tracing::subscriber::Interest::never

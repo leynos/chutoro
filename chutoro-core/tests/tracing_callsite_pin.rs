@@ -10,11 +10,18 @@
 //! the same binary would observe whatever interest the first one cached. The
 //! same one-test rule, for the same process-global reason, is explained in
 //! `chutoro-cli/tests/logging_conflict.rs`.
+//!
+//! The worker starts only after the capture thread has installed its recording
+//! subscriber, so this test covers the ordering the pin guarantees. It does not
+//! cover a registration that straddles dispatch setup, which is a
+//! `tracing-core` race described on `CallsiteInterestPin` and cannot be closed
+//! from a downstream test.
 
 mod common;
 
 use std::sync::mpsc;
 use std::thread;
+use std::time::Duration;
 
 use chutoro_core::{Chutoro, ChutoroBuilder, ChutoroError};
 use chutoro_test_support::tracing::{RecordingLayer, pin_callsite_interest};
@@ -30,6 +37,10 @@ fn empty_source_chutoro() -> Result<Chutoro, ChutoroError> {
     ChutoroBuilder::new().build()
 }
 
+/// Upper bound on each worker hand-off, so a stalled thread fails the test
+/// instead of hanging the shared-process run indefinitely.
+const HAND_OFF_TIMEOUT: Duration = Duration::from_secs(30);
+
 /// Verifies that an unscoped first touch of `core.run` does not hide the span
 /// from a recording subscriber installed on another thread.
 #[test]
@@ -43,7 +54,7 @@ fn pinned_interest_keeps_the_core_run_span_visible() {
     let (capture_result, unscoped_result) = tracing::subscriber::with_default(subscriber, || {
         let unscoped = thread::spawn(move || {
             start_rx
-                .recv()
+                .recv_timeout(HAND_OFF_TIMEOUT)
                 .expect("the capture thread must release the unscoped worker");
             let result = empty_source_chutoro()
                 .expect("default configuration must be valid")
@@ -58,7 +69,7 @@ fn pinned_interest_keeps_the_core_run_span_visible() {
             .send(())
             .expect("the unscoped worker must still be waiting to start");
         done_rx
-            .recv()
+            .recv_timeout(HAND_OFF_TIMEOUT)
             .expect("the unscoped worker must report its first touch");
         let capture_result = empty_source_chutoro()
             .expect("default configuration must be valid")
