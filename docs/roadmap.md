@@ -931,7 +931,7 @@ ______________________________________________________________________
 
 ### 11.2. Incremental MST refresh and label extraction
 
-- [ ] 11.2.1. Implement `ClusteringSession::refresh`: merge
+- [x] 11.2.1. Implement `ClusteringSession::refresh`: merge
   `pending_edges` with the existing `mst_edges` and retained non-MST historical
   edges (see §12.5), apply mutual-reachability weighting using updated core
   distances, construct a fresh `EdgeHarvest` from the combined set, run

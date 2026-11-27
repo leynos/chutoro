@@ -9,6 +9,8 @@
 //!
 //! [`ClusteringSession`]: super::ClusteringSession
 
+use crate::{DataSource, DataSourceError, MetricDescriptor};
+
 mod append;
 mod builder;
 mod common;
@@ -16,6 +18,16 @@ mod concurrency;
 mod core_distance;
 mod core_distance_errors;
 mod core_distance_support;
+// The failure-injecting source is shared by the core-distance and refresh
+// error suites. It is declared once here; per-suite declarations would load
+// the same file as several modules, which Clippy rejects.
+#[path = "../../../tests/support/failable_source.rs"]
+mod failable_source;
 #[cfg(feature = "metrics")]
 mod metrics;
 mod properties;
+mod refresh;
+mod refresh_errors;
+#[cfg(feature = "metrics")]
+mod refresh_metrics;
+mod refresh_properties;

@@ -155,6 +155,21 @@ arms only where the caller reacts to a lock failure. The
 API, and [ADR-009](adrs/adr-0009-staging-lock-via-rustix-flock.md) records the
 design.
 
+### Additive API: `ClusteringSession::refresh` and `labels`
+
+`ClusteringSession::refresh()` publishes a flat cluster-label snapshot produced
+by an incremental minimum spanning tree refresh, and
+`ClusteringSession::labels()` returns that snapshot as `Arc<Vec<usize>>`. Both
+are additive: existing session callers need no migration, and no error variant
+or production dependency is added. A successful refresh advances
+`snapshot_version` by exactly one and clears the pending edge buffer. Appended
+point ids must form the contiguous prefix `[0, point_count)`; a non-contiguous
+append makes `refresh` return `CpuMstFailure` with `INVALID_NODE_ID`. Sessions
+below `min_cluster_size` publish an all-noise snapshot and retain their
+harvested candidates for the first real refresh. The
+[users' guide](users-guide.md#refreshing-labels) documents the workflow and the
+error contract.
+
 ### Additive API: core-distance selection helper
 
 `chutoro_core::core_distance_from_neighbours` exposes the core-distance

@@ -5,14 +5,8 @@ use std::{error::Error, num::NonZeroUsize, sync::Arc, time::Duration};
 use rstest::rstest;
 
 use super::common::{make_session, session_builder};
-use crate::{
-    ChutoroBuilder, ChutoroError, DataSource, DataSourceError, DistanceCacheConfig, HnswParams,
-    MetricDescriptor,
-};
-#[path = "../../../tests/support/failable_source.rs"]
-mod failable_source;
-
-use failable_source::{FailableSource, FailureMode};
+use super::failable_source::{FailableSource, FailureMode};
+use crate::{ChutoroBuilder, ChutoroError, DistanceCacheConfig, HnswParams};
 
 #[rstest]
 #[should_panic(expected = "assertion `left == right` failed")]

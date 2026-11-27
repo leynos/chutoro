@@ -24,8 +24,16 @@ rayon = { version = "1.10.0", optional = true }
 thiserror = "2.0.17"
 tracing = { version = "0.1.41", features = ["attributes"] }
 
+[build-dependencies]
+cap-std = { version = "4.0.3", features = ["fs_utf8"] }
+camino = "1.2.6"
+mockable = { workspace = true }
+
 [dev-dependencies]
+googletest = "0.14.4"
+insta = "1.49.0"
 mockable = { workspace = true, features = ["mock"] }
+pretty_assertions = "1.4.1"
 proptest = "1.8.0"
 rstest = "0.28"
 test-strategy = "0.4.3"

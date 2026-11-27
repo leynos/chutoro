@@ -7,7 +7,7 @@
 
 use std::sync::Arc;
 
-use crate::{CandidateEdge, CpuHnsw, DataSource, DataSourceError, MetricDescriptor, MstEdge};
+use crate::{CandidateEdge, CpuHnsw, DataSource, DataSourceError, MetricDescriptor};
 
 pub use config::{SessionConfig, SessionRefreshPolicy};
 
@@ -16,15 +16,17 @@ pub use config::{SessionConfig, SessionRefreshPolicy};
 /// The current implementation allocates an empty HNSW index and records the
 /// configuration and backing source. Calls to [`Self::append`] insert point
 /// indices through the public HNSW edge-harvesting path and retain harvested
-/// candidate edges for later refresh work. Follow-up roadmap items add refresh,
-/// bootstrap, and label-snapshot behaviour.
+/// candidate edges for the next [`Self::refresh`], which republishes the label
+/// snapshot returned by [`Self::labels`]. Bootstrap and seeded constructors
+/// arrive with later roadmap items.
 ///
 /// ## Concurrency model
 ///
-/// `append` requires `&mut self`, giving the caller exclusive access while the
-/// session mutates the live index and pending edge buffer. Read-only accessors
-/// remain available through shared references. `_labels` uses `Arc<Vec<usize>>`,
-/// so later label snapshots can be shared without blocking the writer.
+/// `append` and `refresh` require `&mut self`, giving the caller exclusive
+/// access while the session mutates the live index and its edge buffers.
+/// Read-only accessors remain available through shared references. `labels`
+/// uses `Arc<Vec<usize>>`, so a published snapshot can be shared without
+/// blocking the writer.
 /// Concurrent read-only access through a shared `RwLock` guard is verified by the
 /// `concurrent_readers_observe_consistent_point_count` and
 /// `snapshot_version_is_immutable_under_concurrent_readers` tests in `session/tests.rs`.
@@ -92,20 +94,28 @@ pub struct ClusteringSession<D: DataSource + Send + Sync> {
     core_distances: Vec<f32>,
     /// Marks core-distance slots that require recomputation.
     dirty_core_distances: Vec<bool>,
-    /// Reserved MST edges for a future refresh snapshot.
-    _mst_edges: Vec<MstEdge>,
-    /// Reserved historical candidate edges for a future refresh snapshot.
-    _historical_edges: Vec<CandidateEdge>,
+    /// Raw candidate edges retained by the most recent refresh.
+    ///
+    /// Once a real rebuild has run this holds the selected MST edges. During
+    /// warm-up it holds the harvested candidate pool instead: no tree exists
+    /// below `min_cluster_size`, and discarding the pool would lose edges HNSW
+    /// never re-harvests.
+    mst_backbone: Vec<CandidateEdge>,
+    /// Retained non-MST candidate edges; empty until roadmap item 11.2.5.
+    historical_edges: Vec<CandidateEdge>,
     /// Candidate edges harvested since the prior refresh.
     pending_edges: Vec<CandidateEdge>,
-    /// Immutable labels published by a future refresh snapshot.
-    _labels: Arc<Vec<usize>>,
+    /// Immutable labels published by the most recent refresh.
+    labels: Arc<Vec<usize>>,
     /// Monotonic version of the published clustering snapshot.
+    ///
+    /// Advanced once per successful refresh, saturating at `u64::MAX`; see
+    /// `ClusteringSession::refresh` for that boundary.
     snapshot_version: u64,
     /// Backing data source used by HNSW and clustering computations.
     source: Arc<D>,
     /// Input length at the most recent refresh snapshot.
-    _last_refresh_len: usize,
+    last_refresh_len: usize,
     /// Monotonic clock used to measure optional session metrics.
     #[cfg(feature = "metrics")]
     clock: std::sync::Arc<dyn clock::MonotonicClock>,
@@ -157,6 +167,51 @@ impl<D: DataSource + Send + Sync> ClusteringSession<D> {
     #[must_use]
     pub const fn snapshot_version(&self) -> u64 {
         self.snapshot_version
+    }
+
+    /// Returns the label snapshot published by the most recent refresh.
+    ///
+    /// The vector has one entry per appended point; its length equals
+    /// [`Self::point_count`] after every successful [`Self::refresh`]. The
+    /// snapshot is immutable and reference-counted, so reading it never blocks
+    /// a writer, and a refresh publishes a new snapshot by swapping the `Arc`
+    /// rather than mutating this one. Before the first successful refresh the
+    /// snapshot is empty.
+    ///
+    /// # Examples
+    /// ```rust,no_run
+    /// # use std::sync::Arc;
+    /// # use chutoro_core::{
+    /// #     ChutoroBuilder, ChutoroError, DataSource, DataSourceError,
+    /// #     MetricDescriptor,
+    /// # };
+    /// # struct Dummy(Vec<f32>);
+    /// # impl DataSource for Dummy {
+    /// #     fn len(&self) -> usize { self.0.len() }
+    /// #     fn name(&self) -> &str { "dummy" }
+    /// #     fn distance(&self, i: usize, j: usize) -> Result<f32, DataSourceError> {
+    /// #         let a = self.0.get(i).ok_or(DataSourceError::OutOfBounds { index: i })?;
+    /// #         let b = self.0.get(j).ok_or(DataSourceError::OutOfBounds { index: j })?;
+    /// #         Ok((a - b).abs())
+    /// #     }
+    /// #     fn metric_descriptor(&self) -> MetricDescriptor { MetricDescriptor::new("abs") }
+    /// # }
+    /// # fn main() -> Result<(), ChutoroError> {
+    /// let source = Arc::new(Dummy(vec![0.0, 1.0, 2.0, 3.0]));
+    /// let mut session = ChutoroBuilder::new()
+    ///     .with_min_cluster_size(2)
+    ///     .build_session(source)?;
+    ///
+    /// session.append(&[0, 1, 2, 3])?;
+    /// session.refresh()?;
+    ///
+    /// assert_eq!(session.labels().len(), 4);
+    /// # Ok(())
+    /// # }
+    /// ```
+    #[must_use]
+    pub fn labels(&self) -> Arc<Vec<usize>> {
+        Arc::clone(&self.labels)
     }
 
     /// Returns the recomputed core distance for `point`.
@@ -221,6 +276,8 @@ mod clock;
 mod config;
 mod core_distance;
 mod core_updates;
+mod refresh;
+mod refresh_impl;
 mod session_impl;
 
 #[cfg(test)]

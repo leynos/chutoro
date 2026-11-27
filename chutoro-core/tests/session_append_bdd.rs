@@ -18,6 +18,8 @@ use chutoro_core::{
     ChutoroBuilder, ChutoroError, ClusteringSession, DataSource, DataSourceError, MetricDescriptor,
 };
 
+include!(concat!(env!("OUT_DIR"), "/users_guide_session_refresh.rs"));
+
 #[derive(Debug)]
 enum BddStepError {
     Parse(ParseIntError),
@@ -84,13 +86,17 @@ impl DataSource for SessionAppendSource {
     }
 }
 
-#[fixture]
-fn world() -> StepResult<SessionAppendWorld, BddStepError> {
-    let source = Arc::new(SessionAppendSource {
-        values: vec![0.0, 1.0, 4.0],
-    });
+/// Builds a session over `len` zero-based scalar points.
+fn build_world(
+    len: usize,
+    min_cluster_size: usize,
+) -> StepResult<SessionAppendWorld, BddStepError> {
+    let values = (0..len)
+        .map(|value| u16::try_from(value).map_or(f32::MAX, f32::from))
+        .collect();
+    let source = Arc::new(SessionAppendSource { values });
     let session = ChutoroBuilder::new()
-        .with_min_cluster_size(1)
+        .with_min_cluster_size(min_cluster_size)
         .build_session(source)?;
 
     Ok(SessionAppendWorld {
@@ -99,11 +105,26 @@ fn world() -> StepResult<SessionAppendWorld, BddStepError> {
     })
 }
 
+#[fixture]
+fn world() -> StepResult<SessionAppendWorld, BddStepError> {
+    build_world(3, 1)
+}
+
 #[given("an empty clustering session")]
 fn empty_session(world: &mut SessionAppendWorld) {
     assert_eq!(world.session.point_count(), 0);
     assert_eq!(world.session.snapshot_version(), 0);
     assert!(world.last_error.is_none());
+}
+
+#[given("a clustering session over {count:usize} points with min cluster size {min:usize}")]
+fn sized_session(
+    world: &mut SessionAppendWorld,
+    count: usize,
+    min: usize,
+) -> StepResult<(), BddStepError> {
+    *world = build_world(count, min)?;
+    Ok(())
 }
 
 #[when("I append source indices {indices:string}")]
@@ -130,6 +151,23 @@ fn recompute_core_distances(world: &mut SessionAppendWorld) {
     world.last_error = world.session.recompute_core_distances().err();
 }
 
+#[when("I refresh the session")]
+fn refresh_session(world: &mut SessionAppendWorld) {
+    world.last_error = world.session.refresh().err();
+}
+
+#[then("the label snapshot has length {count:usize}")]
+fn label_snapshot_has_length(world: &SessionAppendWorld, count: usize) {
+    assert!(world.last_error.is_none(), "refresh must have succeeded");
+    assert_eq!(world.session.labels().len(), count);
+}
+
+#[then("the label snapshot is empty")]
+fn label_snapshot_is_empty(world: &SessionAppendWorld) {
+    assert!(world.last_error.is_none(), "refresh must have succeeded");
+    assert_eq!(*world.session.labels(), Vec::<usize>::new());
+}
+
 #[then("the append succeeds")]
 fn append_succeeds(world: &SessionAppendWorld) {
     assert!(world.last_error.is_none());
@@ -148,6 +186,20 @@ fn session_contains_points(world: &SessionAppendWorld, count: usize) {
 #[then("the snapshot version is {version:u64}")]
 fn snapshot_version_is(world: &SessionAppendWorld, version: u64) {
     assert_eq!(world.session.snapshot_version(), version);
+}
+
+#[when("I run the published users' guide refresh example")]
+fn run_published_users_guide_example(world: &mut SessionAppendWorld) {
+    world.last_error = published_example::run().err();
+}
+
+#[then("the published example succeeds")]
+fn published_example_succeeds(world: &SessionAppendWorld) {
+    assert!(
+        world.last_error.is_none(),
+        "the published users' guide example must succeed, got {:?}",
+        world.last_error
+    );
 }
 
 #[then("source index {index:usize} has core distance {distance:f32}")]
@@ -210,6 +262,36 @@ fn snapshot_version_immutability_across_multiple_appends(
     name = "Recomputing core distances after append"
 )]
 fn recomputing_core_distances_after_append(
+    _world: StepResult<SessionAppendWorld, BddStepError>,
+) -> StepResult<(), BddStepError> {
+    Ok(())
+}
+
+#[scenario(
+    path = "tests/features/session_append.feature",
+    name = "The published users' guide example completes"
+)]
+fn the_published_users_guide_example_completes(
+    _world: StepResult<SessionAppendWorld, BddStepError>,
+) -> StepResult<(), BddStepError> {
+    Ok(())
+}
+
+#[scenario(
+    path = "tests/features/session_append.feature",
+    name = "Refreshing a populated session publishes labels for every point"
+)]
+fn refreshing_a_populated_session_publishes_labels(
+    _world: StepResult<SessionAppendWorld, BddStepError>,
+) -> StepResult<(), BddStepError> {
+    Ok(())
+}
+
+#[scenario(
+    path = "tests/features/session_append.feature",
+    name = "Refreshing an empty session bumps the version, empty labels"
+)]
+fn refreshing_an_empty_session_bumps_the_version(
     _world: StepResult<SessionAppendWorld, BddStepError>,
 ) -> StepResult<(), BddStepError> {
     Ok(())

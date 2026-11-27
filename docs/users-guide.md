@@ -303,6 +303,52 @@ harvested edges remain pending when the error for `bad` is returned.
 Out-of-bounds indices surface as `ChutoroError::DataSource`; duplicate indices
 and HNSW structural failures surface as `ChutoroError::CpuHnswFailure`.
 
+### Refreshing labels
+
+Call `refresh()` to turn the buffered candidate edges into a published label
+snapshot, and read the result through `labels()`:
+
+The complete program is published as
+[the session-refresh example](../chutoro-core/docs/session-refresh-example.md)
+and is compiled and run by the test suite: the shared tested-example loader
+extracts the fence marked `session-refresh` during the build, so editing that
+file changes what the tests execute. The runnable doctest on
+`ClusteringSession::refresh` remains an independent short form of the same
+workflow.
+
+`refresh` recomputes any dirty core distances, merges the retained MST backbone
+with the buffered candidate edges, reweights the merged set with the
+mutual-reachability formula, runs Kruskal, extracts labels, and republishes. It
+also clears the pending edge buffer. `labels()` returns an `Arc<Vec<usize>>`,
+so a reader can hold a snapshot while the writer appends and refreshes; a new
+refresh swaps in a fresh `Arc` rather than mutating a published one.
+
+The version advances by exactly one per successful call, including a call that
+publishes an unchanged partition. Treat it as a call counter, not as a signal
+that the content changed. It is a `u64`, so it saturates at `u64::MAX`; a
+refresh beyond that point republishes without advancing it, which needs 2^64
+successful refreshes on one session to reach.
+
+Publication is all-or-nothing. A failed refresh leaves the previous labels,
+version, and pending edges untouched; correct the cause and call again. The
+core-distance step is best-effort before the publish point, so a retry
+reprocesses the remaining dirty points.
+
+Degenerate sessions still make progress. With no appended points, `refresh`
+publishes an empty snapshot. With fewer points than `min_cluster_size`, it
+publishes an all-noise snapshot whose labels are all `0` and keeps the
+harvested candidate edges for the first real refresh. Both advance the version.
+This differs from batch `Chutoro::run`, which returns `EmptySource` or
+`InsufficientItems` for the same inputs, because a streaming session must keep
+making progress during warm-up.
+
+Appended point ids must form the contiguous prefix `[0, point_count)`. HNSW
+node ids are the source indices, and both core distances and label extraction
+are indexed by them. `append` accepts a non-contiguous sequence such as
+`&[0, 1, 3]`, but `refresh` then returns `ChutoroError::CpuMstFailure` with
+`INVALID_NODE_ID`, naming the highest appended id as the offending endpoint.
+Append contiguous prefixes to keep the session refreshable.
+
 ### Limitations
 
 - The v1 incremental design is append-oriented; deletion and arbitrary
@@ -313,10 +359,11 @@ and HNSW structural failures surface as `ChutoroError::CpuHnswFailure`.
   per-item online relabelling path.
 - A refresh can relabel existing points as well as newly appended points.
 
-Refresh and full batch bootstrap are not yet available on the public session
-surface. Those workflows remain future roadmap work. The `cpu` feature must be
-enabled to access `build_session()`, `append(&[usize])`, `SessionRefreshPolicy`,
-`SessionConfig`, and `ClusteringSession<D>`.
+Full batch bootstrap and seeded session constructors are not yet available on
+the public session surface. Those workflows remain future roadmap work. The
+`cpu` feature must be enabled to access `build_session()`, `append(&[usize])`,
+`refresh()`, `labels()`, `SessionRefreshPolicy`, `SessionConfig`, and
+`ClusteringSession<D>`.
 
 ## Implementing data sources
 
@@ -468,6 +515,12 @@ via `ChutoroError` variants:
   CPU backend encounters internal failures in HNSW construction/search, MST
   construction, or hierarchy extraction.
 
+`ClusteringSession::refresh` returns the same wrappers. Its core-distance
+recompute can surface `DataSource` or `CpuHnswFailure`; its rebuild can surface
+`CpuMstFailure` or `CpuHierarchyFailure`. A non-contiguous append is reported as
+`CpuMstFailure` with inner code `INVALID_NODE_ID`, classified as caller input
+under [MST errors](#mst-errors).
+
 `DataSourceError` distinguishes out-of-bounds indices, dimension mismatches,
 and invalid buffers. Propagate these errors verbatim, so callers receive stable
 error codes via `DataSourceError::code()`.
@@ -561,6 +614,13 @@ distance becomes HNSW `NON_FINITE_DISTANCE`, and a harvested edge with no core
 distance becomes HNSW `GRAPH_INVARIANT_VIOLATION`. Kruskal still validates the
 transformed mutual-reachability weights, so a non-finite value that survives
 the transform reports `NON_FINITE_WEIGHT`.
+
+A clustering session adds one caller-input case for `INVALID_NODE_ID`.
+`ClusteringSession::refresh` requires the appended point ids to form the
+contiguous prefix `[0, point_count)`. When they do not, the highest appended id
+is an endpoint at or above `node_count`, and `refresh` reports it before any
+reweight or Kruskal work runs. The users' guide classifies this as caller input
+because it reflects the append sequence, not an internal fault.
 
 #### HNSW errors
 
