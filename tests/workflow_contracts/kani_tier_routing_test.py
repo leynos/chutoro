@@ -25,12 +25,10 @@ from kani_recipe_reading import (
     CHECKER_WRAPPER_RE,
     KANI_COMMAND_RE,
     MAKEFILE_PATH,
-    PACKAGE_ARGUMENT_RE,
     executable_commands,
     logical_lines,
-    names,
+    package_names,
     selections,
-    terminal_arguments,
     wrappers,
 )
 from workflow_support import ROOT
@@ -93,7 +91,7 @@ def test_the_wrapper_names_the_package_the_command_selects(
             continue
         wrapper = CHECKER_WRAPPER_RE.match(line)
         assert wrapper is not None, f"unwrapped Kani command: {line!r}"
-        packages = names(terminal_arguments(command["arguments"]), PACKAGE_ARGUMENT_RE)
+        packages = package_names(command["arguments"])
         assert packages == [wrapper["package"]], (
             "the wrapper's --package must match the delegated command's -p: "
             f"{wrapper['package']!r} against {packages!r} in {line!r}"

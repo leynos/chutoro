@@ -18,9 +18,9 @@ from pathlib import Path
 
 import pytest
 
-from kani_harness_reading import Inventory, UnresolvedDeclaration, discover
+from kani_harness_reading import UnresolvedDeclaration, discover
 from kani_manifest_test import _validate_entry
-from kani_reader_support import _kinds, _names, _write_package
+from kani_reader_support import _kinds, _names
 
 
 @pytest.mark.parametrize(
@@ -281,45 +281,27 @@ def test_reader_reports_an_orphan_beside_a_custom_root(tmp_path: Path) -> None:
     )
 
 
-def test_reader_reports_a_proof_behind_a_test_guard(tmp_path: Path, write_package: typ.Callable[..., Path]) -> None:
-    """The gate compiles without ``cfg(test)``, so such a proof cannot run.
-
-    Recording it as a harness would let the manifest require something the
-    recipe can never verify.
-    """
-    write_package("#[cfg(all(kani, test))]\n#[kani::proof]\nfn verify_test_only() {}\n",
-    )
-    inventory = discover(tmp_path)
-    assert _names(inventory) == [], (
-        f"a test-gated proof must not be a harness, got {inventory.proofs!r}"
-    )
-    assert _kinds(inventory) == ["cfg-test"], (
-        f"a test-gated proof must be reported, got {inventory.unresolved!r}"
-    )
-
-
-def test_reader_carries_a_modules_guard_into_its_children(
+def test_reader_finds_a_package_named_binary_beside_main(
     tmp_path: Path,
 ) -> None:
-    """A test guard on a module covers every proof below it.
+    """Cargo also accepts an existing ``src/bin/<package>.rs`` for that name.
 
-    ``cargo kani`` does not enable ``cfg(test)``, so the module is not
-    compiled at all in the gate; a proof inside it cannot run even when the
-    function carries no guard of its own.
+    The inferred name accepts either conventional location, so the reader must
+    take the one that exists rather than insisting on ``src/main.rs``.
     """
-    crate_root = _write_package(
-        tmp_path, "#[cfg(all(kani, test))]\nmod proofs;\n"
+    directory = tmp_path / "beside"
+    (directory / "src" / "bin").mkdir(parents=True)
+    (directory / "Cargo.toml").write_text(
+        '[package]\nname = "beside"\nversion = "0.1.0"\nautobins = false\n\n'
+        '[[bin]]\nname = "beside"\n',
+        encoding="utf-8",
     )
-    (crate_root.parent / "proofs.rs").write_text(
-        "#[kani::proof]\nfn verify_child() {}\n", encoding="utf-8"
+    (directory / "src" / "bin" / "beside.rs").write_text(
+        "#[kani::proof]\nfn verify_beside() {}\n", encoding="utf-8"
     )
     inventory = discover(tmp_path)
-    assert _names(inventory) == [], (
-        f"a proof under a test-gated module must not be a harness, got {inventory.proofs!r}"
-    )
-    kinds = _kinds(inventory)
-    assert kinds == ["cfg-test"], (
-        f"the proof must be reported as test-gated, got {kinds!r}"
+    assert _kinds(inventory) == ["binary-target"], (
+        f"the existing named binary must be read, got {inventory.unresolved!r}"
     )
 
 
@@ -426,88 +408,22 @@ def test_reader_prunes_a_build_directory_beside_a_custom_root(
     )
 
 
-@pytest.mark.parametrize(
-    ("what", "guard"),
-    (
-        ("a file's inner guard", "#![cfg(test)]\n"),
-        ("a compound test guard", '#[cfg(all(not(feature = "opt"), test))]\n'),
-    ),
-)
-def test_reader_reports_every_shape_of_test_guard(
-    tmp_path: Path, what: str, guard: str
+def test_reader_reports_an_included_source(
+    tmp_path: Path, write_package: typ.Callable[..., Path]
 ) -> None:
-    """A guard the gate's configuration excludes is reported, whatever it contains.
+    """A literal ``include!`` compiles a file this walk never follows.
 
-    The predicate is evaluated, not searched: `all(not(feature), test)` is
-    still false without `cfg(test)`, and its `test` follows the first `)`.
+    Following only ``mod`` declarations would omit its proofs without a trace,
+    so the include is reported and the inventory fails closed.
     """
-    _write_package(
-        tmp_path, f'{guard}#[kani::proof]\nfn verify_guarded() {{}}\n'
+    crate_root = write_package('include!("../proofs.rs");\n')
+    (crate_root.parent.parent / "proofs.rs").write_text(
+        "#[kani::proof]\nfn verify_included() {}\n", encoding="utf-8"
     )
     inventory = discover(tmp_path)
-    assert _names(inventory) == [], (
-        f"{what} must not certify a harness, got {inventory.proofs!r}"
+    assert _kinds(inventory) == ["include"], (
+        f"an include! must be reported, got {inventory.unresolved!r}"
     )
-    assert _kinds(inventory) == ["cfg-test"], (
-        f"{what} must be reported, got {inventory.unresolved!r}"
-    )
-
-
-@pytest.mark.parametrize(
-    ("what", "guard"),
-    (
-        ("a negated test guard", "#[cfg(not(test))]\n"),
-        ("an any() guard naming kani", "#[cfg(any(kani, test))]\n"),
-    ),
-)
-def test_reader_keeps_a_proof_the_gate_does_compile(
-    tmp_path: Path, what: str, guard: str
-) -> None:
-    """The negative control: these guards are true without `cfg(test)`.
-
-    `not(test)` is true in the gate's build, and `any(kani, test)` is true
-    because Kani sets `kani`; both proofs run and must be inventoried.
-    """
-    _write_package(
-        tmp_path, f'{guard}#[kani::proof]\nfn verify_compiled() {{}}\n'
-    )
-    names = _names(discover(tmp_path))
-    assert names == ["verify_compiled"], (
-        f"{what} must keep the proof, got {names!r}"
-    )
-
-
-def test_reader_carries_an_inline_guard_across_a_file_module(
-    tmp_path: Path,
-    write_package: typ.Callable[..., Path],
-) -> None:
-    """An enclosing inline module's test guard covers a file module's proof.
-
-    The child is reached through `outer`, so Rust excludes it from the gate
-    build even though `child.rs` carries no guard of its own.
-    """
-    crate_root = write_package(
-        "#[cfg(all(kani, test))]\nmod outer {\n    mod child;\n}\n"
-    )
-    (crate_root.parent / "outer").mkdir()
-    (crate_root.parent / "outer" / "child.rs").write_text(
-        "#[kani::proof]\nfn verify_child() {}\n", encoding="utf-8"
-    )
-    inventory = discover(tmp_path)
-    assert _names(inventory) == [], (
-        f"a proof under a gated inline module must not be a harness, got {inventory.proofs!r}"
-    )
-    assert _kinds(inventory) == ["cfg-test"], (
-        f"the proof must be reported as test-gated, got {inventory.unresolved!r}"
-    )
-
-
-def test_reader_keeps_a_proof_behind_a_kani_guard(tmp_path: Path, write_package: typ.Callable[..., Path]) -> None:
-    """The negative control: ``#[cfg(kani)]`` is the gate's own configuration."""
-    write_package("#[cfg(kani)]\n#[kani::proof]\nfn verify_gated() {}\n",
-    )
-    names = _names(discover(tmp_path))
-    assert names == ["verify_gated"], f"a kani-gated proof must be read, got {names!r}"
 
 
 def test_reader_skips_binaries_when_autobins_is_false(tmp_path: Path) -> None:

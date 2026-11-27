@@ -358,6 +358,18 @@ issue text and the repository's documentation are the authority.
       escaped quote cannot hide a `;`. The continuation joiner now replaces
       an unquoted backslash-newline with a word boundary and preserves the
       pair inside single quotes, which is what make and the shell do.
+- [x] Fifteenth review round, all seven findings actioned. The continuation
+      joiner now models make's tab-sensitive rule — a backslash-newline plus
+      the next line's recipe-prefix tab joins with nothing, while a
+      continuation without a tab keeps its pair for the shell — which corrects
+      the previous round's spacing. Selectors are read from shell tokens, so a
+      quoted `--target-dir` cannot invent a `--harness`; the operator scan
+      skips escaped characters inside double quotes; a literal `include!` is
+      reported; `mod p { #![cfg(test)] }` gates its contents; a package-named
+      `[[bin]]` accepts whichever conventional location exists; and an
+      automatic binary an explicit `[[bin]]` claims is not read twice. The
+      guard fixtures moved to `kani_guard_fixtures_test.py`, which keeps both
+      modules cohesive.
 - [ ] Push the branch and create the draft pull request.
 
 ## Surprises & discoveries

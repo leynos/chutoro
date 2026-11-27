@@ -2970,9 +2970,13 @@ and `#[kani::proof_for_contract]` declaration out of the sources by module path
 filename-based inventory never saw — and compares the package/path multiset
 with the manifest in both directions.
 `tests/workflow_contracts/kani_reader_fixtures_test.py` holds that reader's
-adversarial cases: a proof in a comment or a string, a proof behind a test
-guard, a proof inside a macro, a shared parent reaching a proof-bearing child,
+adversarial cases: a proof in a comment or a string, a proof inside a macro, an
+`include!` it cannot follow, a shared parent reaching a proof-bearing child,
 and a binary-only package.
+`tests/workflow_contracts/kani_guard_fixtures_test.py` holds the guard cases,
+which are evaluated under the gate's own configuration: a proof behind
+`cfg(test)` or a module gated by one is reported, while `cfg(not(test))` and
+`cfg(any(kani, test))` keep theirs.
 `tests/workflow_contracts/kani_path_fixtures_test.py` holds the `#[path]`
 cases: one that resolves, one that does not, raw and conditional values, a
 mention inside documentation, and an inline module that renames its children's

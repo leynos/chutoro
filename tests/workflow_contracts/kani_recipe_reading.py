@@ -71,17 +71,6 @@ CHECKER_WRAPPER_RE = re.compile(
     r"--scope\s+(?P<scope>fast|full)\s+--\s+"
 )
 
-#: A harness selector and its value, as ``--harness NAME`` or
-#: ``--harness=NAME``.
-HARNESS_ARGUMENT_RE = re.compile(
-    r"(?:^|\s)--harness(?:=|\s+)(?P<name>[A-Za-z_][A-Za-z0-9_:]*)(?=\s|$)"
-)
-
-#: The package selector and its value.
-PACKAGE_ARGUMENT_RE = re.compile(
-    r"(?:^|\s)(?:-p|--package)(?:=|\s+)(?P<name>[A-Za-z0-9_-]+)(?=\s|$)"
-)
-
 #: Recipe text that swallows a failure. GNU make reads a leading ``-`` as
 #: ignore-the-status, and a trailing ``|| true`` (or ``|| :``) does the same
 #: for the shell. The shell ignores spacing around its tokens, so `||   true`
@@ -143,6 +132,19 @@ def _quoted_step(arguments: str, index: int, quote: str) -> tuple[int, str]:
     return index + 1, quote
 
 
+def _operator_step(command: str, index: int, quote: str) -> tuple[int, str]:
+    """Advance one character of quoting or escaping in `command`."""
+    character = command[index]
+    if quote:
+        if character == "\\" and quote == '"':
+            return index + 2, quote
+        return index + 1, "" if character == quote else quote
+    if character == "\\":
+        # An escaped quote is text, so the operator after it is still one.
+        return index + 2, quote
+    return index + 1, character
+
+
 def _begins_comment(arguments: str, index: int) -> bool:
     """Return whether the ``#`` at `index` starts a shell comment."""
     if index == 0:
@@ -162,19 +164,8 @@ def _control_operators(command: str) -> list[str]:
     index = 0
     while index < len(command):
         character = command[index]
-        if quote:
-            if character == quote:
-                quote = ""
-            index += 1
-            continue
-        if character == "\\":
-            # An escaped quote is text, not the start of a quoted run, so the
-            # operator after it is still an operator.
-            index += 2
-            continue
-        if character in {"'", '"'}:
-            quote = character
-            index += 1
+        if quote or character in {"\\", "'", '"'}:
+            index, quote = _operator_step(command, index, quote)
             continue
         pair = command[index : index + 2]
         if pair in {"&&", "||"}:
@@ -213,34 +204,43 @@ def recipe(text: str, pattern: re.Pattern[str], target: str) -> str:
 def logical_lines(text: str) -> list[str]:
     """Return one recipe's commands with backslash continuations joined.
 
-    Make passes a recipe line's backslash-newline through to the shell, and
-    the shell removes it as a line continuation; the tab that begins the next
-    line is then whitespace, so the two halves are separate words. The join
-    therefore replaces the pair with one space, which keeps a value split
-    across lines from being read as one word.
-
-    Inside single quotes the shell keeps the pair literally, so it is
-    preserved here: a quoted path split across lines is not the path its
-    halves would spell joined.
+    A recipe splits a command across lines for readability. Make removes a
+    backslash-newline pair *and* the recipe-prefix tab that begins the next
+    line, joining the halves with nothing: `regu\\` followed by a tab and
+    `lar` reaches the shell as `regular`. A continuation line that does not
+    begin with a tab keeps its backslash-newline pair, which make passes to
+    the shell; the pair is preserved here, because how the shell reads it
+    depends on its quoting.
     """
+    lines = text.splitlines()
     logical: list[str] = []
-    pending = ""
-    strip_tab = False
-    for line in text.splitlines():
-        current = line[1:] if strip_tab and line.startswith("\t") else line
-        if current.endswith("\\") and _open_single_quote(pending + current):
-            pending += current + "\n"
-            strip_tab = False
-            continue
-        continued = current.endswith("\\")
-        pending += f"{current[:-1]} " if continued else current
-        if not continued:
-            logical.append(pending)
-            pending = ""
-        strip_tab = continued
-    if pending:
-        logical.append(pending)
+    index = 0
+    while index < len(lines):
+        line, index = _joined(lines, index)
+        logical.append(line)
     return logical
+
+
+def _joined(lines: list[str], index: int) -> tuple[str, int]:
+    """Return one logical line and the index of the line after it."""
+    current = lines[index]
+    index += 1
+    while _has_recipe_continuation(current, lines, index):
+        current = current[:-1] + lines[index][1:]
+        index += 1
+    if current.endswith("\\") and index < len(lines):
+        # A continuation without a recipe-prefix tab keeps its pair.
+        current += "\n"
+    return current, index
+
+
+def _has_recipe_continuation(
+    current: str, lines: list[str], index: int
+) -> bool:
+    """Return whether `current` continues onto the tab-indented next line."""
+    if not current.endswith("\\") or index >= len(lines):
+        return False
+    return lines[index].startswith("\t")
 
 
 def _open_single_quote(text: str) -> bool:
@@ -281,15 +281,38 @@ def terminal_arguments(arguments: str) -> str:
     return _terminal_command(arguments)
 
 
-def names(arguments: str, pattern: re.Pattern[str]) -> list[str]:
-    """Return the values `pattern` finds in one command's arguments.
+def harness_names(arguments: str) -> list[str]:
+    """Return the ``--harness`` values in one command's arguments.
 
-    The words are the shell's, not the recipe's text: quoting a selector,
-    ``--harness "module::verify_one"``, passes the same value as the unquoted
-    spelling, and reading the quotes as characters would find no selector.
+    The scan is over the shell's own words, not over joined text, so a quoted
+    value that happens to contain ``--harness`` cannot invent a selector.
+    ``--harness NAME`` and ``--harness=NAME`` are both read.
     """
-    words = " ".join(shell_words(arguments))
-    return [found["name"] for found in pattern.finditer(words)]
+    return _option_values(shell_words(arguments), "-", "--harness")
+
+
+def package_names(arguments: str) -> list[str]:
+    """Return the package selectors in one command's arguments."""
+    return _option_values(shell_words(arguments), "-p", "--package")
+
+
+def _option_values(words: list[str], short: str, long: str) -> list[str]:
+    """Return the values `short` or `long` select from a shell word list."""
+    found: list[str] = []
+    index = 0
+    while index < len(words):
+        word = words[index]
+        if word in {short, long} and index + 1 < len(words):
+            found.append(words[index + 1])
+            index += 2
+            continue
+        found.extend(
+            word[len(f"{name}=") :]
+            for name in (short, long)
+            if word.startswith(f"{name}=")
+        )
+        index += 1
+    return found
 
 
 def selections(text: str) -> list[tuple[str, list[str]]]:
@@ -311,13 +334,13 @@ def _selection(match: re.Match[str]) -> tuple[str, list[str]]:
     """Return one command's package and harness arguments, or raise."""
     arguments = _terminal_command(match["arguments"])
     _reject_masking(match, arguments)
-    packages = names(arguments, PACKAGE_ARGUMENT_RE)
+    packages = package_names(arguments)
     if len(packages) != 1:
         raise RecipeError(
             "each Kani recipe line must name exactly one package with -p, "
             f"got {packages!r} in {arguments.strip()!r}"
         )
-    return packages[0], names(arguments, HARNESS_ARGUMENT_RE)
+    return packages[0], harness_names(arguments)
 
 
 def _reject_masking(match: re.Match[str], arguments: str) -> None:

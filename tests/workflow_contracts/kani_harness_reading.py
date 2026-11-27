@@ -28,6 +28,7 @@ Re-use policy: import from :mod:`kani_manifest_test` and the rewritten
 from __future__ import annotations
 
 import dataclasses
+import re
 import typing as typ
 from pathlib import Path
 
@@ -296,6 +297,7 @@ class _Reader:
                 "UTF-8, so its declarations cannot be checked",
             )
             return
+        self._report_includes(source, relative)
         if source.inner:
             context = _Context(
                 context.module,
@@ -467,6 +469,22 @@ class _Reader:
                 via_path=child.via_path,
             )
 
+    def _report_includes(self, source: _Source, relative: str) -> None:
+        """Report each literal ``include!`` the module walk cannot follow.
+
+        Rust compiles the named file's items into this module, so a proof
+        there runs under the gate; following only ``mod`` declarations would
+        omit it without a trace.
+        """
+        for found in _INCLUDE.finditer(source.declarations):
+            self._report(
+                "include",
+                relative,
+                _line_of(source.text, found.start()),
+                f"the module includes {found['path']!r} with include!, which "
+                "this reader cannot follow",
+            )
+
     def _report_inline_paths(self, location: _Location, source: _Source) -> None:
         """Report an inline module whose own ``#[path]`` cannot be read.
 
@@ -552,6 +570,11 @@ def _declared_children(
         _proof_kind(_proof_attributes(source.code, match.start())) is not None
         for match in _FUNCTION.finditer(source.code)
     )
+
+
+#: A literal source include: Rust compiles the named file's items, but this
+#: walk follows only ``mod`` declarations, so the include is reported.
+_INCLUDE = re.compile(r'\binclude!\s*\(\s*"(?P<path>[^"]*)"',)
 
 
 def _holds_proof(source: _Source) -> bool:

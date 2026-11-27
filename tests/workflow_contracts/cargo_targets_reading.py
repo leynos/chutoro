@@ -95,18 +95,57 @@ def _binary_roots(document: dict[str, typ.Any], directory: Path) -> list[Path]:
     again as binaries would visit the same source twice and report a
     ``repeated-source`` that is not there.
     """
-    package = document.get("package")
-    package_name = package.get("name") if isinstance(package, dict) else None
+    declared = _declared_entries(document)
     explicit = [
         root
-        for entry in document.get("bin") or []
-        if isinstance(entry, dict)
-        for root in _declared_binary(directory, entry, package_name)
+        for entry in declared
+        for root in _declared_binary(directory, entry, _package_name(document))
     ]
     if _autobins_disabled(document):
         return [root for root in explicit if root.is_file()]
-    discovered = [directory / "src" / "main.rs", *_automatic_binaries(directory)]
-    return [*explicit, *(root for root in discovered if root.is_file())]
+    return [*explicit, *_discovered_binaries(document, directory, declared, explicit)]
+
+
+def _declared_entries(document: dict[str, typ.Any]) -> list[dict[str, typ.Any]]:
+    """Return the package's ``[[bin]]`` tables."""
+    return [entry for entry in document.get("bin") or [] if isinstance(entry, dict)]
+
+
+def _package_name(document: dict[str, typ.Any]) -> object:
+    """Return the package's declared name, if the document names one."""
+    package = document.get("package")
+    return package.get("name") if isinstance(package, dict) else None
+
+
+def _discovered_binaries(
+    document: dict[str, typ.Any],
+    directory: Path,
+    declared: list[dict[str, typ.Any]],
+    explicit: list[Path],
+) -> list[Path]:
+    """Return the automatic binary roots no explicit target claims.
+
+    Cargo does not build a ``src/bin`` file whose name an explicit ``[[bin]]``
+    already declares; reading it anyway would count a proof the gate never
+    compiles.
+    """
+    claimed = {entry.get("name") for entry in declared if entry.get("name")}
+    claimed_paths = {root.resolve() for root in explicit}
+    automatic = [directory / "src" / "main.rs", *_automatic_binaries(directory)]
+    return [
+        root
+        for root in automatic
+        if _binary_name(root) not in claimed and root.resolve() not in claimed_paths
+    ]
+
+
+def _binary_name(root: Path) -> str:
+    """Return the target name Cargo gives the automatic binary at `root`."""
+    if root.name != "main.rs":
+        return root.stem
+    if root.parent.name == "src":
+        return root.parent.parent.name
+    return root.parent.name
 
 
 def _declared_binary(
@@ -124,10 +163,12 @@ def _declared_binary(
     name = entry.get("name")
     if not isinstance(name, str) or not name:
         return []
-    if name == package_name:
-        return [directory / "src" / "main.rs"]
     binaries = directory / "src" / "bin"
-    return [binaries / f"{name}.rs", binaries / name / "main.rs"]
+    candidates = [binaries / f"{name}.rs", binaries / name / "main.rs"]
+    if name == package_name:
+        candidates.insert(0, directory / "src" / "main.rs")
+    existing = [candidate for candidate in candidates if candidate.is_file()]
+    return existing[:1] or candidates[:1]
 
 
 def _autobins_disabled(document: dict[str, typ.Any]) -> bool:

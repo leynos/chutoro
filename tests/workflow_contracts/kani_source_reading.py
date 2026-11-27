@@ -448,6 +448,11 @@ def _module_item(lexed: _Lexed, match: re.Match[str]) -> _ModuleItem | None:
         for start, end in extents
     ]
     value, unreadable = _declared_path(pairs)
+    attributes = tuple(text for text, _ in pairs)
+    if inline:
+        # An inline module's own inner attributes (``mod p { #![cfg(test)] }``)
+        # gate everything inside it, exactly as a file's leading ones do.
+        attributes += _inner_attributes(lexed.code[match.end() :])
     return _ModuleItem(
         name=match["name"],
         start=match.start(),
@@ -455,7 +460,7 @@ def _module_item(lexed: _Lexed, match: re.Match[str]) -> _ModuleItem | None:
         inline=inline,
         path_value=value,
         path_unreadable=unreadable,
-        attributes=tuple(text for text, _ in pairs),
+        attributes=attributes,
     )
 
 

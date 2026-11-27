@@ -82,25 +82,40 @@ def test_masked_recipe_lines_are_rejected(recipe: str, forbidden: str) -> None:
     )
 
 
-def test_a_continuation_is_a_word_boundary() -> None:
-    """The shell's line continuation leaves the next line's tab as a separator.
+def test_a_continuation_with_a_recipe_tab_joins_with_nothing() -> None:
+    """Make removes the pair and the next line's recipe-prefix tab together.
 
-    Joining the halves with nothing would read a value split across lines as
-    one word, which is not what the shell passes.
+    A value split across two recipe lines therefore reaches the shell as one
+    word, which is what the reader must reproduce.
     """
     joined = logical_lines("\t$(CARGO) kani --harness=\\\n\tverify_one\n")
-    assert joined == ["\t$(CARGO) kani --harness= verify_one"], joined
+    assert joined == ["\t$(CARGO) kani --harness=verify_one"], joined
 
 
-def test_a_quoted_continuation_keeps_its_backslash() -> None:
-    """Single quotes keep a backslash-newline pair, which make passes through.
+def test_a_continuation_without_a_tab_keeps_its_backslash() -> None:
+    """A continuation line without a tab keeps the pair, which make passes on.
 
-    The shell does not join the pair inside quotes, so a quoted path split
-    across lines is not the path the halves would spell if joined.
+    The shell decides what the pair means, and single quotes keep it literal,
+    so the reader must not join it.
     """
-    joined = logical_lines("\t$(CARGO) kani --config 'tools/dev-\\\n\tfast.toml'\n")
-    assert len(joined) == 1, joined
-    assert "dev-\\\n" in joined[0], joined
+    joined = logical_lines("\t$(CARGO) kani --config 'tools/dev-\\\nfast.toml'\n")
+    assert len(joined) == 2, joined
+    assert joined[0].endswith("dev-\\\n"), joined
+
+
+def test_a_quoted_argument_cannot_invent_a_selector() -> None:
+    """A ``--harness`` inside another word's value is text, not a selector.
+
+    Reading the command as joined words would turn part of a quoted directory
+    into a selection the command never makes.
+    """
+    command = (
+        "\t$(KANI_SUITE) --manifest $(KANI_MANIFEST) --package chutoro-core "
+        "--scope fast -- $(CARGO) kani -p chutoro-core --lib --exact "
+        '--harness a::verify_one --target-dir "build --harness bogus"\n'
+    )
+    selected = selections(command)
+    assert selected == [("chutoro-core", ["a::verify_one"])], selected
 
 
 def test_a_shell_comment_ends_the_read_command() -> None:
