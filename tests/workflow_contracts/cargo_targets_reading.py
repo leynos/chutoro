@@ -95,21 +95,47 @@ def _binary_roots(document: dict[str, typ.Any], directory: Path) -> list[Path]:
     again as binaries would visit the same source twice and report a
     ``repeated-source`` that is not there.
     """
-    declared = document.get("bin")
     explicit = [
-        directory / entry["path"]
-        for entry in declared or []
-        if isinstance(entry, dict) and isinstance(entry.get("path"), str)
+        root
+        for entry in document.get("bin") or []
+        if isinstance(entry, dict)
+        for root in _declared_binary(directory, entry)
     ]
+    if _autobins_disabled(document):
+        return [root for root in explicit if root.is_file()]
+    discovered = [directory / "src" / "main.rs", *_automatic_binaries(directory)]
+    return [*explicit, *(root for root in discovered if root.is_file())]
+
+
+def _declared_binary(directory: Path, entry: dict[str, typ.Any]) -> list[Path]:
+    """Return the path one ``[[bin]]`` entry names, explicit or inferred.
+
+    Cargo resolves a declaration that gives only a name to ``src/bin/<name>.rs``
+    (or ``src/bin/<name>/main.rs``), exactly as it resolves an automatic
+    target. That resolution happens whether or not auto-discovery is enabled,
+    because the declaration is the caller's.
+    """
+    if isinstance(entry.get("path"), str):
+        return [directory / entry["path"]]
+    name = entry.get("name")
+    if not isinstance(name, str) or not name:
+        return []
+    binaries = directory / "src" / "bin"
+    return [binaries / f"{name}.rs", binaries / name / "main.rs"]
+
+
+def _autobins_disabled(document: dict[str, typ.Any]) -> bool:
+    """Return whether the package turns Cargo's binary discovery off."""
     package = document.get("package")
     autobins = package.get("autobins") if isinstance(package, dict) else None
-    if autobins is False:
-        return [root for root in explicit if root.is_file()]
-    discovered = [directory / "src" / "main.rs"]
+    return autobins is False
+
+
+def _automatic_binaries(directory: Path) -> list[Path]:
+    """Return the binary targets Cargo discovers without a declaration."""
     binaries = directory / "src" / "bin"
-    if binaries.is_dir():
-        discovered.extend(sorted(binaries.glob("*.rs")))
-        discovered.extend(sorted(binaries.glob("*/main.rs")))
-    return [*explicit, *(root for root in discovered if root.is_file())]
+    if not binaries.is_dir():
+        return []
+    return [*sorted(binaries.glob("*.rs")), *sorted(binaries.glob("*/main.rs"))]
 
 

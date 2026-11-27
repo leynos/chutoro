@@ -57,6 +57,10 @@ fn cargo_global_option(word: &str) -> Option<usize> {
     if VALUED.contains(&word) {
         return Some(2);
     }
+    if word.starts_with("-Z") || word.starts_with("-C") {
+        // A short option takes its value attached: `-Zunstable-options`.
+        return Some(1);
+    }
     let (name, _) = word.split_once('=')?;
     VALUED.contains(&name).then_some(1)
 }

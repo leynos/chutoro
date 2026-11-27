@@ -228,7 +228,7 @@ kani-suite-build: ## Build the Kani suite checker
 	}; \
 	CARGO_TARGET_DIR="$(KANI_SUITE_TARGET_DIR)" \
 		$(CARGO) build --package chutoro-test-support --bin kani_suite \
-		--target "$$host"; \
+		--target-dir "$(KANI_SUITE_TARGET_DIR)" --target "$$host"; \
 	mkdir -p "$(KANI_SUITE_DIR)"; \
 	cp "$(KANI_SUITE_TARGET_DIR)/$$host/debug/kani_suite" \
 		"$(KANI_SUITE_DIR)/kani_suite.$$$$"; \

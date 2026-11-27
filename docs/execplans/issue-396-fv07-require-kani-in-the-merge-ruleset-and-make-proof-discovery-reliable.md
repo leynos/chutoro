@@ -336,6 +336,13 @@ issue text and the repository's documentation are the authority.
       preserving a single-quoted backslash-newline, because GNU make removes
       that pair while reading the recipe, regardless of quoting, which is what
       the shared joiner already models.
+- [x] Thirteenth review round, all three findings actioned: the checker build
+      pins `--target-dir` as well as `--target`, so a `build.target-dir` in the
+      caller's `CARGO` override cannot leave the copy reading a directory the
+      build never wrote; `-Zvalue` and `-Cvalue` are read as one word; and a
+      name-only `[[bin]]` resolves `src/bin/<name>.rs` before `autobins` is
+      considered, since the declaration is the caller's while `autobins` only
+      disables the targets nobody declared.
 - [ ] Push the branch and create the draft pull request.
 
 ## Surprises & discoveries

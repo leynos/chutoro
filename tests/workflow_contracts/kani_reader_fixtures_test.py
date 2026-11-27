@@ -323,6 +323,32 @@ def test_reader_carries_a_modules_guard_into_its_children(
     )
 
 
+def test_reader_infers_a_named_binary_before_disabling_discovery(
+    tmp_path: Path,
+) -> None:
+    """A declared ``[[bin]]`` resolves its path even when ``autobins`` is off.
+
+    Cargo infers ``src/bin/<name>.rs`` for a name-only declaration because the
+    caller asked for that target; ``autobins`` only turns off the targets
+    nobody declared. Dropping it would leave a binary-only package with no
+    root at all and its proofs unread.
+    """
+    directory = tmp_path / "named"
+    (directory / "src" / "bin").mkdir(parents=True)
+    (directory / "Cargo.toml").write_text(
+        '[package]\nname = "named"\nversion = "0.1.0"\nautobins = false\n\n'
+        '[[bin]]\nname = "tool"\n',
+        encoding="utf-8",
+    )
+    (directory / "src" / "bin" / "tool.rs").write_text(
+        "#[kani::proof]\nfn verify_tool() {}\n", encoding="utf-8"
+    )
+    inventory = discover(tmp_path)
+    assert _kinds(inventory) == ["binary-target"], (
+        f"a named binary target must be read and reported, got {inventory.unresolved!r}"
+    )
+
+
 def test_reader_skips_an_implicit_library_when_autolib_is_false(
     tmp_path: Path,
 ) -> None:
