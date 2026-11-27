@@ -18,6 +18,7 @@ from __future__ import annotations
 import hashlib
 import io
 import os
+import shlex
 import subprocess
 import tarfile
 from collections.abc import Callable
@@ -110,8 +111,8 @@ def _recording_curl(bin_dir: Path, archive: Path, log: Path) -> None:
         "curl",
         f"""#!/usr/bin/env bash
 set -euo pipefail
-printf '%s\\n' "$*" >> {str(log)!r}
-cp -- {str(archive)!r} "${{@: -1}}"
+printf '%s\\n' "$*" >> {shlex.quote(str(log))}
+cp -- {shlex.quote(str(archive))} "${{@: -1}}"
 """,
     )
 
@@ -124,9 +125,9 @@ def _recording_uname(bin_dir: Path, *, system: str, machine: str) -> None:
         f"""#!/usr/bin/env bash
 set -euo pipefail
 case "${{1:-}}" in
-  -s) printf '%s\\n' {system!r} ;;
-  -m) printf '%s\\n' {machine!r} ;;
-  *) printf '%s\\n' {system!r} ;;
+  -s) printf '%s\\n' {shlex.quote(system)} ;;
+  -m) printf '%s\\n' {shlex.quote(machine)} ;;
+  *) printf '%s\\n' {shlex.quote(system)} ;;
 esac
 """,
     )

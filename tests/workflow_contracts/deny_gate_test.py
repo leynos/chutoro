@@ -267,6 +267,65 @@ def test_ci_job_installs_the_pinned_tool_before_using_it() -> None:
     assert install_at < version_at < gate_at
 
 
+def _version_step_script() -> str:
+    """Return the CI job's cargo-deny version-check script."""
+    job_steps = steps(job(CI_WORKFLOW, CI_JOB))
+    index = _step_index(
+        job_steps, lambda step: "cargo deny --version" in run_script(step)
+    )
+    return run_script(job_steps[index])
+
+
+def _run_version_step(
+    tmp_path: Path, reported: str
+) -> subprocess.CompletedProcess[str]:
+    """Run the version-check script against a stub ``cargo`` reporting `reported`."""
+    bin_dir = tmp_path / "bin"
+    bin_dir.mkdir()
+    _write_stub(
+        bin_dir / "cargo",
+        f"""#!/usr/bin/env bash
+set -euo pipefail
+printf 'cargo-deny {reported}\\n'
+""",
+    )
+    script = tmp_path / "version-step.sh"
+    script.write_text(_version_step_script(), encoding="utf-8")
+    env = os.environ.copy()
+    env["PATH"] = f"{bin_dir}{os.pathsep}{env['PATH']}"
+    return subprocess.run(
+        ["bash", "-e", str(script)],
+        cwd=ROOT,
+        check=False,
+        capture_output=True,
+        text=True,
+        env=env,
+    )
+
+
+@pytest.mark.parametrize("accepted", (True, False), ids=("matching", "mismatched"))
+def test_version_step_rejects_a_binary_that_is_not_the_pin(
+    tmp_path: Path, accepted: bool
+) -> None:
+    """The script must compare the answer, not merely print it.
+
+    A script that ran `cargo deny --version` and printed the pin without
+    comparing the two would satisfy a substring assertion while accepting
+    any cargo-deny that happened to answer. Running the extracted script
+    against a stub proves the comparison is load-bearing.
+    """
+    pinned = (
+        (ROOT / "tools" / "cargo-deny" / "VERSION").read_text(encoding="utf-8").strip()
+    )
+    completed = _run_version_step(tmp_path, pinned if accepted else "0.20.0")
+
+    if accepted:
+        assert completed.returncode == 0, completed.stderr
+    else:
+        assert completed.returncode != 0
+        assert "expected cargo-deny" in completed.stderr
+
+
 #: Records each cargo-deny invocation, one argument per line, then exits with
 #: the status the test asks for.
 CARGO_DENY_STUB = r"""#!/usr/bin/env bash

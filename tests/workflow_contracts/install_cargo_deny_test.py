@@ -15,6 +15,7 @@ Run via ``make test-workflow-contracts``.
 
 from __future__ import annotations
 
+import shlex
 import subprocess
 from pathlib import Path
 
@@ -216,7 +217,7 @@ def test_a_current_binary_is_still_replaced_from_the_verified_archive(
     seeded.write_text(
         "#!/usr/bin/env bash\n"
         f"printf 'cargo-deny {CARGO_DENY_VERSION}\\n'\n"
-        f"touch {str(sentinel)!r}\n",
+        f"touch {shlex.quote(str(sentinel))}\n",
         encoding="utf-8",
     )
     seeded.chmod(0o755)
