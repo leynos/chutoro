@@ -165,6 +165,9 @@ class _Source:
         The module declarations in source order.
     macros
         The extents of macro definition bodies.
+    inner
+        The file's inner attributes (``#![...]``), which gate every
+        declaration in it.
     """
 
     text: str
@@ -172,6 +175,7 @@ class _Source:
     declarations: str
     modules: tuple[_ModuleItem, ...]
     macros: tuple[tuple[int, int], ...]
+    inner: tuple[str, ...] = ()
 
 
 def _line_of(text: str, offset: int) -> int:
@@ -406,6 +410,7 @@ class _Lexed(typ.NamedTuple):
     declarations: str
     depths: list[int]
     macros: tuple[tuple[int, int], ...]
+    inner: tuple[str, ...]
 
 
 def _lex(text: str) -> _Lexed:
@@ -428,6 +433,7 @@ def _lex(text: str) -> _Lexed:
         declarations=declarations,
         depths=depths,
         macros=_macro_spans(code),
+        inner=_inner_attributes(code),
     )
 
 
@@ -485,15 +491,106 @@ def _path_value(found: re.Match[str]) -> str:
     return value if value is not None else found["raw"]
 
 
-#: A ``cfg`` or ``cfg_attr`` guard whose body names the test configuration.
-#: ``cargo kani`` compiles the library without ``cfg(test)``, so a proof behind
-#: such a guard exists in the source but never runs under the gate.
-_TEST_GUARD = re.compile(r"\bcfg(?:_attr)?\s*\([^)]*\btest\b")
+#: A ``cfg`` guard and its predicate body.
+_CFG_GUARD = re.compile(r"#!?\[\s*cfg\s*\((?P<body>.*)\)\s*\]$", re.DOTALL)
+
+#: One predicate: a name, or a combinator over parenthesised predicates.
+_COMBINATOR = re.compile(r"(?P<fn>all|any|not)\s*\((?P<args>.*)\)$", re.DOTALL)
 
 
 def _gated_by_test(attributes: typ.Iterable[str]) -> bool:
-    """Return whether a ``cfg`` guard in `attributes` names the test cfg."""
-    return any(_TEST_GUARD.search(attribute) is not None for attribute in attributes)
+    """Return whether these guards exclude the item when the test cfg is off.
+
+    The gate compiles without ``cfg(test)``, so a guard that evaluates false
+    under that assumption means the item is not in the gate's build. The
+    predicate is evaluated rather than searched for the word ``test``:
+    ``cfg(not(test))`` and ``cfg(any(kani, test))`` both compile, and
+    ``cfg(all(not(feature = "f"), test))`` does not.
+    """
+    return any(_excluded_without_test(attribute) for attribute in attributes)
+
+
+def _excluded_without_test(attribute: str) -> bool:
+    """Return whether one ``cfg`` attribute excludes the item under the gate."""
+    found = _CFG_GUARD.match(attribute.strip())
+    if found is None:
+        return False
+    return _predicate(found["body"]) is False
+
+
+def _predicate(body: str) -> bool | None:
+    """Evaluate one cfg predicate with ``test`` off and ``kani`` on.
+
+    Unknown configuration -- a feature, a target, an OS -- is unknown rather
+    than assumed, so only a predicate that is definitely false excludes an
+    item from the gate's build.
+    """
+    body = body.strip()
+    if body == "test":
+        return False
+    if body == "kani":
+        return True
+    found = _COMBINATOR.match(body)
+    if found is None:
+        return None
+    values = [_predicate(argument) for argument in _arguments(found["args"])]
+    return _combine(found["fn"], values)
+
+
+def _arguments(body: str) -> list[str]:
+    """Split one combinator's body at its top-level commas."""
+    parts: list[str] = []
+    depth = 0
+    start = 0
+    for index, character in enumerate(body):
+        if character == "(":
+            depth += 1
+        elif character == ")":
+            depth -= 1
+        elif character == "," and depth == 0:
+            parts.append(body[start:index])
+            start = index + 1
+    parts.append(body[start:])
+    return [part for part in (part.strip() for part in parts) if part]
+
+
+def _combine(name: str, values: list[bool | None]) -> bool | None:
+    """Combine sub-predicates under one combinator's three-valued logic."""
+    if name == "not":
+        return _negate(values[0] if values else None)
+    if name == "all":
+        if False in values:
+            return False
+        return None if None in values else True
+    if True in values:
+        return True
+    return None if None in values else False
+
+
+def _negate(value: bool | None) -> bool | None:
+    """Return the three-valued negation of `value`."""
+    return None if value is None else not value
+
+
+def _inner_attributes(code: str) -> tuple[str, ...]:
+    """Return a file's leading inner attributes, in source order.
+
+    An inner attribute is written ``#![cfg(test)]`` and applies to the whole
+    module, so the first declaration in the file inherits it.
+    """
+    found: list[str] = []
+    position = 0
+    while True:
+        while position < len(code) and code[position].isspace():
+            position += 1
+        if not code.startswith("#![", position):
+            return tuple(found)
+        opening = position + 1
+        closing = _attribute_end(code, opening)
+        if closing is None:
+            return tuple(found)
+        found.append(_normalised(code[position:closing]))
+        position = closing
 
 
 def _module_end(lexed: _Lexed, match: re.Match[str]) -> int:
@@ -526,4 +623,5 @@ def _parse(path: Path) -> _Source | None:
         declarations=lexed.declarations,
         modules=tuple(items),
         macros=lexed.macros,
+        inner=lexed.inner,
     )

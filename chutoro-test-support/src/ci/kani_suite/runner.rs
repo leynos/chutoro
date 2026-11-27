@@ -301,6 +301,17 @@ mod tests {
         assert_eq!(delegated.package, "pkg");
     }
 
+    #[rstest]
+    #[case(&["cargo", "kani", "--package=pkg", "other", "--lib", "--exact"])]
+    #[case(&["cargo", "kani", "-p=pkg", "other", "--lib", "--exact"])]
+    fn an_attached_package_option_still_refuses_a_second_package(#[case] words: &[&str]) {
+        let outcome = parse_command(&owned(words), "pkg");
+        assert!(
+            matches!(outcome, Err(CommandError::Package { .. })),
+            "an attached -p followed by a second package must be rejected, got {outcome:?}"
+        );
+    }
+
     #[test]
     fn a_compact_package_option_still_refuses_a_second_package() {
         let words = ["cargo", "kani", "-ppkg", "other", "--lib", "--exact"];

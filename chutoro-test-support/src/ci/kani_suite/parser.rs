@@ -47,7 +47,7 @@ impl Parser {
             "--exact" => self.exact = true,
             "--lib" => self.lib = true,
             "--bins" => return Err(CommandError::AllBinaries),
-            _ => self.consume_attached(argument)?,
+            _ => return self.consume_attached(args, index, argument),
         }
         Ok(index + 1)
     }
@@ -101,7 +101,16 @@ impl Parser {
     }
 
     /// Consume an option whose value is attached with `=`.
-    pub(super) fn consume_attached(&mut self, argument: &str) -> Result<(), CommandError> {
+    ///
+    /// An attached package takes the same list as the separated spelling, so
+    /// `--package=pkg other` records both words; recording only the first
+    /// would leave `other` unread while the child still receives it.
+    pub(super) fn consume_attached(
+        &mut self,
+        args: &[String],
+        index: usize,
+        argument: &str,
+    ) -> Result<usize, CommandError> {
         if let Some(value) = argument.strip_prefix("--output-format=") {
             words::check_output_format(value)?;
         } else if let Some(value) = argument.strip_prefix("--harness=") {
@@ -115,8 +124,9 @@ impl Parser {
             .or_else(|| argument.strip_prefix("--package="))
         {
             self.packages.push(value.to_owned());
+            return Ok(self.consume_extra_packages(args, index + 1));
         }
-        Ok(())
+        Ok(index + 1)
     }
 
     /// Check the collected state and build the delegated command.

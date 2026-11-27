@@ -28,12 +28,12 @@ Re-use policy: import from :mod:`kani_manifest_test` and the rewritten
 from __future__ import annotations
 
 import dataclasses
-import tomllib
 import typing as typ
 from pathlib import Path
 
 from rust_source_reading import _FUNCTION
 
+from cargo_packages_reading import _Package, _is_package_tree, _packages
 from kani_source_reading import (
     _ModuleItem,
     _Source,
@@ -47,16 +47,6 @@ from kani_source_reading import (
 )
 from workflow_support import ROOT
 
-#: Directories the sweep never enters. They hold build output, caches, or
-#: another repository's checkout rather than this workspace's sources.
-IGNORED_DIRECTORIES = frozenset({
-    ".git",
-    ".uv-cache",
-    ".uv-tools",
-    ".verus",
-    "node_modules",
-    "target",
-})
 
 @dataclasses.dataclass(frozen=True)
 class ProofDeclaration:
@@ -118,27 +108,6 @@ class Inventory:
 
     proofs: tuple[ProofDeclaration, ...]
     unresolved: tuple[UnresolvedDeclaration, ...]
-
-
-class _Package(typ.NamedTuple):
-    """A workspace member whose library or binary crate can hold proofs.
-
-    Attributes
-    ----------
-    name
-        The package name as ``Cargo.toml`` declares it.
-    root
-        The crate root source file, ``src/lib.rs`` or ``src/main.rs``.
-    directory
-        The package directory, used to find sources no module reaches.
-    is_binary
-        Whether the root is a binary target, which `--lib` never compiles.
-    """
-
-    name: str
-    root: Path
-    directory: Path
-    is_binary: bool
 
 
 class _Location(typ.NamedTuple):
@@ -312,6 +281,12 @@ class _Reader:
                 "UTF-8, so its declarations cannot be checked",
             )
             return
+        if source.inner:
+            context = _Context(
+                context.module,
+                (*context.guards, *source.inner),
+                context.binary,
+            )
         self._record_proofs(source, relative, context)
         self._follow(location, source, context)
 
@@ -462,11 +437,16 @@ class _Reader:
             if child is None:
                 self._report_missing_path(location, source, item)
                 continue
+            chain = _module_chain(source.modules, item.start)
             self.visit(
                 child.file,
                 _Context(
                     child_module,
-                    (*context.guards, *item.attributes),
+                    (
+                        *context.guards,
+                        *(attr for parent in chain for attr in parent.attributes),
+                        *item.attributes,
+                    ),
                     context.binary,
                 ),
                 via_path=child.via_path,
@@ -552,179 +532,11 @@ def _declared_children(
         yield item, child_location, child_module
 
 
-def _manifests(root: Path) -> list[Path]:
-    """Return every package manifest under `root`, never entering an ignored tree.
-
-    Pruning during the walk rather than filtering afterwards is what keeps a
-    `target` tree from being traversed at all: a compiled workspace can hold
-    tens of thousands of `Cargo.toml` files under one, and reading them only to
-    discard each by path would make the sweep quadratic in the wrong thing.
-    """
-    found: list[Path] = []
-    seen: set[Path] = set()
-    pending = [root]
-    while pending:
-        directory = pending.pop()
-        resolved = directory.resolve()
-        # A directory symlink may point at an ancestor, so the same tree could
-        # otherwise be queued again under an ever-longer path.
-        if resolved in seen:
-            continue
-        seen.add(resolved)
-        entries = sorted(directory.iterdir())
-        found.extend(entry for entry in entries if _is_manifest(entry))
-        pending.extend(entry for entry in entries if _is_package_tree(entry))
-    return sorted(found)
-
-
-def _is_manifest(path: Path) -> bool:
-    """Return whether `path` is a package manifest."""
-    return path.name == "Cargo.toml" and path.is_file()
-
-
-def _is_package_tree(path: Path) -> bool:
-    """Return whether `path` is a directory the sweep may enter."""
-    return path.is_dir() and path.name not in IGNORED_DIRECTORIES
-
-
-class _ManifestPackage(typ.NamedTuple):
-    """One package manifest and the crate roots it declares.
-
-    Attributes
-    ----------
-    name
-        The package name.
-    directory
-        The package directory.
-    roots
-        The crate roots to read, in declaration order: an explicit
-        ``[lib] path`` or the default ``src/lib.rs``, then the binary roots.
-    library_roots
-        Those of `roots` that are library targets, which ``--lib`` compiles
-        and the gate therefore verifies.
-    """
-
-    name: str
-    directory: Path
-    roots: tuple[Path, ...]
-    library_roots: tuple[Path, ...]
-
-
-def _declared_roots(
-    document: dict[str, typ.Any], directory: Path
-) -> tuple[Path, ...]:
-    """Return the crate roots a manifest declares.
-
-    Cargo lets a library live wherever ``[lib] path`` points, so a package with
-    no ``src`` directory at all is still a package whose proofs compile. Its
-    explicit path is honoured; otherwise the conventional ``src/lib.rs`` is
-    used. Binaries are read too: an explicit ``[[bin]] path``, the
-    conventional ``src/main.rs``, and each file under ``src/bin/``. Skipping
-    any of them would omit a package's proofs without a report, which is the
-    failure the inventory contract exists to prevent.
-    """
-    roots: list[Path] = []
-    library = _library_root(document, directory)
-    if library is not None:
-        roots.append(library)
-    roots.extend(_binary_roots(document, directory))
-    return tuple(roots)
-
-
-def _library_root(document: dict[str, typ.Any], directory: Path) -> Path | None:
-    """Return the manifest's library root, explicit or conventional.
-
-    ``autolib = false`` tells Cargo not to build ``src/lib.rs`` as a library of
-    its own, usually because a binary loads that file as a module. Inferring it
-    anyway would visit the same source as two crate roots and report the
-    second visit as a repeat that is not there. An explicit ``[lib] path`` is
-    still honoured, because that key asks for a library.
-    """
-    library = document.get("lib")
-    if isinstance(library, dict):
-        if isinstance(library.get("path"), str):
-            return directory / library["path"]
-        return directory / "src" / "lib.rs"
-    package = document.get("package")
-    autolib = package.get("autolib") if isinstance(package, dict) else None
-    if autolib is False:
-        return None
-    return directory / "src" / "lib.rs"
-
-
-def _binary_roots(document: dict[str, typ.Any], directory: Path) -> list[Path]:
-    """Return every binary crate root the manifest implies.
-
-    An explicit ``[[bin]]`` may name its own path; a package may also declare
-    no binaries at all, in which case Cargo discovers ``src/main.rs`` and each
-    ``src/bin/*.rs``. Both are read, because a proof in a binary target is
-    compiled exactly as one in a library is.
-
-    A package that sets ``autobins = false`` turns discovery off, usually
-    because a library loads those files as modules on purpose. Reading them
-    again as binaries would visit the same source twice and report a
-    ``repeated-source`` that is not there.
-    """
-    declared = document.get("bin")
-    explicit = [
-        directory / entry["path"]
-        for entry in declared or []
-        if isinstance(entry, dict) and isinstance(entry.get("path"), str)
-    ]
-    package = document.get("package")
-    autobins = package.get("autobins") if isinstance(package, dict) else None
-    if autobins is False:
-        return [root for root in explicit if root.is_file()]
-    discovered = [directory / "src" / "main.rs"]
-    binaries = directory / "src" / "bin"
-    if binaries.is_dir():
-        discovered.extend(sorted(binaries.glob("*.rs")))
-        discovered.extend(sorted(binaries.glob("*/main.rs")))
-    return [*explicit, *(root for root in discovered if root.is_file())]
-
-
-def _package_directories(root: Path) -> list[_ManifestPackage]:
-    """Return each package under `root` and the roots it declares."""
-    found: list[_ManifestPackage] = []
-    for manifest in _manifests(root):
-        document = tomllib.loads(manifest.read_text(encoding="utf-8"))
-        package = document.get("package")
-        if not isinstance(package, dict):
-            continue
-        roots = _declared_roots(document, manifest.parent)
-        if any(candidate.is_file() for candidate in roots):
-            library = _library_root(document, manifest.parent)
-            found.append(
-                _ManifestPackage(
-                    name=package["name"],
-                    directory=manifest.parent,
-                    roots=tuple(
-                        candidate for candidate in roots if candidate.is_file()
-                    ),
-                    library_roots=(
-                        (library,)
-                        if library is not None and library.is_file()
-                        else ()
-                    ),
-                )
-            )
-    return found
-
-
-def _packages(root: Path) -> list[_Package]:
-    """Return each package whose crate root can be read."""
-    packages: list[_Package] = []
-    for package in _package_directories(root):
-        for crate_root in package.roots:
-            packages.append(
-                _Package(
-                    name=package.name,
-                    root=crate_root,
-                    directory=package.directory,
-                    is_binary=crate_root not in package.library_roots,
-                )
-            )
-    return packages
+    """Return whether `source` declares at least one proof-shaped function."""
+    return any(
+        _proof_kind(_proof_attributes(source.code, match.start())) is not None
+        for match in _FUNCTION.finditer(source.code)
+    )
 
 
 def _holds_proof(source: _Source) -> bool:
@@ -775,9 +587,14 @@ def _source_files(directory: Path) -> typ.Iterator[Path]:
     ``src``, and a build directory there holds generated sources. Reading those
     would report an orphan the repository never wrote.
     """
+    seen: set[Path] = set()
     pending = [directory]
     while pending:
-        entries = sorted(pending.pop().iterdir())
+        current = pending.pop()
+        if current.resolve() in seen:
+            continue
+        seen.add(current.resolve())
+        entries = sorted(current.iterdir())
         pending.extend(entry for entry in entries if _is_package_tree(entry))
         yield from (entry for entry in entries if entry.suffix == ".rs")
 

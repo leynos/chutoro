@@ -50,7 +50,8 @@ fn cargo_global_option(word: &str) -> Option<usize> {
     // Leaving it unrecognised makes the invocation fail as a wrong
     // subcommand, which is the safe direction.
     const FLAGS: &[&str] = &["--frozen", "--locked", "--offline", "--verbose", "-v"];
-    if FLAGS.contains(&word) {
+    // Cargo documents clustered verbosity, `-vv` being `-v -v`.
+    if FLAGS.contains(&word) || is_clustered_verbose(word) {
         return Some(1);
     }
     if VALUED.contains(&word) {
@@ -58,6 +59,12 @@ fn cargo_global_option(word: &str) -> Option<usize> {
     }
     let (name, _) = word.split_once('=')?;
     VALUED.contains(&name).then_some(1)
+}
+
+/// Return whether `word` is a run of `v`s after one dash, such as `-vv`.
+fn is_clustered_verbose(word: &str) -> bool {
+    word.strip_prefix('-')
+        .is_some_and(|rest| !rest.is_empty() && rest.chars().all(|c| c == 'v'))
 }
 
 #[cfg(test)]

@@ -2977,9 +2977,13 @@ and a binary-only package.
 cases: one that resolves, one that does not, raw and conditional values, a
 mention inside documentation, and an inline module that renames its children's
 directory. The package writer both modules share lives in
-`tests/workflow_contracts/kani_reader_support.py`.
-`tests/workflow_contracts/kani_fast_tier_test.py` compares the exact fast
-selectors and package-scoped full sweeps in the `Makefile` with the manifest.
+`tests/workflow_contracts/kani_reader_support.py`. Cargo's own discovery is
+split from the Rust walk: `cargo_packages_reading.py` finds the workspace's
+manifests and assembles each package's roots, `cargo_targets_reading.py`
+resolves a manifest's library and binary targets, and `kani_harness_reading.py`
+reads the source behind them. `tests/workflow_contracts/kani_fast_tier_test.py`
+compares the exact fast selectors and package-scoped full sweeps in the
+`Makefile` with the manifest.
 
 Every Kani invocation runs through the `kani_suite` checker, whose module root
 is `chutoro-test-support/src/ci/kani_suite/mod.rs` and whose command-line front

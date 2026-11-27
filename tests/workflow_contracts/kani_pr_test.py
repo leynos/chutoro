@@ -143,8 +143,10 @@ def test_the_kani_job_cannot_be_skipped(workflow: dict[str, object]) -> None:
     reported a conclusion. The job is the check, so it runs whole.
     """
     job = _kani_job(workflow)
-    assert "if" not in job, (
-        f"jobs.kani must carry no condition, got {job.get('if')!r}"
+    gated = [key for key in ("if", "continue-on-error") if key in job]
+    assert not gated, (
+        "jobs.kani must carry no condition and no tolerance, got "
+        f"{ {key: job.get(key) for key in gated}!r}"
     )
     # `continue-on-error` marks the run's conclusion as success while the step
     # itself failed, which is a green required context over a broken proof.

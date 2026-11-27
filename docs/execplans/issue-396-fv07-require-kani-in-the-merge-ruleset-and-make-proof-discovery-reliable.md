@@ -316,6 +316,26 @@ issue text and the repository's documentation are the authority.
       reads, and the distance-proof count is scoped to its package. The
       fixtures gained a `write_package` factory, parameterized spellings, a
       carried-guard case, an autolib case and a pruning case.
+- [x] Twelfth review round, all 14 findings actioned except two recorded as
+      declined with evidence. Actioned: `cfg` predicates are now *evaluated*
+      under the gate's own configuration (`test` off, `kani` on), so
+      `not(test)` and `any(kani, test)` keep their proofs while
+      `all(not(feature), test)` is reported; a file's inner `#![cfg(...)]` and
+      an enclosing inline module's guard both reach the proofs below them;
+      `cargo -vv` is accepted, and `--package=pkg other` now reads the same
+      list as its separated spelling; the comment stripper is quote-aware so a
+      `#` inside a value hides no option; selectors are read from shell words,
+      so a quoted selector counts; a `kani:` header carrying a command after
+      a semicolon is refused; the `kani` job may carry neither `if` nor
+      `continue-on-error`; the source sweep ends on directory aliases; and the
+      target-discovery split continues into `cargo_packages_reading.py`
+      (manifest walk and package assembly) and `cargo_targets_reading.py`
+      (library and binary roots). Declined: converting the CLI fixture to
+      `cap_std`, because `dylint.toml` records a deliberate
+      `no_std_fs_operations` exclusion for the gate-binary test crates; and
+      preserving a single-quoted backslash-newline, because GNU make removes
+      that pair while reading the recipe, regardless of quoting, which is what
+      the shared joiner already models.
 - [ ] Push the branch and create the draft pull request.
 
 ## Surprises & discoveries

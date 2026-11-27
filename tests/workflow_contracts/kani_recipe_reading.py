@@ -36,13 +36,13 @@ MAKEFILE_PATH = ROOT / "Makefile"
 #: read a shorter tier, and a failure-ignoring command after the comment would
 #: go unchecked.
 KANI_TARGET_RE = re.compile(
-    r"^kani:[^\n]*\n(?P<recipe>(?:(?:\t[^\n]*|#[^\n]*)?(?:\n|$))*)",
+    r"^kani:(?P<header>[^\n]*)\n(?P<recipe>(?:(?:\t[^\n]*|#[^\n]*)?(?:\n|$))*)",
     re.MULTILINE,
 )
 
 #: The same shape for the ``kani-full:`` target.
 KANI_FULL_TARGET_RE = re.compile(
-    r"^kani-full:[^\n]*\n(?P<recipe>(?:(?:\t[^\n]*|#[^\n]*)?(?:\n|$))*)",
+    r"^kani-full:(?P<header>[^\n]*)\n(?P<recipe>(?:(?:\t[^\n]*|#[^\n]*)?(?:\n|$))*)",
     re.MULTILINE,
 )
 
@@ -93,10 +93,6 @@ _MASKING_SUFFIX = re.compile(r"\|\|\s*(?:true|:)\s*$")
 #: and `&&`/`&`/`|` do the same in other shapes. Quoted text is exempt.
 _CONTROL_OPERATORS = frozenset({";", "&&", "&", "|"})
 
-#: A shell comment, which ends the command before anything written after it.
-_SHELL_COMMENT = re.compile(r"(?:^|\s)#.*$")
-
-
 def _terminal_command(arguments: str) -> str:
     """Return the command text with any trailing shell comment removed.
 
@@ -106,11 +102,52 @@ def _terminal_command(arguments: str) -> str:
     commented-out `--harness` or `--jobs=2` would otherwise be counted as a
     selection or refused as a flag the command passes when it passes neither.
 
-    Quote-aware enough for a recipe line, which carries no comment characters
-    inside its quoted arguments in this repository.
+    The scan tracks quotes and escapes, because a hash inside a quoted value is
+    text the shell passes on: `--target-dir "build # local"` hides no option
+    from the checker, and cutting at the hash would hide any option after it.
     """
-    without_comment = _SHELL_COMMENT.sub("", arguments)
-    return without_comment.rstrip()
+    start = _comment_start(arguments)
+    if start is None:
+        return arguments.rstrip()
+    return arguments[:start].rstrip()
+
+
+def _comment_start(arguments: str) -> int | None:
+    """Return the offset of an unquoted shell comment's ``#``, if any."""
+    quote = ""
+    index = 0
+    while index < len(arguments):
+        character = arguments[index]
+        if quote:
+            index, quote = _quoted_step(arguments, index, quote)
+            continue
+        if character in {"'", '"'}:
+            quote = character
+        elif character == "#" and _begins_comment(arguments, index):
+            return index
+        index += 1
+    return None
+
+
+def _quoted_step(arguments: str, index: int, quote: str) -> tuple[int, str]:
+    """Advance one character inside a quoted run, closing it at the quote.
+
+    An escaped character inside double quotes is skipped whole, because the
+    shell does not close the quote on it.
+    """
+    character = arguments[index]
+    if character == "\\" and quote == '"':
+        return index + 2, quote
+    if character == quote:
+        return index + 1, ""
+    return index + 1, quote
+
+
+def _begins_comment(arguments: str, index: int) -> bool:
+    """Return whether the ``#`` at `index` starts a shell comment."""
+    if index == 0:
+        return True
+    return arguments[index - 1].isspace()
 
 
 def _masked(command: str) -> bool:
@@ -150,10 +187,21 @@ class RecipeError(ValueError):
 
 
 def recipe(text: str, pattern: re.Pattern[str], target: str) -> str:
-    """Return the recipe body of one target, or raise."""
+    """Return the recipe body of one target, or raise.
+
+    A command written after a semicolon on the target line is recipe text make
+    executes, and both patterns would consume it as header. It is refused
+    rather than silently omitted from the checks below.
+    """
     match = pattern.search(text)
     if match is None or not match["recipe"]:
         raise RecipeError(f"the Makefile must define a {target}: target with a recipe")
+    inline = _control_operators(match["header"])
+    if inline:
+        raise RecipeError(
+            f"the {target}: target must declare no command on its header line; "
+            f"found {sorted(set(inline))!r} in {match['header'].strip()!r}"
+        )
     return match["recipe"].rstrip("\n")
 
 
@@ -203,10 +251,14 @@ def terminal_arguments(arguments: str) -> str:
 
 
 def names(arguments: str, pattern: re.Pattern[str]) -> list[str]:
-    """Return the values `pattern` finds in one command's arguments."""
-    return [
-        found["name"] for found in pattern.finditer(terminal_arguments(arguments))
-    ]
+    """Return the values `pattern` finds in one command's arguments.
+
+    The words are the shell's, not the recipe's text: quoting a selector,
+    ``--harness "module::verify_one"``, passes the same value as the unquoted
+    spelling, and reading the quotes as characters would find no selector.
+    """
+    words = " ".join(shell_words(arguments))
+    return [found["name"] for found in pattern.finditer(words)]
 
 
 def selections(text: str) -> list[tuple[str, list[str]]]:
