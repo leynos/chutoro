@@ -291,7 +291,7 @@ issue text and the repository's documentation are the authority.
       than reported. Attribute brackets are now counted in the
       literal-blanked text, so a doc string's bracket cannot move an
       attribute's start. The recipe reader drops the continuation's
-      recipe-prefix tab as make does and recognises `||   true` as masking;
+      recipe-prefix tab as make does and recognizes `||   true` as masking;
       the orphan sweep covers every crate root's directories; the manifest
       walk cannot loop on a directory symlink. The contracts reject a
       manifest version the Rust loader refuses, evaluate branch filters as
