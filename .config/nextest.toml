@@ -190,6 +190,17 @@ filter = "test(/benchmark_binaries_cover_discovery_and_exact_smoke_paths/)"
 threads-required = 8
 slow-timeout = { period = "1800s", terminate-after = 1, grace-period = "5s" }
 
+[[profile.default.overrides]]
+# The benchmark baseline end-to-end test builds an isolated Criterion fixture
+# and runs it four times, each a nested `cargo bench`. The isolated fixture has
+# its own target directory, so every run pays a cold build unless the fixture
+# was built before; share the nested-Cargo slot and give it the same allowance
+# as the benchmark smoke test for the same reason.
+filter = "binary(benchmark_baseline_end_to_end)"
+test-group = "nested-cargo"
+threads-required = 8
+slow-timeout = { period = "1800s", terminate-after = 1, grace-period = "5s" }
+
 [profile.ci]
 inherits = "default"
 test-threads = 4
@@ -263,7 +274,7 @@ slow-timeout = { period = "1800s", terminate-after = 1, grace-period = "5s" }
 
 [[profile.default.overrides]]
 # Tests that spawn Cargo or rustc run one at a time. Add a new spawner's binary here.
-filter = "binary(dense_testing_feature) | binary(portable_simd_gating) | binary(result_api_surface) | binary(session_api_surface) | binary(error_code_api_surface) | binary(benchmark_smoke)"
+filter = "binary(dense_testing_feature) | binary(portable_simd_gating) | binary(result_api_surface) | binary(session_api_surface) | binary(error_code_api_surface) | binary(benchmark_smoke) | binary(benchmark_baseline_end_to_end)"
 test-group = "nested-cargo"
 
 [profile.property-heavy]

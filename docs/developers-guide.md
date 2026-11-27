@@ -3121,11 +3121,106 @@ Benchmark regression detection follows a two-tier strategy:
 - Pull request (PR) workflows run a fast benchmark smoke check using
   discovery mode (`--list`) to confirm that benchmark binaries still compile
   and enumerate benchmark cases.
-- A scheduled weekly workflow (plus manual `workflow_dispatch`) runs
-  Criterion baseline comparison by saving a reference baseline from `HEAD^` and
-  comparing the current revision with `--baseline`.
+- A scheduled weekly workflow (plus manual `workflow_dispatch`) measures the
+  previous commit and the current revision, transfers the reference data into
+  the current Criterion tree, compares the two, and classifies the result.
 
-Run the local baseline workflow for one benchmark from the repository root:
+#### Criterion's output layout
+
+Criterion does not write a baseline to one directory named after the baseline.
+It writes one directory per benchmark identifier beneath the output root and
+one directory per baseline name beneath that:
+
+```text
+<output-root>/<benchmark-id>/<baseline-name>/benchmark.json
+<output-root>/<benchmark-id>/<baseline-name>/estimates.json
+<output-root>/<benchmark-id>/<baseline-name>/sample.json
+```
+
+The identifier directory may itself contain separators, for example
+`hnsw_build/n=100,M=8,ef=16`, and Criterion appends a suffix such as `_2` when
+two identifiers sanitize to the same directory name. Reading
+`<output-root>/ci-reference` therefore never finds anything, which is why the
+scheduled lane failed before comparing on every run from its introduction until
+issue 261.
+
+The output root itself is resolved in this order, matching Criterion 0.5.1:
+
+1. `CRITERION_HOME`, resolved against the benchmark process's working
+   directory when relative.
+2. `CARGO_TARGET_DIR`, with `criterion` appended.
+3. The `target_directory` reported by `cargo metadata`.
+4. `./target/criterion`.
+
+The helper implements this precedence in `output_root::resolve_output_root`,
+and the workflow passes the resolved value through the inventory manifest
+rather than assuming `target/criterion`.
+
+#### The comparison helper
+
+`chutoro-test-support` provides `benchmark_baseline`, with one subcommand per
+stage. The scheduled lane runs them in this order for each benchmark target:
+
+| Stage       | What it does                                                                                                                                    | Evidence it writes                                 |
+| ----------- | ----------------------------------------------------------------------------------------------------------------------------------------------- | -------------------------------------------------- |
+| `inventory` | Walks the resolved output root, reads each per-identifier `benchmark.json`, and records tool versions, arguments, and `CHUTORO_BENCH_*` values. | `reference-manifest.json`, `current-manifest.json` |
+| `stage`     | Checks compatibility, copies comparable reference baselines into the current identifier directories, and emits an anchored filter.              | `preflight.json`, `filter.txt`                     |
+| `classify`  | Reads each comparable identifier's `change/estimates.json` and applies the regression policy.                                                   | `verdict.json`, the step summary                   |
+
+The comparison itself runs
+`cargo bench … -- --load-baseline ci-current
+--baseline ci-reference --noplot --color never "<filter>"`,
+so the current measurement is sampled once and the comparison does not measure
+again.
+
+Staging is transactional: each identifier is copied into a temporary sibling
+directory, validated, and renamed into place, so an interrupted copy cannot
+destroy the previous destination. The emitted filter is anchored and
+regex-escaped, and names only comparable identifiers, because `--baseline` is
+strict and panics on any selected identifier without reference data. Do not add
+`--exact`: it matches the filter literally and would select nothing.
+
+#### Outcomes and exit codes
+
+The helper maps outcomes to exit codes in one place
+(`benchmark_baseline::exit_code`):
+
+| Outcome        | Exit code | Meaning                                                   |
+| -------------- | --------- | --------------------------------------------------------- |
+| `pass`         | 0         | Every comparable identifier stayed within noise.          |
+| `regression`   | 1         | At least one comparable identifier regressed.             |
+| `incomplete`   | 2         | The lane could not produce comparable evidence.           |
+| `incompatible` | 3         | The two sides used different tools, targets, or settings. |
+| `no_reference` | 4         | No previous revision existed to compare against.          |
+| usage          | 64        | Invalid helper arguments.                                 |
+
+The threshold is a project decision, not a Criterion default. The default is
+`0.05`, supplied by `CHUTORO_BASELINE_THRESHOLD` in the workflow and recorded
+in every verdict, so changing it never silently reinterprets old evidence.
+
+The workflow's job-status policy:
+
+- `pass` succeeds.
+- `incompatible` and `no_reference` succeed with a `::warning::` naming the
+  outcome and reason.
+- `regression` fails with an error stating "performance regression" and
+  listing the regressed identifiers.
+- `incomplete`, and any subprocess failure, fails with an error stating "lane
+  defect, not a performance regression" and naming the failed stage.
+
+A successful save, a successful comparison command, or a passing smoke job is
+not a pass. Only `classify` reporting `pass` is.
+
+#### Reading the evidence
+
+Each matrix job uploads `benchmark-baseline-<bench>` with both manifests, the
+preflight report, `verdict.json`, and every stage log, including
+`reference-save.log`, `current-save.log`, `preflight.log`, `compare.log`, and
+`classify.log`. Staging and compatibility failures also write `preflight.json`,
+so a run that never reached the comparison still says which stage failed and
+why. The full Criterion trees are not uploaded.
+
+#### Running the comparison locally
 
 ```sh
 set -o pipefail
@@ -3147,6 +3242,9 @@ cargo bench -p chutoro-benches --bench hnsw_ef_sweep -- \
   2>&1 | tee /tmp/bench-hnsw-ef-sweep-compare.log
 ```
 
+That measures twice, which is fine for a one-off look; the scheduled lane
+measures each revision once and loads the current data for the comparison.
+
 Use `--list` for a quick discovery check only:
 
 ```sh
@@ -3154,6 +3252,13 @@ set -o pipefail
 cargo bench -p chutoro-benches --bench hnsw_ef_sweep -- --list \
   2>&1 | tee /tmp/bench-hnsw-ef-sweep-list.log
 ```
+
+#### Scope of the helper
+
+The helper lives in this repository. It moves to a shared-actions repository
+only after a second consumer demonstrates the same need; the generic heavy-lane
+evidence question is tracked in
+[shared-actions#592](https://github.com/leynos/shared-actions/issues/592).
 
 ### Whole-pipeline and stage-profile benchmarks
 

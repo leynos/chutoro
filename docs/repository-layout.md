@@ -54,9 +54,18 @@ _Table 1: Top-level file responsibilities._
 | `chutoro-cli/`               | Command-line application crate and user-facing command orchestration. |
 | `chutoro-providers/`         | Provider implementations grouped by provider family.                  |
 | `chutoro-benches/`           | Benchmark crate, benchmark harnesses, and benchmark support code.     |
-| `chutoro-test-support/`      | Shared test utilities used by workspace tests.                        |
+| `chutoro-test-support/`      | Shared test utilities, CI gate binaries, and baseline comparison.     |
 
 _Table 2: Workspace crate responsibilities._
+
+`chutoro-test-support` holds more than shared fixtures. It carries the CI gate
+binaries (`benchmark_regression_gate`, `kani_nightly_gate`, and
+`benchmark_baseline`), the modules behind them under `src/ci/`, and the
+isolated Criterion fixture crate in
+`tests/fixtures/criterion_baseline_fixture/`. That fixture has its own
+`[workspace]` and lockfile so the benchmark baseline end-to-end test can build
+it offline against the pinned Criterion 0.5.1 without joining the main
+workspace's feature and lint unification.
 
 ## Documentation and planning
 
