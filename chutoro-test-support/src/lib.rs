@@ -70,8 +70,11 @@ pub mod tracing {
     /// # Returns
     ///
     /// A [`CallsiteInterestPin`] that keeps its inert dispatcher registered for
-    /// as long as the value is alive. Dropping it deregisters that dispatcher
-    /// only; any other live pin keeps its own inert dispatcher registered. Bind
+    /// as long as the value is alive. Dropping it releases the guard's strong
+    /// reference to that dispatcher: the dispatcher registry holds weak
+    /// references and removes dead entries during a later dispatch
+    /// registration, and a concurrent upgrade can keep the dispatch alive a
+    /// little longer. Any other live pin keeps its own dispatcher alive. Bind
     /// the guard to a named local that outlives the capture and every snapshot
     /// taken from it.
     ///
