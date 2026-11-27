@@ -69,10 +69,11 @@ pub mod tracing {
     ///
     /// # Returns
     ///
-    /// A [`CallsiteInterestPin`] that keeps the inert dispatcher registered for
-    /// as long as the value is alive. Dropping it returns the process to the
-    /// unpinned state, so bind it to a named local that outlives the capture
-    /// and every snapshot taken from it.
+    /// A [`CallsiteInterestPin`] that keeps its inert dispatcher registered for
+    /// as long as the value is alive. Dropping it deregisters that dispatcher
+    /// only; any other live pin keeps its own inert dispatcher registered. Bind
+    /// the guard to a named local that outlives the capture and every snapshot
+    /// taken from it.
     ///
     /// # Examples
     /// ```
