@@ -50,6 +50,7 @@ def write_package(tmp_path):
     """
 
     def write(source: str, name: str = "fixture"):
+        """Write one package with `source` as its library root."""
         return _write_package(tmp_path, source, name)
 
     return write
