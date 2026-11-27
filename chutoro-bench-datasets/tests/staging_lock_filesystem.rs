@@ -172,6 +172,7 @@ fn registry_warning_does_not_hold_the_registry_mutex(root_res: io::Result<Stagin
         )
         .expect("outer lock should be acquired");
     let reacquired = std::sync::Arc::new(std::sync::atomic::AtomicBool::new(false));
+    let _pin = chutoro_test_support::tracing::pin_callsite_interest();
     let subscriber = tracing_subscriber::layer::SubscriberExt::with(
         tracing_subscriber::registry(),
         ReenterOnEvent {

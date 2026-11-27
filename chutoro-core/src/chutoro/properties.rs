@@ -14,7 +14,7 @@ use crate::{
     estimate_peak_bytes_for_hnsw_params_with_concurrency,
     test_utils::{CountingSource, suite_proptest_config},
 };
-use chutoro_test_support::tracing::RecordingLayer;
+use chutoro_test_support::tracing::{RecordingLayer, pin_callsite_interest};
 
 fn shared_execution_config_strategy() -> impl Strategy<Value = (usize, usize, usize, usize)> {
     (4_usize..=8, 1_usize..=4, 0_usize..=4).prop_flat_map(
@@ -80,6 +80,7 @@ proptest! {
         prop_assert_eq!(session.config().min_cluster_size().get(), min_cluster_size);
         prop_assert_eq!(session.config().hnsw_params(), &params);
 
+        let _pin = pin_callsite_interest();
         let layer = RecordingLayer::default();
         let subscriber = tracing_subscriber::registry().with(layer.clone());
         let runnable = ChutoroBuilder::new()

@@ -7,10 +7,101 @@ pub mod tracing {
     use std::sync::{Arc, Mutex};
 
     use tracing::field::{Field, Visit};
-    use tracing::{Event, Level, Subscriber};
+    use tracing::subscriber::NoSubscriber;
+    use tracing::{Dispatch, Event, Level, Subscriber};
     use tracing_subscriber::Layer;
     use tracing_subscriber::layer::Context;
     use tracing_subscriber::registry::LookupSpan;
+
+    /// Keeps a callsite's cached interest from being fixed at `never` by a
+    /// first touch from a thread with no recording subscriber installed.
+    ///
+    /// `tracing-core` caches the [`Interest`] of every callsite the first time
+    /// that callsite is recorded. While only one [`Dispatch`] is registered,
+    /// `tracing-core` 0.1.36 rebuilds that interest through
+    /// `Rebuilder::JustOne`, which asks only the current thread's default
+    /// dispatcher. A test that records nothing can therefore cache
+    /// [`Interest::never`] for a callsite before a capture test's
+    /// `with_default` scope reaches it, because its thread has no default
+    /// dispatcher to ask.
+    ///
+    /// This guard registers a second, inert [`Dispatch`] built from
+    /// [`NoSubscriber`]. With two live dispatches, `tracing-core` rebuilds
+    /// callsite interest from every registered dispatcher, and the inert
+    /// dispatcher's `never` combines with the recording subscriber's `always`
+    /// as [`Interest::sometimes`] rather than `never`. The recording
+    /// subscriber is then asked on the thread that actually records.
+    ///
+    /// The pin records nothing and installs no subscriber. Create it before the
+    /// recording subscriber, and keep it alive until `with_default` returns and
+    /// every snapshot has been taken.
+    ///
+    /// ## Residual upstream race
+    ///
+    /// `DefaultCallsite::register` reads the registry's `has_just_one` flag
+    /// before it computes interest, and stores the computed interest
+    /// unconditionally afterwards. A registration that straddles a
+    /// `Dispatch::new` can therefore store `never` after the rebuild that would
+    /// have corrected it, even with several dispatches live. No sequence of
+    /// downstream dispatches closes that window; it needs a fix in
+    /// `tracing-core` itself. Create the pin immediately before the recording
+    /// subscriber so the unprotected interval is limited to dispatch setup,
+    /// rather than the whole time a capture test is running.
+    ///
+    /// [`Dispatch`]: tracing::Dispatch
+    /// [`Interest`]: tracing::subscriber::Interest
+    /// [`Interest::never`]: tracing::subscriber::Interest::never
+    /// [`Interest::sometimes`]: tracing::subscriber::Interest::sometimes
+    /// [`NoSubscriber`]: tracing::subscriber::NoSubscriber
+    #[must_use = "callsite interest is only pinned while the guard is alive"]
+    pub struct CallsiteInterestPin {
+        /// Inert dispatcher whose sole purpose is to keep the callsite registry
+        /// holding more than one live dispatch.
+        _inert: Dispatch,
+    }
+
+    /// Registers an inert dispatcher that keeps callsite interest from being
+    /// cached as [`Interest::never`] by an unscoped first touch.
+    ///
+    /// See [`CallsiteInterestPin`] for the mechanism and the lifetime rule.
+    ///
+    /// [`Interest::never`]: tracing::subscriber::Interest::never
+    ///
+    /// # Returns
+    ///
+    /// A [`CallsiteInterestPin`] that keeps its inert dispatcher registered for
+    /// as long as the value is alive. Dropping it releases the guard's strong
+    /// reference to that dispatcher: the dispatcher registry holds weak
+    /// references and removes dead entries during a later dispatch
+    /// registration, and a concurrent upgrade can keep the dispatch alive a
+    /// little longer. Any other live pin keeps its own dispatcher alive. Bind
+    /// the guard to a named local that outlives the capture and every snapshot
+    /// taken from it.
+    ///
+    /// # Examples
+    /// ```
+    /// use chutoro_test_support::tracing::{RecordingLayer, pin_callsite_interest};
+    /// use tracing_subscriber::layer::SubscriberExt;
+    ///
+    /// let _pin = pin_callsite_interest();
+    /// let layer = RecordingLayer::default();
+    /// let subscriber = tracing_subscriber::registry().with(layer.clone());
+    ///
+    /// tracing::subscriber::with_default(subscriber, || {
+    ///     tracing::info_span!("example_span").in_scope(|| {});
+    /// });
+    ///
+    /// assert_eq!(
+    ///     layer.spans().first().map(|span| span.name.as_str()),
+    ///     Some("example_span"),
+    /// );
+    /// ```
+    #[must_use = "callsite interest is only pinned while the guard is alive"]
+    pub fn pin_callsite_interest() -> CallsiteInterestPin {
+        CallsiteInterestPin {
+            _inert: Dispatch::new(NoSubscriber::new()),
+        }
+    }
 
     /// Recording layer installed during tests to capture spans and events for
     /// later assertions. The layer records structured metadata so integration

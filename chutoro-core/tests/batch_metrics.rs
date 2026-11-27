@@ -12,7 +12,7 @@ use tracing_subscriber::layer::SubscriberExt;
 use chutoro_core::DataSource;
 use chutoro_core::{ChutoroBuilder, ChutoroError, ExecutionStrategy};
 #[cfg(feature = "cpu")]
-use chutoro_test_support::tracing::RecordingLayer;
+use chutoro_test_support::tracing::{RecordingLayer, pin_callsite_interest};
 
 use common::Dummy;
 
@@ -110,6 +110,7 @@ fn successful_cpu_run_records_bounded_resources_and_tracing() {
         .expect("configuration must be valid");
     let recorder = metrics_util::debugging::DebuggingRecorder::new();
     let snapshotter = recorder.snapshotter();
+    let _pin = pin_callsite_interest();
     let layer = RecordingLayer::default();
     let subscriber = tracing_subscriber::registry().with(layer.clone());
 
@@ -166,6 +167,7 @@ fn memory_limit_rejection_records_bounded_metrics_and_tracing() {
         .expect("configuration must be valid");
     let recorder = metrics_util::debugging::DebuggingRecorder::new();
     let snapshotter = recorder.snapshotter();
+    let _pin = pin_callsite_interest();
     let layer = RecordingLayer::default();
     let subscriber = tracing_subscriber::registry().with(layer.clone());
 
