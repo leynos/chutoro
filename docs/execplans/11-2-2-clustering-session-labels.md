@@ -262,6 +262,7 @@ compile contracts add files late.
 - [x] (2026-11-28 16:45Z) Community-of-experts design review (four reviewers:
   structure and contracts, failure modes and cost, verification and tests,
   alternatives and long-term fit) applied in this revision.
+- [x] (2026-11-28 17:20Z) Branch pushed; draft pull request #482 opened.
 - [ ] Plan approved by the user.
 - [ ] `EP-M1` Internal rewire: the session publishes through a private
   `SnapshotPublisher`; all existing tests stay green.
