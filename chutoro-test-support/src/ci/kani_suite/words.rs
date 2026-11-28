@@ -113,3 +113,81 @@ pub(super) fn repeated(names: &[String]) -> Vec<String> {
         .map(|(name, _)| name.to_owned())
         .collect()
 }
+
+#[cfg(test)]
+mod tests {
+    //! Unit tests for the spellings one delegated argument can take.
+
+    use rstest::rstest;
+
+    use super::*;
+
+    #[rstest]
+    #[case("--output-format", Some(Valued::OutputFormat))]
+    #[case("-p", Some(Valued::Package))]
+    #[case("--package", Some(Valued::Package))]
+    #[case("--harness", Some(Valued::Harness))]
+    #[case("--bin", Some(Valued::Binary))]
+    #[case("--bin=helper", None)]
+    #[case("--exact", None)]
+    fn valued_options_are_recognised(#[case] argument: &str, #[case] expected: Option<Valued>) {
+        assert_eq!(
+            Valued::of(argument).map(|valued| format!("{valued:?}")),
+            expected.map(|valued| format!("{valued:?}"))
+        );
+    }
+
+    #[rstest]
+    #[case("-pkg", Some("kg"))]
+    #[case("-p", None)]
+    #[case("-p=pkg", None)]
+    #[case("--package=pkg", None)]
+    #[case("-ppkg", Some("pkg"))]
+    fn a_compact_package_carries_its_value(#[case] argument: &str, #[case] expected: Option<&str>) {
+        assert_eq!(compact_package(argument), expected);
+    }
+
+    #[rstest]
+    #[case("--quiet", "--quiet", true)]
+    #[case("--quiet=1", "--quiet", true)]
+    #[case("--quietly", "--quiet", false)]
+    #[case("-j4", "-j", true)]
+    #[case("-jobs", "-j", true)]
+    #[case("-j", "-j", true)]
+    #[case("--jobs=4", "--jobs", true)]
+    #[case("--jobs", "--jobs", true)]
+    #[case("--job", "--jobs", false)]
+    #[case("-p", "-j", false)]
+    fn forbidden_spellings_are_matched_by_shape(
+        #[case] argument: &str,
+        #[case] flag: &str,
+        #[case] expected: bool,
+    ) {
+        assert_eq!(matches_forbidden(argument, flag), expected);
+    }
+
+    #[rstest]
+    #[case("regular", true)]
+    #[case("json", false)]
+    #[case("terse", false)]
+    #[case("", false)]
+    fn only_the_regular_output_format_is_accepted(#[case] format: &str, #[case] accepted: bool) {
+        assert_eq!(check_output_format(format).is_ok(), accepted);
+    }
+
+    #[test]
+    fn repeated_names_are_sorted_and_unique() {
+        let names = [
+            "b".to_owned(),
+            "a".to_owned(),
+            "b".to_owned(),
+            "a".to_owned(),
+            "c".to_owned(),
+        ];
+        assert_eq!(repeated(&names), vec!["a".to_owned(), "b".to_owned()]);
+        assert!(
+            repeated(&names[..1]).is_empty(),
+            "one occurrence is not a repeat"
+        );
+    }
+}

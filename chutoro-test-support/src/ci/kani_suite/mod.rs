@@ -175,13 +175,7 @@ pub enum CheckError {
 /// ```
 pub fn check(request: &Request) -> Result<Verified, CheckError> {
     let manifest = Manifest::load(&request.manifest)?;
-    let allowed = manifest.scope(&request.package, request.scope);
-    if allowed.is_empty() {
-        return Err(CheckError::EmptyScope {
-            package: request.package.clone(),
-            scope: request.scope,
-        });
-    }
+    let allowed = package_scope(&manifest, &request.package, request.scope)?;
     let delegated = runner::parse_command(&request.command, &request.package)?;
     let expected = expected_set(request, &delegated, &allowed)?;
     let outcome = process::run(&delegated)?;
@@ -208,6 +202,27 @@ pub fn check(request: &Request) -> Result<Verified, CheckError> {
         scope: request.scope,
         harnesses: expected.into_iter().collect(),
     })
+}
+
+/// Return the manifest's harnesses for one package and tier, or refuse an empty
+/// scope.
+///
+/// A package and tier that classify nothing would make the expected set empty,
+/// and an empty expectation is satisfied by a run that verified nothing, so it
+/// is refused before the command is even parsed.
+fn package_scope<'a>(
+    manifest: &'a Manifest,
+    package: &str,
+    scope: Tier,
+) -> Result<BTreeSet<&'a str>, CheckError> {
+    let allowed = manifest.scope(package, scope);
+    if allowed.is_empty() {
+        return Err(CheckError::EmptyScope {
+            package: package.to_owned(),
+            scope,
+        });
+    }
+    Ok(allowed)
 }
 
 /// Return the harnesses the run must complete successfully.
@@ -237,4 +252,60 @@ fn expected_set(
         });
     }
     Ok(delegated.selectors.iter().cloned().collect())
+}
+
+#[cfg(test)]
+mod tests {
+    //! Unit tests for the scope and selector refusals.
+
+    use super::*;
+
+    /// A manifest with one fast harness for `pkg`.
+    const MANIFEST: &str = concat!(
+        "version = 1\n",
+        "[[harness]]\n",
+        "package = \"pkg\"\n",
+        "pretty_name = \"proofs::verify_one\"\n",
+        "tier = \"fast\"\n",
+    );
+
+    /// Parse the shared manifest.
+    fn manifest() -> Manifest {
+        Manifest::parse(MANIFEST, "inline").expect("the fixture manifest is valid")
+    }
+
+    #[test]
+    fn an_empty_scope_is_refused() {
+        // An empty expectation is satisfied by a run that verified nothing.
+        let manifest = manifest();
+        let outcome = package_scope(&manifest, "other", Tier::Fast);
+        assert!(
+            matches!(outcome, Err(CheckError::EmptyScope { .. })),
+            "a package the manifest does not classify must be refused, got {outcome:?}"
+        );
+    }
+
+    #[test]
+    fn a_selector_outside_the_scope_is_refused() {
+        let manifest = manifest();
+        let allowed = package_scope(&manifest, "pkg", Tier::Fast).expect("the fast scope");
+        let delegated = runner::Delegated {
+            env: Vec::new(),
+            program: "cargo".to_owned(),
+            args: Vec::new(),
+            package: "pkg".to_owned(),
+            selectors: vec!["other::proof".to_owned()],
+        };
+        let request = Request {
+            manifest: PathBuf::new(),
+            package: "pkg".to_owned(),
+            scope: Tier::Fast,
+            command: Vec::new(),
+        };
+        let outcome = expected_set(&request, &delegated, &allowed);
+        assert!(
+            matches!(outcome, Err(CheckError::SelectorOutsideScope { .. })),
+            "a selector the manifest does not hold must be refused, got {outcome:?}"
+        );
+    }
 }

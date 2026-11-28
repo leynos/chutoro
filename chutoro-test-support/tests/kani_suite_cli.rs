@@ -266,3 +266,34 @@ fn the_fixture_records_the_version_it_was_captured_from() {
         PINNED_VERSION.trim(),
     );
 }
+
+#[rstest]
+#[case::no_arguments(&[])]
+#[case::an_unknown_scope(&[
+    "--manifest", "tools/kani/harnesses.toml", "--package", "pkg",
+    "--scope", "sideways", "--", "cargo", "kani",
+])]
+#[case::a_missing_separator(&[
+    "--manifest", "tools/kani/harnesses.toml", "--package", "pkg", "--scope", "fast",
+])]
+fn a_malformed_invocation_reports_usage_and_status_two(#[case] arguments: &[&str]) {
+    // A bad invocation is not a proof verdict, so it must not exit with the
+    // failure status a failed verification uses. It prints the usage banner so
+    // a caller can see which shape was expected.
+    let output = Command::new(env!("CARGO_BIN_EXE_kani_suite"))
+        .args(arguments)
+        .output()
+        .expect("run the checker binary");
+    assert_eq!(
+        output.status.code(),
+        Some(2),
+        "a malformed invocation must exit 2, got {:?} with stderr {:?}",
+        output.status.code(),
+        String::from_utf8_lossy(&output.stderr)
+    );
+    let stderr = String::from_utf8_lossy(&output.stderr);
+    assert!(
+        stderr.contains("usage: kani_suite"),
+        "a malformed invocation must print the usage banner, got {stderr:?}"
+    );
+}

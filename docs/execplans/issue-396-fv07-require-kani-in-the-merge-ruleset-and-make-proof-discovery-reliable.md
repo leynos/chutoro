@@ -418,6 +418,24 @@ issue text and the repository's documentation are the authority.
       400-line exception is needed: its discovery-sweep cases moved to
       `rust_test_discovery_test.py`.
 
+- [x] Post-readiness formal review, two pre-merge rows. `Testing (Overall)`
+      failed on the delegated-command validator's unasserted refusals, and
+      `Testing (Property / Proof)` warned that the new invariants had no
+      generated coverage. Both are valid and are now repaired. The refusal
+      surface has a dedicated integration test
+      (`chutoro-test-support/tests/kani_command_validation.rs`): every entry of
+      `FORBIDDEN_FLAGS` in its exact, attached and compact spellings, a
+      non-regular output format, a value-less option, a non-Kani command, the
+      missing `--lib` and `--exact` requirements, a duplicate selector and a
+      second package. `words.rs` gained direct tests for its four helpers, the
+      checker's `EmptyScope` and `SelectorOutsideScope` refusals now have tests
+      behind an extracted `package_scope`, and the binary's malformed
+      invocation must exit 2 with the usage banner. Property tests cover the
+      invariants that take many inputs: `proptest` for the verdict's multiset
+      comparison, and Hypothesis for the `cfg` algebra, the branch-pattern
+      matcher and the recipe shell reading. The small, fully enumerated tables
+      stay as examples.
+
 ## Surprises & discoveries
 
 - Observation: `distance/mod.rs` declares six proofs in an inline
@@ -755,3 +773,6 @@ Revised 2026-11-27 (fifth): rather than carry a 400-line exception that only a
 maintainer could approve, split `trybuild_override_test.py` by responsibility.
 Its discovery-sweep cases moved to `rust_test_discovery_test.py`; both files
 are now well inside the limit and the exception is withdrawn.
+
+Revised 2026-11-28: recorded the post-readiness formal review and its two
+pre-merge rows, and the refusal-surface and property coverage added for them.
