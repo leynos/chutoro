@@ -267,7 +267,7 @@ contracts add files late.
   a writer can still wait for a reader for the duration of a clone and the lock
   can be poisoned (recoverable here because the protected value is always a
   valid `Arc`, but it adds a path to reason about). Also rejected: a
-  hand-written `AtomicPtr` scheme (needs `unsafe` and its own reclamation
+  handwritten `AtomicPtr` scheme (needs `unsafe` and its own reclamation
   proof); and "documentation only, keep `RwLock<ClusteringSession>`" (does not
   meet the roadmap item). ADR-0010's "no new production dependency" driver was
   scoped to 11.2.1 and does not bind this item; ADR-0012 records the new
@@ -561,7 +561,7 @@ and infallible. Malformed input is impossible because readers supply no input.
   `INV-SAME-PUBLICATION`, `INV-IMMUTABLE`, `INV-LEN`. Method: model-based
   `proptest` over operation sequences on a real session. Rationale: the
   properties are about histories of interleaved writer and reader operations;
-  generated sequences reach orderings a hand-written test would not (reader
+  generated sequences reach orderings a handwritten test would not (reader
   created before vs after refreshes, refresh with no new points, many readers,
   held snapshots across several refreshes). Domain: sequences of 1–24
   operations over a 12-point numeric source with `min_cluster_size` in `1..=3`:
