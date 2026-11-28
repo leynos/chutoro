@@ -6,7 +6,8 @@ This ExecPlan (execution plan) is a living document. The sections `Constraints`,
 `Conformance basis`, and `Verification plan` must be kept up to date as work
 proceeds.
 
-Status: DRAFT (awaiting design review and user approval)
+Status: DRAFT (community-of-experts design review applied; awaiting user
+approval)
 
 Branch: `11-2-2-clustering-session-labels`
 
@@ -14,107 +15,131 @@ Roadmap item: `11.2.2` in `docs/roadmap.md`.
 
 ## Purpose / big picture
 
-Chutoro is a Rust clustering library implementing FISHDBC (a hierarchical,
+Chutoro is a Rust clustering library implementing FISHDBC, a hierarchical,
 density-based clustering algorithm built on an approximate nearest-neighbour
-graph). Its `ClusteringSession` type lets a caller add points to a live
-clustering over time. The caller appends source indices with
-`session.append(&[...])`, calls `session.refresh()` to recompute the
-clustering, and reads the resulting flat labels (one cluster number per point)
-with `session.labels()`, which returns an `Arc<Vec<usize>>` (a
-reference-counted, immutable vector). Each successful refresh "publishes" a new
-label snapshot and advances `session.snapshot_version()` by one.
+graph. Its `ClusteringSession` type maintains a clustering that grows over
+time. The caller appends source indices with `session.append(&[...])`, calls
+`session.refresh()` to recompute the clustering, and reads the resulting flat
+labels (one cluster number per point) with `session.labels()`. That accessor
+returns an `Arc<Vec<usize>>`, a reference-counted vector that nobody can
+modify. Each successful refresh _publishes_ a new label snapshot, meaning it
+replaces the session's current snapshot with a new one, and advances
+`session.snapshot_version()` by one.
 
 Roadmap item 11.2.1 already shipped `labels(&self) -> Arc<Vec<usize>>`, because
 its acceptance criteria were phrased in terms of that accessor (see
-`docs/adrs/adr-0010-incremental-refresh-domain-boundary.md`). What 11.2.1 did
-not deliver is the property this item names: reading the latest snapshot
-**without blocking the writer**. Design §12.6 promises a single-writer,
-multiple-reader model in which "readers never block the writer and vice versa".
-Today that is false for any reader on another thread:
+`docs/adrs/adr-0010-incremental-refresh-domain-boundary.md`). It did not
+deliver the property this item names: reading the latest snapshot **without
+blocking the writer**. Design §12.6 promises a single-writer, multiple-reader
+model in which "readers never block the writer and vice versa". Today that is
+false for any reader on another thread:
 
-- `append` and `refresh` take `&mut self`, so the only way to share one session
-  between a writer thread and reader threads is to wrap it in a lock, typically
+- `append` and `refresh` take `&mut self`, so a program that shares one session
+  between a writer thread and reader threads has to wrap it in a lock, typically
   `Arc<RwLock<ClusteringSession<D>>>`. The repository's own concurrency tests
   (`chutoro-core/src/session/tests/concurrency.rs`) do exactly that.
 - Under that lock, a reader calling `labels()` holds a read guard, so the
-  writer's `refresh()` cannot start until every reader lets go, and every
-  reader waits for the whole refresh (an O(E log E) rebuild) before it can read
-  the previous snapshot it could perfectly well have used.
-- A reader also cannot read `labels()` and `snapshot_version()` as one
-  consistent pair without holding the lock across both calls, because they are
-  stored in two separate fields.
+  writer's `refresh()` cannot start until every reader has let go. Every reader
+  then waits for the whole refresh, which rebuilds a minimum spanning tree in
+  O(E log E) time for E candidate edges, before it can read even the previous
+  snapshot.
+- A reader cannot read `labels()` and `snapshot_version()` as one consistent
+  pair without holding the lock across both calls, because they are stored in
+  two separate fields. Reading a version from one refresh and labels from
+  another is called a _torn read_ in this plan.
 
-After this change, a caller obtains a detached, cloneable reader handle and
-gives it to any number of threads:
+After this change, a caller asks the session for a detached reader handle and
+gives clones of it to any number of threads:
 
 ```rust,ignore
 let mut session = ChutoroBuilder::new()
     .with_min_cluster_size(2)
     .build_session(source)?;
-let reader = session.label_reader(); // LabelReader: Clone + Send + Sync + 'static
+let reader = session.snapshot_reader(); // SnapshotReader: Clone + Send + Sync + 'static
 
-let dashboard = std::thread::spawn(move || {
-    let snapshot = reader.snapshot(); // one consistent (version, labels) pair
-    (snapshot.version(), snapshot.labels().len())
-});
-
-session.append(&[0, 1, 2, 3])?; // the writer keeps &mut access; no lock needed
-session.refresh()?;             // publishes atomically; never waits for readers
+std::thread::scope(|scope| {
+    scope.spawn(|| {
+        let snapshot = reader.snapshot(); // Arc<ClusteringSnapshot>: one consistent pair
+        report(snapshot.version(), snapshot.label_slice());
+    });
+    session.append(&[0, 1, 2, 3])?; // the writer keeps &mut access; no caller lock
+    session.refresh()            // publication never waits for a refresh or a held snapshot
+})?;
 ```
 
-Readers never hold a lock, never borrow the session, and never see a version
-from one refresh paired with labels from another. Publishing a new snapshot is
-a single atomic pointer swap that does not wait for readers, and a reader that
-keeps an old snapshot keeps exactly that snapshot, unchanged, for as long as it
-likes. The existing `session.labels()` keeps its signature and now reads the
-same published cell.
+Readers never borrow the session, never hold a lock while doing their own work,
+and never see a torn read. A refresh computes everything outside any lock.
+Publication then replaces one pointer inside a critical section, and a reader's
+critical section is a single reference-count increment. A _critical section_ is
+the code that runs while a lock is held. A reader that keeps an old snapshot
+keeps exactly that snapshot, unchanged, for as long as it likes, without
+delaying the writer. The existing `session.labels()` keeps its signature.
 
-Preserved behaviour: `labels()` still returns `Arc<Vec<usize>>`; its length
-still equals `point_count()` after every successful refresh; the version still
-advances by exactly one per successful refresh and saturates at `u64::MAX`;
-publication remains all-or-nothing, so a failed refresh publishes nothing. The
-one deliberate signature change is that `snapshot_version()` stops being a
-`const fn`, because it now reads an atomically published cell.
+Preserved behaviour: `labels()` still returns `Arc<Vec<usize>>`, and its length
+still equals `point_count()` after every successful refresh. The version still
+advances by exactly one per successful refresh and saturates at `u64::MAX`.
+Publication remains all-or-nothing, so a failed refresh publishes nothing. One
+signature change is deliberate: `snapshot_version()` stops being a `const fn`,
+because it now reads through the published snapshot.
+
+Clarified behaviour, documented for the first time: a snapshot covers points
+`[0, len)` only. After `append` without `refresh`, `point_count()` exceeds the
+snapshot's length, so a reader must index labels by snapshot length, not by
+`point_count()`. Core distances are not part of the snapshot.
 
 ### What this plan does and does not authorize
 
-It authorizes two new public types (`LabelSnapshot`, `LabelReader`), two new
-`ClusteringSession` methods (`label_reader`, `label_snapshot`), the removal of
-`const` from `ClusteringSession::snapshot_version`, one new production
-dependency (`arc-swap`, decision `D1`, which needs explicit user approval), and
-one new ADR. It does not authorize count-triggered refresh (11.2.3),
-`refresh_full` (11.2.4), historical-edge retention (11.2.5), the full snapshot
-consistency suite (11.4.4), or the session state-machine suite (11.4.5). 11.4.4
-and 11.4.5 build on the tests introduced here rather than being replaced by
-them.
+It authorizes:
+
+- two new public types, `ClusteringSnapshot` (the published value) and
+  `SnapshotReader` (the handle);
+- two new `ClusteringSession` methods, `snapshot` and `snapshot_reader`;
+- removing `const` from `ClusteringSession::snapshot_version`;
+- one new ADR, ADR-0012, and an amendment banner on ADR-0010;
+- a `FailableSource::with_values` constructor in shared test support;
+- rewording roadmap items 11.4.4 and 12.1.1 so they match what ships.
+
+It adds no production dependency (decision `D1`).
+
+It does not authorize:
+
+- count-triggered refresh (11.2.3);
+- `refresh_full` (11.2.4);
+- historical-edge retention (11.2.5);
+- the full snapshot-consistency suite (11.4.4) or the session state-machine
+  suite (11.4.5), both of which build on the tests introduced here;
+- the richer `ClusteringSnapshot` fields of design §13.1 (probabilities,
+  cluster statistics, lineage, `ClusterLabel`, `SnapshotVersion`), which remain
+  roadmap 12.1.x.
 
 ## Constraints
 
-- Implementation begins only after the user explicitly approves this plan,
-  including decision `D1` (the `arc-swap` dependency) or its std-only fallback.
+- Implementation begins only after the user explicitly approves this plan.
 - `ClusteringSession::labels(&self) -> Arc<Vec<usize>>` keeps its exact
   signature (roadmap wording and ADR-0010 commitment).
-- Publication stays all-or-nothing: labels and version change together, only
-  after every fallible step of `refresh` succeeds
-  (`chutoro-core/src/session/refresh_impl.rs`, `publish_refresh`).
-- Exactly one code path may publish: the session's own refresh. No public type
-  may expose a way to publish or mutate a snapshot.
+- Publication stays all-or-nothing. The published snapshot changes only after
+  every fallible step of `refresh` succeeds, inside the infallible
+  `publish_refresh` block in `chutoro-core/src/session/refresh_impl.rs`.
+- Exactly one code path may publish: `ClusteringSession::publish_refresh`,
+  through a publisher method that takes `&mut self`. No public type may expose
+  a way to publish or modify a snapshot.
+- No lock is held while a refresh computes, while a reader runs its own code,
+  or while an old snapshot is freed.
+- No new production or development dependency. `arc-swap` is explicitly
+  rejected for this item (`D1`).
 - No new `ChutoroError` variant. Nothing in this item can fail at run time.
-- `arc-swap` must not appear in any public signature. It is an implementation
-  detail behind private types, so it can be replaced without an API change.
-- `arc-swap` is optional and enabled only by the `cpu` feature, matching the
-  `cpu` gate on the whole session module (`chutoro-core/src/lib.rs`).
-- Every dependency uses a caret requirement (`AGENTS.md`, dependency
-  management).
+- No `unsafe`, no `unwrap`/`expect` outside tests, and no lint suppression
+  without a tightly scoped reason (`Cargo.toml` `[workspace.lints.clippy]`
+  denies `indexing_slicing`, `expect_used` and others in all code;
+  `clippy.toml` only relaxes `expect` in tests).
 - No code file may exceed 400 lines (`AGENTS.md`). `session/mod.rs` is 284
   lines today; new accessors go in a new file if `mod.rs` would cross 400.
-- Every new module starts with a `//!` comment; every public item has Rustdoc
-  with an example (`AGENTS.md`, `docs/rust-doctest-dry-guide.md`).
-- No `unwrap`/`expect` outside tests, no lint suppressions without a scoped
-  reason (`Cargo.toml` `[workspace.lints.clippy]`), and no `unsafe`.
+- Every new module starts with a `//!` comment, and every public item has
+  Rustdoc with an example (`AGENTS.md`, `docs/rust-doctest-dry-guide.md`).
 - Tests must not mutate environment variables.
-- Historical ExecPlans (`docs/execplans/11-2-1-*.md` and earlier) and accepted
-  ADR-0010 must not be edited.
+- Historical ExecPlans (`docs/execplans/11-2-1-*.md` and earlier) must not be
+  edited. ADR-0010's decision text must not be rewritten; it receives only the
+  style guide's `Amended by ADR-0012` banner and an `## Amendments` section.
 - Do not install, upgrade or downgrade Whitaker; `make lint` uses the installed
   wrapper.
 
@@ -130,10 +155,11 @@ git diff --numstat 028c976 -- . ':(exclude)docs/execplans/*'
 Classification is whole-file, except where noted:
 
 - Code: `*.rs` under `chutoro-core/` and `chutoro-compile-contracts/`,
-  `.feature` files, and the fenced Rust program in
-  `chutoro-core/docs/session-refresh-example.md` (hunk-based: the fence is
-  executable test input).
-- Configuration: `Cargo.toml` files and `Cargo.lock`.
+  `*.feature` and `*.stderr` files, and the fenced Rust program in
+  `chutoro-core/docs/session-refresh-example.md`. That file is classified hunk
+  by hunk, because its fence is executable test input.
+- Configuration: `Cargo.toml` files and `Cargo.lock`, including the
+  compile-contract fixture's lockfile.
 - Documentation: other `*.md` under `docs/` and the prose of
   `chutoro-core/docs/session-refresh-example.md`.
 - This ExecPlan is excluded from every count.
@@ -141,72 +167,89 @@ Classification is whole-file, except where noted:
 Limits, each measured as net lines (additions minus deletions) and enforced
 independently:
 
-- Files: if more than 24 non-ExecPlan files change, stop and escalate.
-- Code: if code exceeds +1,200 net lines, stop and escalate.
-- Configuration: if configuration exceeds +20 net lines, stop and escalate.
-- Documentation: if documentation exceeds +500 net lines, stop and escalate.
-- Interface: any public item beyond `LabelSnapshot`, `LabelReader`,
-  `ClusteringSession::label_reader`, `ClusteringSession::label_snapshot`, and
-  the `const` removal on `snapshot_version` requires escalation.
-- Dependencies: any production dependency other than `arc-swap` (caret `1.9.2`,
-  optional, `cpu`-gated), or any new dev-dependency, requires escalation.
-- Architecture: changing the all-or-nothing publish rule, giving readers any
-  mutation or publish capability, or adding a lock to the writer's publish path
-  requires escalation.
+- Files: if more than 28 non-ExecPlan files change, stop and escalate.
+- Code: if code exceeds +1,300 net lines, stop and escalate.
+- Configuration: any configuration change at all is an exception, because no
+  dependency is added. Stop and escalate.
+- Documentation: if documentation exceeds +600 net lines, stop and escalate.
+- Interface: any public item beyond `ClusteringSnapshot`, `SnapshotReader`,
+  `ClusteringSession::snapshot`, `ClusteringSession::snapshot_reader` and the
+  `const` removal on `snapshot_version` requires escalation.
+- Architecture: holding a lock across refresh computation or reader code,
+  giving readers any publish or modify capability, or publishing from any path
+  other than `publish_refresh` requires escalation.
 - Iterations: if a gate still fails after three fix attempts on the same
   cause, stop and escalate.
-- Verification: if the concurrency stress test is flaky (fails on re-run
-  without a code change) even once, stop and escalate; do not add retries.
+- Flakiness: if any new concurrency test fails even once on a re-run without a
+  code change, stop and escalate. Do not add retries.
 - Time: if a milestone takes more than six hours of active work, stop and
   escalate.
-- Ambiguity: if the noise-label representation (issue #462) has to be settled
-  to finish this item, stop and escalate; this plan treats label values as
-  opaque.
+- Ambiguity: if the noise-label representation (issue #462) or the
+  `SnapshotVersion` newtype has to be settled to finish this item, stop and
+  escalate. This plan treats label values as opaque and keeps versions as `u64`.
 
 Budget evidence (see `Context and orientation`): the closest predecessor,
-11.2.1, set 14 files / +1,000 lines and finished at 43 files / +6,710
+11.2.1, set 14 files and +1,000 lines. It finished at 43 files and +6,710
 insertions after one approved increase. Its growth came from a new pure
 pipeline, a Verus proof file, a build-script example loader and five milestones
-of documentation — none of which recur here. 11.1.2, 11.1.3 and 11.1.4 stayed
-inside 8–12 file limits with no recorded increase. This item adds one small
-module, rewires two fields, and is test-heavy, so the estimate is about 14–18
-files, +700–900 code lines (roughly two thirds tests), +6 configuration lines,
-and +300–380 documentation lines. The limits carry about 30% contingency
-because 11.2.1 showed that `-D warnings`, the 400-line cap and compile
-contracts add files late.
+of documentation, and none of those recur here. 11.1.2, 11.1.3 and 11.1.4
+stayed inside 8–12 file limits with no recorded increase. This item adds one
+small module, rewires two fields, and is test-heavy. The estimate is about 20
+files and +800–1,000 code lines, roughly 70% of them tests, with zero
+configuration lines and +400–480 documentation lines. The limits carry about
+30% contingency because 11.2.1 showed that `-D warnings`, the 400-line cap and
+compile contracts add files late.
 
 ## Risks
 
-- Risk: the user declines a new production dependency.
-  Severity: medium. Likelihood: medium. Mitigation: decision `D1` names a
-  std-only fallback, `std::sync::RwLock<Arc<LabelSnapshot>>` with O(1) critical
-  sections (one `Arc` clone or one pointer store). The public API, tests and
-  documents are identical under either choice; only the private cell and the
-  ADR's outcome change. The fallback weakens "never blocks" to "blocks for at
-  most one pointer copy", which the documents must then say.
-- Risk: `arc-swap` behaviour is misunderstood (for example, long-held guards
-  slowing writers). Severity: medium. Likelihood: low. Mitigation: the private
-  cell never returns a `Guard`; every read converts to an owned
-  `Arc<LabelSnapshot>` immediately (`load_full`), which the `arc-swap`
-  performance notes recommend for values held for a long time.
-- Risk: the concurrency stress test is flaky or slow under compile-admission
-  contention. Severity: medium. Likelihood: low. Mitigation: its assertions are
-  schedule-independent (monotonicity and pairing hold for every interleaving);
-  overlap counts are reported, never asserted; sizes are small (eight points,
-  four readers, bounded loops); a `recv_timeout` turns a hang into a failure.
+- Risk: the std lock makes "never blocks" weaker than §12.6's wording.
+  Severity: medium. Likelihood: certain. Mitigation: the plan states the
+  precise guarantee and updates §12.6, ADR-0010 (by amendment banner), the
+  roadmap wording and the users' guide to match. The guarantee is that
+  publication never waits for a refresh, for reader code, or for a held
+  snapshot. It can wait only for another thread's single pointer copy, and that
+  wait is longer only if the scheduler preempts (interrupts) the thread holding
+  the lock. ADR-0012 records the lock-free alternative and the evidence that
+  would justify it later.
+- Risk: a later roadmap item adds a second publication path, for example
+  count-triggered refresh inside `append` (11.2.3), `refresh_full` (11.2.4),
+  seeding (11.3.1) or restore (12.2.3), and breaks version monotonicity or
+  silently strands existing readers. Severity: high. Likelihood: medium.
+  Mitigation:
+  - `publish_next` takes `&mut self`, so the compiler rejects concurrent
+    publishers.
+  - The developers' guide states that every publication goes through
+    `publish_refresh`.
+  - The publisher is created once, in the session constructor. Replacing it
+    would freeze every existing reader, so the guide forbids it.
+  - Seeded or restored sessions must use a named
+    `SnapshotPublisher::with_initial` extension, which this item does not add.
+- Risk: the concurrency stress test hangs or flakes under compile-admission
+  contention on a shared 6-core host. Severity: medium. Likelihood: low.
+  Mitigation:
+  - Barriers make the observed version set deterministic.
+  - Every wait has a deadline.
+  - A drop guard on the writer releases waiting readers if it panics.
+  - Results are collected and asserted on the main thread.
+  - Thread counts are small: four readers and four cycles.
 - Risk: the trybuild compile contract or the no-`cpu` fixture needs updating
-  for the new types. Severity: low. Likelihood: high. Mitigation: planned
-  explicitly in `EP-M3`.
+  for the new types. Severity: low. Likelihood: certain. Mitigation: planned in
+  `EP-M2`. The fixture lockfile
+  `chutoro-compile-contracts/tests/fixtures/session_api_without_cpu/Cargo.lock`
+  is unaffected because no dependency is added. Do not regenerate it.
 - Risk: `snapshot_version()` losing `const` breaks a caller. Severity: low.
-  Likelihood: low. Mitigation: a repository search found no `const` caller; the
-  crate is pre-1.0 and unreleased, so no compatibility shim is warranted.
+  Likelihood: low. Mitigation: a repository search found no `const` use (the
+  `public_const_apis.rs` contract does not use it), and the crate is pre-1.0
+  and unreleased, so no compatibility shim is warranted. Recorded in
+  `docs/migration-notes.md`.
 - Risk: the saturation test writes the private `snapshot_version` field, which
   disappears. Severity: low. Likelihood: certain. Mitigation: the test seeds
-  the cell through the private publisher instead (`EP-M2`).
-- Risk: `arc-swap` does not build on the workspace MSRV (Rust 1.89).
-  Severity: low. Likelihood: low. Mitigation: arc-swap 1.9.2 already builds in
-  this workspace's dev graph (via `rstest-bdd` → `i18n-embed`) and declares no
-  `rust-version`; CI's toolchain matrix is the arbiter.
+  the publisher through a test-only method (`EP-M1`).
+- Risk: `ClusteringSnapshot` lands before 12.1.1 defines its full shape.
+  Severity: medium. Likelihood: certain. Mitigation: all fields are private, so
+  adding §13.1's fields later is not a breaking change. `Eq` is not derived,
+  because a later `f32` field would force its removal. The 12.1.1 roadmap text
+  is reworded to "extend" this type (`D2`).
 
 ## Progress
 
@@ -215,16 +258,16 @@ contracts add files late.
 - [x] (2026-11-28 14:40Z) Reconnaissance by a Wyvern team: session code,
   test infrastructure, documentation surface, and historical budgets.
 - [x] (2026-11-28 14:50Z) Prior-art check on `arc-swap` progress guarantees.
-- [x] (2026-11-28 15:30Z) Initial draft written.
-- [ ] Community-of-experts design review applied.
-- [ ] Plan approved by the user, including decision `D1`.
-- [ ] `EP-M1` Snapshot value types and private publication cell, with unit
-  tests.
-- [ ] `EP-M2` Session rewired onto the cell; `label_reader` and
-  `label_snapshot` exposed; sequential and concurrent tests green.
-- [ ] `EP-M3` Behavioural scenarios, compile contracts, and the published
-  example.
-- [ ] `EP-M4` Documentation, ADR-0012, and roadmap closure.
+- [x] (2026-11-28 15:30Z) Initial draft written and committed (`5242ba3`).
+- [x] (2026-11-28 16:45Z) Community-of-experts design review (four reviewers:
+  structure and contracts, failure modes and cost, verification and tests,
+  alternatives and long-term fit) applied in this revision.
+- [ ] Plan approved by the user.
+- [ ] `EP-M1` Internal rewire: the session publishes through a private
+  `SnapshotPublisher`; all existing tests stay green.
+- [ ] `EP-M2` Public reader surface: `ClusteringSnapshot`, `SnapshotReader`,
+  accessors, unit, model, concurrency, behavioural and compile-contract tests.
+- [ ] `EP-M3` Published example, documentation, ADR-0012, roadmap closure.
 
 ## Surprises & discoveries
 
@@ -236,72 +279,151 @@ contracts add files late.
 - Observation: the "never blocks the writer" claim is untrue for cross-thread
   readers and is untested. Evidence: `session/tests/concurrency.rs` shares the
   session as `Arc<RwLock<ClusteringSession>>`, never calls `labels()`, and
-  never refreshes while readers run. The same claim appears in design §12.3 and
-  §12.6, ADR-0010, the `ClusteringSession` Rustdoc and the users' guide.
-  Impact: the gap is real and observable, which motivates the reader handle.
+  never refreshes while readers run. The same claim appears in design §12.3,
+  §12.5 ("Early `labels()` accessor") and §12.6, in ADR-0010, in the
+  `ClusteringSession` Rustdoc and in the users' guide. Impact: the gap is real,
+  which motivates the reader handle. The wording is corrected everywhere it
+  appears.
 - Observation: labels and version are separate fields, so no reader could read
   a consistent pair without a lock. Impact: the snapshot pairs them.
+- Observation: design §13.1 already specifies a `ClusteringSnapshot` that
+  "replaces the raw `Arc<Vec<usize>>`", and roadmap 12.1.1 requires 11.2.2.
+  Evidence: `docs/chutoro-design.md` §13.1; `docs/roadmap.md` 12.1.1. Impact:
+  this item introduces that type's first two fields instead of a separately
+  named type that 12.1.1 would then have to replace (`D2`).
+- Observation: `arc-swap` 1.9.2, the version in `Cargo.lock`, has known
+  memory-safety bugs. Evidence: the crate's own `CHANGELOG.md`. Version 1.9.4
+  fixed a use-after-free involving strong and weak pointers stored in different
+  instances. Version 1.9.5 fixed `load` returning a value stored into a
+  _different_ instance after a freed address was reused. Versions 1.9.0 and
+  1.9.1 strengthened orderings because the "original proofs [were] based on
+  wrong reading of standard". Impact: decision `D1` changed from `arc-swap` to
+  the standard library.
 - Observation: stale references. `session/mod.rs` cites tests in
-  `session/tests.rs` (actual: `session/tests/concurrency.rs`), and
+  `session/tests.rs`, but they are in `session/tests/concurrency.rs`.
   `session/tests/concurrency.rs` says the session is "defined in
-  `session_impl.rs`" (it is defined in `session/mod.rs`). Impact: fixed in
-  `EP-M2` because those comments describe the concurrency model being changed.
-- Observation: a rebuild-stage refresh failure leaves core distances recomputed
-  and dirty bits cleared, while labels, version, pending edges and backbone are
-  unchanged. Evidence: `refresh_impl.rs`, `recompute_and_rebuild`. Impact: none
-  for publication (the published cell is untouched); recorded so nobody reads
-  "all-or-nothing" as covering core distances.
+  `session_impl.rs`", but it is defined in `session/mod.rs`. The
+  `publish_refresh` comment in `refresh_impl.rs` cites the 11.2.1 plan's
+  tolerance. Impact: fixed in `EP-M1` and `EP-M2`, because those comments
+  describe code being changed.
+- Observation: a rebuild-stage refresh failure leaves core distances
+  recomputed and dirty bits cleared. Labels, version, pending edges and
+  backbone stay unchanged. Evidence: `refresh_impl.rs`,
+  `recompute_and_rebuild`. Impact: none for publication. The users' guide says
+  that core distances are not part of the snapshot.
+- Observation: `FailableSource` always serves three values, and a refresh with
+  no dirty core distances never queries the source. Evidence:
+  `chutoro-core/tests/support/failable_source.rs` (`new`);
+  `session/core_distance.rs` returns early when nothing is dirty. Impact: a
+  "failing refresh" test must append a point before enabling failure, as
+  `refresh_errors.rs::failed_refresh_preserves_snapshot_and_pending` does.
+- Observation: `last_refresh_len` is written by `publish_refresh` and never
+  read, and it always equals the published length. Impact: out of scope here.
+  11.2.3 should derive its count trigger from the snapshot length and may
+  remove the field then (`D9`).
 
 ## Decision log
 
-- D1. Decision (needs user approval): publish snapshots through
-  `arc_swap::ArcSwap<LabelSnapshot>` (crate `arc-swap`, caret `1.9.2`,
-  optional, enabled by the `cpu` feature). Rationale: §12.6 promises that
-  readers never block the writer. `arc-swap` documents lock-free writers and
-  lock-free, mostly wait-free readers; a reader's retained `Arc` never delays a
-  store. It is the established Rust crate for this "read-mostly, atomically
-  replaced `Arc`" pattern, is MIT OR Apache-2.0, and already sits in
-  `Cargo.lock` at 1.9.2. Rejected alternative, kept as the fallback if `D1` is
-  declined: `std::sync::RwLock<Arc<LabelSnapshot>>`, where each critical
-  section is one `Arc` clone or one pointer store. That uses no dependency, but
-  a writer can still wait for a reader for the duration of a clone and the lock
-  can be poisoned (recoverable here because the protected value is always a
-  valid `Arc`, but it adds a path to reason about). Also rejected: a
-  handwritten `AtomicPtr` scheme (needs `unsafe` and its own reclamation
-  proof); and "documentation only, keep `RwLock<ClusteringSession>`" (does not
-  meet the roadmap item). ADR-0010's "no new production dependency" driver was
-  scoped to 11.2.1 and does not bind this item; ADR-0012 records the new
-  decision. Date/Author: 2026-11-28, planning.
-- D2. Decision: pair version and labels in one immutable `LabelSnapshot` value
-  and publish that value as a unit. Rationale: separate fields cannot be read
-  consistently without a lock; one `Arc<LabelSnapshot>` makes the pair a single
-  atomic unit (`INV-PAIR`). Date/Author: 2026-11-28, planning.
-- D3. Decision: split capabilities. A private, non-`Clone` `SnapshotPublisher`
-  owned by the session is the only type that can store; the public
-  `LabelReader` can only load. Both wrap the same
-  `Arc<ArcSwap<LabelSnapshot>>`. Rationale: makes "exactly one writer"
-  (`L-SINGLE-WRITER`) a consequence of ownership and visibility rather than of
-  discipline. Date/Author: 2026-11-28, planning.
-- D4. Decision: `ClusteringSession::labels` and `snapshot_version` read the
-  cell; the separate `labels` and `snapshot_version` fields are removed.
-  Rationale: one source of truth, so the session's own reads cannot disagree
-  with readers' (`INV-SAME-PUBLICATION`). Date/Author: 2026-11-28, planning.
-- D5. Decision: no Verus proof, no Kani harness, no `loom` model for this item.
-  Rationale: see `Verification plan`, `Formal verification decision`.
-  Date/Author: 2026-11-28, planning.
-- D6. Decision: a reader outliving its session keeps returning the final
-  published snapshot; there is no "session closed" signal. Rationale: the
-  snapshot is still a valid, immutable result; a liveness signal would add API
-  with no current consumer. Date/Author: 2026-11-28, planning.
-- D7. Decision: extend the existing `session-refresh` tested example rather
-  than add a second marked fence. Rationale: `chutoro-core/build.rs` extracts
-  exactly one example identifier (`EXAMPLE_ID = "session-refresh"`); a second
-  fence would need loader changes outside this item's scope. Date/Author:
-  2026-11-28, planning.
-- D8. Decision: no `insta` snapshot tests.
-  Rationale: this item adds no multivariant output format; the values under
-  test are small integers and vectors that `assert_eq!` states exactly.
-  Date/Author: 2026-11-28, planning.
+- D1. Decision: publish through
+  `std::sync::RwLock<Arc<ClusteringSnapshot>>` shared between the session's
+  publisher and its readers. Each critical section is one pointer replacement
+  (writer) or one `Arc` clone (reader), and the old snapshot is dropped after
+  the lock is released. Rationale:
+  - It meets the roadmap's need. Readers never wait for a refresh, and the
+    writer never waits for reader code or for a held snapshot.
+  - It adds no dependency, no imported `unsafe` code and no MSRV risk, and it
+    can later be modelled with `loom` or paired with a `Condvar` for change
+    notification.
+  - On Linux, `std`'s `RwLock` is futex-based and prefers writers, so readers
+    cannot starve the writer.
+  - Poisoning, which happens when a thread panics while holding the lock, is
+    unreachable: neither critical section can panic (`Arc::clone` aborts on
+    overflow and does not unwind). Lock results are still handled with
+    `PoisonError::into_inner`, never `expect`.
+  Rejected:
+  - `arc-swap` (lock-free). 1.9.2 has the memory-safety bugs recorded in
+    `Surprises & discoveries`, even 1.9.5 brings about 70 `unsafe` sites and
+    the `rustversion` dependency into the production graph, and no contention
+    measurement shows the lock is a bottleneck. ADR-0012 records `arc-swap`
+    1.9.5 or later as a measured future option behind the same private type.
+  - A home-grown `AtomicPtr` scheme: needs `unsafe` and its own memory
+    reclamation proof.
+  - Splitting the session at construction into writer and reader: a breaking
+    change that gains nothing over `snapshot_reader(&self)`.
+  - `std::sync::mpsc`: queue semantics with a single consumer, not "latest
+    value".
+  - `tokio::sync::watch`: brings tokio into the core crate.
+  - `left-right`: makes the writer wait for readers.
+  - A seqlock: needs `Copy` data or `unsafe`.
+  - Documenting `Arc<RwLock<ClusteringSession>>`: does not meet the roadmap
+    item.
+  ADR-0010's "no new production dependency" driver was scoped to 11.2.1, so it
+  was not the reason for this choice. Date/Author: 2026-11-28, revised after
+  design review (original draft chose `arc-swap`).
+- D2. Decision: the published value is the `ClusteringSnapshot` of design
+  §13.1, introduced here with its first two fields, `version: u64` and
+  `labels: Arc<Vec<usize>>`, all fields private. It derives `Clone` and
+  `PartialEq`, not `Eq`, and has a handwritten `Debug` that prints the version
+  and the label count rather than every label. Rationale: one name for the
+  published read model avoids a guaranteed rename in 12.1.1. Private fields
+  make 12.1.1's additions non-breaking. Avoiding `Eq` keeps a later `f32` field
+  possible. A compact `Debug` keeps `tracing` fields small. Rejected: a separate
+  `LabelSnapshot` that 12.1.1 would supersede, which means two public types
+  and a churned name. Date/Author: 2026-11-28, design review.
+- D3. Decision: versions stay `u64`. The `SnapshotVersion` newtype from §13.1
+  is deferred to 12.1.1. Rationale: `snapshot_version() -> u64` is existing
+  public API, 11.2.4 subtracts versions, and 12.1.1 owns the snapshot's type
+  vocabulary, including `ClusterLabel`. Introducing half of that vocabulary
+  here would pre-empt its design. Date/Author: 2026-11-28, design review.
+- D4. Decision: split capabilities between two types.
+  - `SnapshotPublisher` is private to the session module, does not implement
+    `Clone`, and is owned by the session. It holds a writer-local
+    `latest: Arc<ClusteringSnapshot>` and the shared cell, and its only
+    mutating method is `publish_next(&mut self, labels)`.
+  - `SnapshotReader` is public and can only read.
+  Rationale: `&mut self` turns "exactly one writer" (`L-SINGLE-WRITER`) into a
+  compiler-checked property rather than a comment. The writer-local copy means
+  the session's own reads never touch the lock, and `publish_next` never has to
+  load before it stores. Date/Author: 2026-11-28, design review (the draft used
+  `&self`).
+- D5. Decision: `SnapshotReader` exposes `snapshot() -> Arc<ClusteringSnapshot>`
+  and `snapshot_version() -> u64`, and has no `labels()`. Rationale: separate
+  `labels()` and `snapshot_version()` calls on a reader would bring back the
+  torn read this item removes. `snapshot_version()` is kept as a documented
+  cheap "has anything changed?" check. Returning `Arc<ClusteringSnapshot>`
+  keeps the copy O(1) as §13.1's fields arrive. The session's own `labels()` and
+  `snapshot_version()` stay, because `&self` already excludes a concurrent
+  refresh. Date/Author: 2026-11-28, design review.
+- D6. Decision: `ClusteringSession::labels`, `snapshot_version` and `snapshot`
+  read the publisher's writer-local `latest`. The fields
+  `labels: Arc<Vec<usize>>` and `snapshot_version: u64` are removed. Rationale:
+  there is one source of truth, so `session.labels()` and
+  `reader.snapshot().labels()` return the same allocation
+  (`INV-SAME-PUBLICATION`). Date/Author: 2026-11-28, planning.
+- D7. Decision: a reader outliving its session keeps returning the final
+  published snapshot, and there is no "session closed" signal. Rationale: the
+  snapshot is still a valid, immutable result, and a liveness signal would add
+  API with no current consumer. ADR-0012 records that a leaked reader keeps the
+  final snapshot's memory alive, about `8n` bytes for `n` labels on 64-bit
+  targets. Date/Author: 2026-11-28, planning.
+- D8. Decision: keep the published example single-threaded and put the
+  threaded demonstration in the `snapshot_reader` Rustdoc using
+  `std::thread::scope`. Rationale: `chutoro-core/build.rs` extracts exactly one
+  example identifier (`EXAMPLE_ID = "session-refresh"`). Its generated `run()`
+  returns `Result<(), ChutoroError>`, which cannot carry a thread-join error
+  without `expect`. A racy "either version 0 or 1" assertion would also teach
+  the wrong pattern. Date/Author: 2026-11-28, design review.
+- D9. Decision: leave `last_refresh_len` untouched.
+  Rationale: removing it is unrelated to reader publication. 11.2.3 owns the
+  count trigger that would replace it. Date/Author: 2026-11-28, design review.
+- D10. Decision: no Verus proof, Kani harness or `loom` model.
+  Rationale: see `Formal verification decision`. Date/Author: 2026-11-28,
+  planning, wording revised after design review.
+- D11. Decision: `insta` is not used for label data. The two handwritten
+  `Debug` outputs are new formatted output, so each is pinned with an exact
+  `assert_eq!` on `format!("{:?}", …)` instead. Rationale: each output is one
+  short line, and an exact assertion is clearer than a snapshot file.
+  Date/Author: 2026-11-28, design review.
 
 ## Outcomes & retrospective
 
@@ -310,101 +432,171 @@ Not started. To be completed at each milestone and at the end.
 ## Context and orientation
 
 Inspected base revision: `028c976` (`main`, "Cancel superseded pull-request
-runs in every PR workflow (#481)"). Relocate symbols with
+runs in every PR workflow (#481)"). To relocate symbols, run
 `rg -n 'fn labels|fn snapshot_version|fn publish_refresh' chutoro-core/src/session`.
 
 The session module lives in `chutoro-core/src/session/` and is compiled only
-with the `cpu` feature (on by default; `chutoro-core/src/lib.rs` declares
-`#[cfg(feature = "cpu")] mod session;` and re-exports `ClusteringSession`,
-`SessionConfig` and `SessionRefreshPolicy`).
+with the `cpu` feature, which is on by default. `chutoro-core/src/lib.rs`
+declares `#[cfg(feature = "cpu")] mod session;` and re-exports
+`ClusteringSession`, `SessionConfig` and `SessionRefreshPolicy`.
 
 - `session/mod.rs` (284 lines) defines
-  `ClusteringSession<D: DataSource + Send + Sync>`, its private fields, and
-  read accessors: `config`, `point_count`, `snapshot_version` (`const fn`,
-  returns the `snapshot_version: u64` field), `labels` (returns
-  `Arc::clone(&self.labels)`), and `core_distance`. It also holds a compile-time
-  `Send + Sync` assertion for the session.
-- `session/session_impl.rs` (286 lines) constructs the session
-  (`new_with_index_result` sets `labels: Arc::new(Vec::new())` and
-  `snapshot_version: 0`) and implements `append`.
+  `ClusteringSession<D: DataSource + Send + Sync>`, which derives `Debug`,
+  together with its private fields and its read accessors:
+  - `config`;
+  - `point_count`;
+  - `snapshot_version`, a `const fn` returning the `snapshot_version: u64`
+    field;
+  - `labels`, which returns `Arc::clone(&self.labels)`;
+  - `core_distance`.
+
+  It also holds a compile-time `Send + Sync` assertion for the session.
+- `session/session_impl.rs` (286 lines) constructs the session and implements
+  `append`. Its `new_with_index_result` sets `labels: Arc::new(Vec::new())` and
+  `snapshot_version: 0`.
 - `session/refresh_impl.rs` (208 lines) implements `refresh`. It calls
-  `recompute_and_rebuild`, and only on `Ok` calls `publish_refresh`, which
-  infallibly sets `self.labels = Arc::new(outcome.labels)`, replaces the
-  backbone, clears `pending_edges`, records `last_refresh_len` and sets
-  `self.snapshot_version = self.snapshot_version.saturating_add(1)`. On `Err`
-  it logs a `warn!` and returns the error with nothing published.
-- `session/refresh/mod.rs` is the pure rebuild (`rebuild_mst_labels`). Labels
+  `recompute_and_rebuild`, and only on `Ok` calls `publish_refresh`. That
+  method cannot fail. It sets `self.labels = Arc::new(outcome.labels)`,
+  replaces the backbone, clears `pending_edges`, records `last_refresh_len`,
+  and sets `self.snapshot_version = self.snapshot_version.saturating_add(1)`. On
+  `Err`, `refresh` logs a `warn!` and returns the error with nothing published.
+- `session/refresh/mod.rs` is the pure rebuild, `rebuild_mst_labels`. Labels
   come from `extract_labels_from_mst` (`chutoro-core/src/hierarchy/mod.rs`):
-  cluster ids `0..k`, noise `k` when present, all zeros when no cluster is
-  selected. This plan treats label values as opaque.
-- Tests are under `session/tests/`: `common.rs` (fixtures `session_builder`,
-  `make_session`), `concurrency.rs` (two `RwLock`-based reader tests),
-  `refresh.rs` (including
-  `refresh_saturates_snapshot_version_at_the_representational_limit`, which
-  writes `session.snapshot_version = u64::MAX` directly), `refresh_errors.rs` (a
-  `SnapshotState` capture helper and `FailableSource` from
-  `chutoro-core/tests/support/failable_source.rs`, which has `fail()` and
-  `recover()`), and `refresh_properties.rs`.
-- Behavioural tests use `rstest-bdd` 0.6.0 (`rstest-bdd` and
-  `rstest-bdd-macros` dev-dependencies of `chutoro-core`). The pattern is in
+  cluster ids `0..k`, noise as `k` when present, and all zeros when no cluster
+  is selected. This plan treats label values as opaque.
+- Tests live under `session/tests/`:
+  - `common.rs` provides the `session_builder` and `make_session` fixtures.
+  - `concurrency.rs` holds two `RwLock`-based reader tests.
+  - `refresh.rs` includes
+    `refresh_saturates_snapshot_version_at_the_representational_limit`, which
+    writes `session.snapshot_version = u64::MAX` directly.
+  - `refresh_errors.rs` has a `SnapshotState` capture helper and uses
+    `FailableSource` from `chutoro-core/tests/support/failable_source.rs`.
+    That source serves the three values `0.0, 1.0, 2.0` and has `fail()` and
+    `recover()`.
+  - `refresh_properties.rs` holds the existing refresh properties.
+- Proptest conventions: `crate::test_utils::suite_proptest_config(cases)`
+  (`chutoro-core/src/test_utils.rs`) sets per-suite case counts. A suite that
+  checks coverage across its cases uses an explicit `TestRunner` with
+  `fork: false` and collects results in a `RefCell`, as in
+  `chutoro-core/src/hnsw/tests/property/edge_harvest_output/suite.rs`. An
+  explicit runner writes no regression file unless `source_file` is set.
+  ADR-0001 records the resulting warning.
+- Behavioural tests use `rstest-bdd` 0.6.0, through the `rstest-bdd` and
+  `rstest-bdd-macros` dev-dependencies of `chutoro-core`. The pattern is in
   `chutoro-core/tests/session_append_bdd.rs` (298 lines) with
-  `chutoro-core/tests/features/session_append.feature`: a `#[fixture] fn world`
-  returning `StepResult<World, _>`, `#[given]/#[when]/#[then]` steps, and one
-  `#[scenario(path = ..., name = ...)]` function per scenario.
+  `chutoro-core/tests/features/session_append.feature`:
+  - a `#[fixture] fn world` returning `StepResult<World, _>`;
+  - `#[given]`, `#[when]` and `#[then]` step functions;
+  - one `#[scenario(path = ..., name = ...)]` function per scenario.
+
+  Steps are registered per test binary, so a new binary cannot call the append
+  suite's steps; it reuses only their wording.
 - The published example `chutoro-core/docs/session-refresh-example.md` is
-  extracted by `chutoro-core/build.rs` (single `EXAMPLE_ID`) and run by
-  `chutoro-core/tests/users_guide_session_refresh.rs` and by the append BDD
-  suite.
+  extracted by `chutoro-core/build.rs`, which supports a single `EXAMPLE_ID`.
+  It is run by `chutoro-core/tests/users_guide_session_refresh.rs` and by the
+  append BDD suite.
 - `chutoro-compile-contracts/tests/session_api_surface.rs` runs `trybuild`
-  `pass` cases (including `tests/trybuild/session_api_cpu_enabled.rs`) and
-  builds `tests/fixtures/session_api_without_cpu`, asserting the session types
-  are unavailable without `cpu`.
-- Dev-dependencies already present in `chutoro-core`: `rstest` 0.28,
-  `rstest-bdd` 0.6, `proptest` 1.8 (lock 1.12), `googletest` 0.14.4,
-  `pretty_assertions` 1.4.1, `insta` 1.49. Not present anywhere: `loom`,
-  `shuttle`. `arc-swap` 1.9.2 is in `Cargo.lock` only transitively.
-- Proof tooling: Verus proofs live in top-level `verus/` and run with
-  `make verus` (default list in the `Makefile`); Kani harnesses run with
-  `make kani`. Neither covers session publication.
-- Gates: `make check-fmt`, `make lint` (interrogate, rustdoc, Clippy with
-  `-D warnings`, Whitaker), `make test` (nextest over all targets and features,
-  then doctests), plus `make markdownlint` and `make nixie` for documentation.
+  cases:
+  - `pass` cases, including `tests/trybuild/session_api_cpu_enabled.rs`;
+  - `compile_fail` cases with `.stderr` files, for example
+    `run_cpu_pipeline_is_private.rs`.
 
-Abstraction sweep (per the `AGENTS.md` abstraction policy): a repository-wide
-search for `RwLock<Arc`, `Mutex<Arc`, `AtomicPtr`, `ArcSwap` and `OnceLock<Arc`
-in `*.rs` found no existing publication cell, so the new publisher/reader pair
-duplicates nothing.
+  It also builds `tests/fixtures/session_api_without_cpu` and asserts that the
+  session types are unavailable without `cpu`.
+- Dev-dependencies already present in `chutoro-core`:
+  - `rstest` 0.28 and `rstest-bdd` 0.6;
+  - `proptest` 1.8 (1.12 in the lockfile);
+  - `googletest` 0.14.4, `pretty_assertions` 1.4.1 and `insta` 1.49.
 
-Budget survey: 11.1.2 (10 files / 450 lines, no increase), 11.1.3 (8 files /
-350 lines, no increase; one approved dev-dependency), 11.1.4 (12 files / 600
-lines, no increase), 11.2.1 (14 files / 1,000 lines; finished at 43 files and
-+6,710 insertions with one user-approved increase driven by approved scope
-growth — a pure pipeline, a Verus file, an example loader — and by repository
-constraints: `-D warnings` dead-code gating, a four-argument Clippy limit, and
-the 400-line cap). Nothing in this item resembles 11.2.1's growth drivers, so
-the limits in `Tolerances` sit between 11.1.4 and 11.2.1.
+  `loom` and `shuttle` are not present anywhere.
+- `.config/nextest.toml` sets `slow-timeout = 60s` with `terminate-after = 1`.
+- Proof tooling:
+  - Verus proofs live in the top-level `verus/` directory and run with
+    `make verus`, which uses the default list in the `Makefile`.
+  - Kani harnesses run with `make kani`.
+  - Neither covers session publication.
+- Gates:
+  - `make check-fmt`;
+  - `make lint`, which runs interrogate, rustdoc, Clippy with `-D warnings`,
+    and Whitaker;
+  - `make test`, which runs nextest over all targets and features, then the
+    doctests;
+  - `make markdownlint` (with spelling) and `make nixie` for documentation.
+
+Abstraction sweep, as the `AGENTS.md` abstraction policy requires: a
+repository-wide search of `*.rs` files for `RwLock<Arc`, `Mutex<Arc`,
+`AtomicPtr`, `ArcSwap` and `OnceLock<Arc` found no existing publication cell,
+so the new publisher/reader pair duplicates nothing.
+
+Budget survey:
+
+- 11.1.2: 10 files / 450 lines, no increase.
+- 11.1.3: 8 files / 350 lines, no increase. It had one approved
+  dev-dependency.
+- 11.1.4: 12 files / 600 lines, no increase.
+- 11.2.1: 14 files / 1,000 lines. It finished at 43 files and +6,710
+  insertions after one user-approved increase. Approved scope growth drove the
+  increase: a pure pipeline, a Verus file and an example loader. Repository
+  constraints added to it: `-D warnings` dead-code gating, a four-argument
+  Clippy limit, and the 400-line cap.
+
+Nothing in this item resembles 11.2.1's growth drivers, so the limits in
+`Tolerances` sit between 11.1.4 and 11.2.1.
+
+Terms used in this plan:
+
+- _Single writer, multiple readers_: one thread changes the session while any
+  number of threads read published results.
+- _Critical section_: code that runs while a lock is held.
+- _Linearizable_: every operation appears to take effect at one instant
+  between its start and its end. A lock guarantees this for the operations it
+  protects.
+- _Lock-free_: some thread always makes progress even if others are paused.
+- _Wait-free_: every thread finishes in a bounded number of its own steps.
+- _Red-Green-Refactor_: first write a test that fails for the expected reason
+  (red), then make the smallest change that passes it (green), then tidy the
+  code with the test still passing (refactor).
+- _Plateau_: a milestone's end state, which must be coherent and pass every
+  gate.
+- _Non-vacuity_: evidence that a test or proof could fail if the code were
+  wrong.
+- _Negative control_: a deliberate fault that a test must reject.
+- _Trybuild compile contract_: a test that asserts a snippet compiles (`pass`)
+  or fails to compile with a given error (`compile_fail`).
+- _Y-statement_: the one-sentence ADR summary "In the context of …, facing …,
+  we decided for …, to achieve …, accepting …".
 
 Relevant documentation and skills for the implementer:
 
-- `docs/chutoro-design.md` §12.2, §12.3 (session lifecycle, "Reading"), §12.6
-  (concurrency model), §12.7 (differential and state-machine testing).
-- `docs/adrs/adr-0010-incremental-refresh-domain-boundary.md` (why `labels()`
-  landed early; publish is one commit block).
-- `docs/property-testing-design.md` (property-test conventions and CI routing).
-- `docs/rust-testing-with-rstest-fixtures.md` (fixtures and parameterized
-  cases).
-- `docs/rust-doctest-dry-guide.md` (doctest style, hidden setup lines).
-- `docs/complexity-antipatterns-and-refactoring-strategies.md` (keep helpers
-  small; avoid "bumpy road" functions that Whitaker and CodeScene flag).
-- `docs/developers-guide.md` "Session public APIs", "Assertion crates", and
-  "Choosing a verification tool".
-- `docs/documentation-style-guide.md` ADR section (required headings and
-  template).
-- Skills: `rust-router`, then `rust-async-and-concurrency` (shared state,
-  `Send`/`Sync`), `rust-types-and-apis` (public type shape),
-  `rust-unit-testing` (rstest, googletest, pretty_assertions), `proptest`,
-  `rust-verification` (method selection), `arch-decision-records` (ADR-0012),
-  `codegraph-mcp` for navigation.
+- `docs/chutoro-design.md`:
+  - §12.2 and §12.3 (session lifecycle and the "Reading" phase);
+  - §12.5 (the "Early `labels()` accessor" paragraph);
+  - §12.6 (concurrency model);
+  - §12.7 (differential and state-machine testing);
+  - §13.1 (`ClusteringSnapshot`).
+- `docs/adrs/adr-0010-incremental-refresh-domain-boundary.md` explains why
+  `labels()` landed early and why publication is one commit block.
+- `docs/property-testing-design.md` covers property-test conventions and CI
+  routing.
+- `docs/rust-testing-with-rstest-fixtures.md` covers fixtures and
+  parameterized cases.
+- `docs/rust-doctest-dry-guide.md` covers doctest style and hidden setup lines.
+- `docs/complexity-antipatterns-and-refactoring-strategies.md`: keep helpers
+  small, and avoid "bumpy road" functions that Whitaker and CodeScene flag.
+- `docs/developers-guide.md`: the "Session public APIs", "Assertion crates"
+  and "Choosing a verification tool" sections.
+- `docs/documentation-style-guide.md`: the ADR section (required headings,
+  template and amendment banner).
+- Skills:
+  - `rust-router`, then `rust-async-and-concurrency` for shared state and
+    `Send`/`Sync`;
+  - `rust-types-and-apis` for the shape of the public types;
+  - `rust-unit-testing` for rstest, googletest and pretty_assertions;
+  - `proptest`;
+  - `rust-verification` for method selection;
+  - `arch-decision-records` for ADR-0012;
+  - `codegraph-mcp` for navigation.
 
 ## Conformance basis
 
@@ -413,30 +605,49 @@ Upstream artefacts at revision `028c976`:
 - `docs/roadmap.md` item 11.2.2 (`RM-11.2.2`): "Implement
   `ClusteringSession::labels` returning the latest `Arc<Vec<usize>>` label
   snapshot without blocking the writer. Requires 11.2.1."
-- `docs/chutoro-design.md` §12.2 (`DES-12.2-SWMR`: "Single writer, concurrent
-  readers"; immutable label snapshot), §12.3 phase 4 (`DES-12.3-READ`: readers
-  get `Arc<Vec<usize>>` that does not block the writer), §12.6
-  (`DES-12.6-NONBLOCK`: readers never block the writer and vice versa;
-  `DES-12.6-SWAP`: a new snapshot is published atomically by swapping the
-  `Arc`).
-- ADR-0010 (accepted 2026-11-23): `labels()` signature fixed; publish is
-  all-or-nothing (`ADR10-ATOMIC-PUBLISH`).
-- Roadmap item 11.2.1 acceptance (`RM-11.2.1-ACC`): `labels().len()` equals
-  total point count after refresh; version increments by exactly one per
-  refresh.
-- Downstream consumers: 11.4.4 (snapshot consistency under concurrent readers)
-  and 11.4.5 (session state machine) build on this item's tests.
+- `docs/chutoro-design.md`:
+  - §12.2, `DES-12.2-SWMR`: "Single writer, concurrent readers", with an
+    immutable label snapshot.
+  - §12.3 phase 4, `DES-12.3-READ`: readers get an `Arc<Vec<usize>>` that does
+    not block the writer.
+  - §12.6, `DES-12.6-NONBLOCK`: readers never block the writer and vice versa.
+  - §12.6, `DES-12.6-SWAP`: a new snapshot is published atomically by swapping
+    the `Arc`.
+  - §13.1, `DES-13.1-SNAPSHOT`: `ClusteringSnapshot` is the immutable,
+    versioned read model.
+- ADR-0010 (accepted 2026-11-23) fixes the `labels()` signature and makes
+  publication all-or-nothing (`ADR10-ATOMIC-PUBLISH`).
+- Roadmap item 11.2.1 acceptance (`RM-11.2.1-ACC`): `labels().len()` equals the
+  total point count after refresh, and the version increments by exactly one
+  per refresh.
+- Downstream consumers of this item:
+  - 11.2.3, 11.2.4 and 11.3.1 add new publication triggers;
+  - 11.4.4 and 11.4.5 test the snapshot;
+  - 11.5.1 and 11.5.2 document it and expose it in the CLI;
+  - 12.1.1 extends `ClusteringSnapshot`;
+  - 12.2.3 restores a session at a non-zero version;
+  - 14.3.1 compacts the session.
 - No Terms of Reference document exists for this work.
+
+`DES-12.6-NONBLOCK` is refined, not followed literally (decision `D1`). The
+refined statement is that readers never wait for a refresh, and the writer
+never waits for reader code or held snapshots. The two can contend only for a
+single pointer copy. Design §12.6 and ADR-0010 (by amendment banner) are
+updated to match. This refinement is part of the plan the user is asked to
+approve.
 
 Requirements derived here:
 
 - `REQ-LATEST`: any reader can obtain the most recently published snapshot.
-- `REQ-NONBLOCK`: no reader action can delay publication, and publication never
-  waits for readers; readers never wait for a refresh in progress.
-- `REQ-PAIR`: a reader can obtain version and labels as one consistent pair.
+- `REQ-NONBLOCK`: no reader waits for a refresh, and the writer never waits for
+  reader code or for held snapshots. Contention is limited to O(1) critical
+  sections.
+- `REQ-PAIR`: a reader obtains version and labels as one consistent value.
 - `REQ-SIGNATURE`: `labels(&self) -> Arc<Vec<usize>>` is unchanged.
-- `REQ-PRESERVE`: length, per-refresh increment, saturation and all-or-nothing
-  publication from 11.2.1 still hold.
+- `REQ-PRESERVE`: the length, per-refresh increment, saturation and
+  all-or-nothing publication rules from 11.2.1 still hold.
+- `REQ-EXTENSIBLE`: 12.1.1 can add §13.1's fields without breaking this
+  item's API.
 
 Gaps at the base revision:
 
@@ -447,478 +658,719 @@ Gaps at the base revision:
 Trace links:
 
 ```plaintext
-RM-11.2.2 -> DES-12.6-NONBLOCK -> REQ-NONBLOCK -> EP-M2
-  -> session::tests::label_reader::writer_publishes_while_a_reader_holds_a_snapshot
-RM-11.2.2 -> DES-12.6-SWAP -> REQ-LATEST -> EP-M1, EP-M2
-  -> session::tests::label_reader_model::reader_tracks_publications (proptest)
-DES-12.2-SWMR -> REQ-PAIR -> D2 -> EP-M2
-  -> session::tests::label_reader::concurrent_readers_see_paired_monotone_snapshots
+RM-11.2.2 -> DES-12.6-NONBLOCK -> REQ-NONBLOCK -> D1 -> EP-M2
+  -> session::tests::snapshot_reader::writer_publishes_while_a_reader_holds_a_snapshot
+RM-11.2.2 -> DES-12.6-SWAP -> REQ-LATEST -> EP-M2
+  -> session::tests::snapshot_reader_model::reader_tracks_publications
+DES-12.2-SWMR -> REQ-PAIR -> D2, D5 -> EP-M2
+  -> session::tests::snapshot_reader::concurrent_readers_see_paired_monotone_snapshots
 ADR10-ATOMIC-PUBLISH -> REQ-PRESERVE -> EP-M2
   -> session::tests::refresh_errors::failed_refresh_leaves_reader_snapshot_unchanged
-RM-11.2.1-ACC -> REQ-PRESERVE -> EP-M1 -> session::snapshot::tests::next_snapshot_version_*
-  ; EP-M2 -> refresh_saturates_snapshot_version_at_the_representational_limit
-REQ-SIGNATURE -> EP-M3 -> chutoro-compile-contracts trybuild session_label_reader.rs
-DES-12.3-READ -> EP-M3 -> tests/session_labels_bdd.rs scenarios; tests/users_guide_session_refresh.rs
+RM-11.2.1-ACC -> REQ-PRESERVE -> EP-M1 -> session::snapshot::tests::next_snapshot_version_cases
+  ; EP-M1 -> refresh_saturates_snapshot_version_at_the_representational_limit
+REQ-SIGNATURE, D4 -> EP-M2 -> trybuild session_snapshot_reader.rs and snapshot_publisher_is_private.rs
+DES-13.1-SNAPSHOT -> REQ-EXTENSIBLE -> D2, D3 -> EP-M2 (private fields, no Eq) -> EP-M3 roadmap 12.1.1 wording
+DES-12.3-READ -> EP-M2 -> tests/session_snapshot_bdd.rs ; EP-M3 -> tests/users_guide_session_refresh.rs
 ```
 
 ## Verification plan
 
-The verification is designed before the implementation: the abstract model
-below fixes what must be true, and the implementation structure (one immutable
-snapshot value, one private publisher, one public loader) is chosen so each
-obligation reduces either to a small local argument or to a documented
-third-party axiom.
+The verification is designed before the implementation. The abstract model
+below fixes what must be true. The implementation structure was then chosen so
+that each obligation reduces to a small local argument or to a documented
+standard-library axiom. That structure is one immutable snapshot value, one
+private publisher with an `&mut self` publish, one public reader, and one
+`RwLock` whose critical sections touch only a pointer.
 
 ### Abstract model
 
-Let a snapshot be a pair `s = (v, L)` of a version `v ∈ u64` and a label vector
+A snapshot is a pair `s = (v, L)` of a version `v ∈ u64` and a label vector
 `L`. The session has a point count `n` and a publication history
-`H = [h₀, h₁, …, h_k]`, where `h₀ = (0, [])`. A publication cell `C` always
-holds the last element of `H`.
+`H = [h₀, h₁, …, h_k]`. The initial snapshot `h₀` is `(0, [])` for every
+session constructed today. Later constructors may choose another initial
+snapshot (see `L-SAT`). A shared publication cell `C` always holds the last
+element of `H`. The writer also keeps a local copy `W` that is always equal to
+`C`.
 
 Transitions, all performed by the single writer:
 
-- `append(ids)`: may change `n`; `H` and `C` unchanged.
-- `refresh()` succeeding with labels `L′` where `|L′| = n`: append
-  `h_{k+1} = (sat_inc(h_k.v), L′)` to `H` and set `C := h_{k+1}`, where
-  `sat_inc(v) = v + 1` if `v < u64::MAX`, else `u64::MAX`.
-- `refresh()` failing: `H` and `C` unchanged.
+- `append(ids)`: may change `n`; `H`, `C` and `W` are unchanged.
+- `refresh()` succeeding with labels `L′`, where `|L′| = n`: append
+  `h_{k+1} = (sat_inc(h_k.v), L′)` to `H`, then set `C := h_{k+1}` and
+  `W := h_{k+1}`. Here `sat_inc(v) = v + 1` if `v < u64::MAX`, and `u64::MAX`
+  otherwise.
+- `refresh()` failing: `H`, `C` and `W` are unchanged.
 
-Reader operations, any thread, any time:
+Reader operations, on any thread at any time:
 
-- `load()`: returns the value of `C` at some instant during the call (the
-  linearization point).
+- `load()`: returns the value of `C` at one instant during the call.
 
-Preconditions: none at the API level. `label_reader()` and `load()` are total
-and infallible. Malformed input is impossible because readers supply no input.
+There are no preconditions at the API level. `snapshot_reader()`, `snapshot()`
+and `load()` are total and cannot fail, and readers supply no input, so
+malformed input is impossible.
 
 ### Invariants and lemmas
 
-- `INV-PAIR` (`REQ-PAIR`): every value returned by `LabelReader::snapshot`,
-  `ClusteringSession::label_snapshot`, and the pair (`labels()`,
-  `snapshot_version()`) read from one `snapshot()` is some `h_i ∈ H` — never a
-  version from one publication with labels from another.
+- `INV-PAIR` (`REQ-PAIR`): every `Arc<ClusteringSnapshot>` returned by
+  `SnapshotReader::snapshot` or `ClusteringSession::snapshot` is some
+  `h_i ∈ H`. Its version and labels always come from the same publication.
 - `INV-LATEST` (`REQ-LATEST`): if the writer's publication of `h_k` happens
   before a `load()` begins, that `load()` returns `h_j` with `j ≥ k`. With no
   concurrent writer it returns exactly `h_k`.
-- `INV-MONO` (`REQ-LATEST`): two `load()` calls ordered in one thread return
-  `h_i` then `h_j` with `i ≤ j`, so the observed versions never decrease.
+- `INV-MONO` (`REQ-LATEST`): if one thread makes two `load()` calls in order,
+  they return `h_i` and then `h_j` with `i ≤ j`, so the versions it observes
+  never decrease.
 - `INV-IMMUTABLE`: once returned, a snapshot's version and labels never change.
-- `INV-ATOMIC-PUBLISH` (`REQ-PRESERVE`): a failed refresh leaves `C` unchanged.
+- `INV-ATOMIC-PUBLISH` (`REQ-PRESERVE`): a failed refresh leaves `C` and `W`
+  unchanged.
 - `INV-LEN` (`REQ-PRESERVE`): `|h_i.L|` equals the point count at the moment
-  `h_i` was published (11.2.1's obligation, preserved).
-- `INV-SAME-PUBLICATION`: `session.labels()` and `reader.labels()` called with
-  no publication in between return the same allocation (`Arc::ptr_eq`).
-- `INV-NONBLOCK` (`REQ-NONBLOCK`): a `publish` completes in a bounded number of
-  its own steps regardless of what readers do, including holding any number of
-  snapshots indefinitely; a `load()` never waits for an in-progress refresh.
+  `h_i` was published. This is 11.2.1's obligation, preserved.
+- `INV-SAME-PUBLICATION`: when no publication happens between them,
+  `session.labels()` and `reader.snapshot().labels()` return the same allocation
+  (`Arc::ptr_eq`).
+- `INV-NONBLOCK` (`REQ-NONBLOCK`):
+  - The writer holds the lock only to replace one pointer, and readers hold it
+    only to clone one `Arc`.
+  - No lock is held during refresh computation, during reader code, or while
+    an old snapshot is freed.
+  - Holding any number of snapshots never delays publication.
 - `L-SAT` (version arithmetic): `sat_inc(v) ≥ v`, with equality only at
-  `u64::MAX`; therefore `h_i.v = min(i, u64::MAX)` and versions in `H` are
-  non-decreasing.
-- `L-SINGLE-WRITER`: only the session's private `SnapshotPublisher` can store
-  into `C`, and it is reachable only from `&mut self` methods, so publications
-  are totally ordered by the writer's program order and `H` is well defined.
-- `L-MONO-COMPOSE`: `INV-MONO` follows from `L-SINGLE-WRITER` (publications form
-  a sequence), `AXIOM-LINEARIZABLE` (each load reads one element of that
-  sequence, in an order consistent with real time) and `L-SAT` (the sequence's
-  versions are non-decreasing).
+  `u64::MAX`. Versions in `H` are therefore non-decreasing from any initial
+  snapshot. From `h₀ = (0, [])` this gives `h_i.v = min(i, u64::MAX)`.
+- `L-SINGLE-WRITER`: only `SnapshotPublisher::publish_next(&mut self, …)` can
+  write `C`. The publisher is private to `session`, does not implement `Clone`,
+  and is owned by one session. Every call to `publish_next` therefore needs
+  `&mut ClusteringSession`, so publications are totally ordered by the writer's
+  program order, and `H` is well defined.
+- `L-MONO-COMPOSE`: `INV-MONO` follows from three facts:
+  - `L-SINGLE-WRITER`: publications form one sequence;
+  - `AXIOM-RWLOCK`: each load reads one element of that sequence, in an order
+    consistent with real time;
+  - `L-SAT`: the versions in that sequence never decrease.
 
 ### Axioms (trusted, not verified here)
 
-- `AXIOM-LINEARIZABLE`: `ArcSwap::load_full` and `ArcSwap::store` are
-  linearizable: each load returns the `Arc` stored by the most recent store in
-  some total order consistent with real time. Source: `arc-swap` 1.9 crate
-  documentation. Boundary: `session/snapshot.rs` private cell.
-- `AXIOM-LOCK-FREE`: `ArcSwap` writers are lock-free and readers are lock-free
-  and mostly wait-free; a held `Arc` obtained by `load_full` does not delay a
-  store. Source: `arc-swap` `docs::performance`. Boundary: same. (Under the
-  `D1` fallback this axiom is replaced by `std::sync::RwLock` mutual exclusion
-  with O(1) critical sections, and `INV-NONBLOCK` weakens to "waits at most one
-  pointer copy".)
-- `AXIOM-ARC`: `std::sync::Arc<T>` gives shared immutable access; without
-  interior mutability in `T`, the pointee cannot change while shared. Boundary:
-  `LabelSnapshot` (no `Cell`, `RefCell`, atomics or `Mutex` fields), and no
-  code calls `Arc::get_mut` or `Arc::make_mut` on published data.
-- `AXIOM-OWNERSHIP`: Rust's `&mut self` exclusivity and module privacy; the
-  compiler enforces `L-SINGLE-WRITER` once the publisher is private and not
-  `Clone`.
+- `AXIOM-RWLOCK`: `std::sync::RwLock` gives mutual exclusion between a writer
+  and readers. Releasing a guard happens-before any later acquisition of the
+  lock, so operations under the lock are linearizable. On Linux the
+  implementation prefers writers. Source: the standard library documentation for
+  `RwLock` and its futex implementation. Boundary: the shared cell in
+  `session/snapshot.rs`.
+- `AXIOM-ARC`: `std::sync::Arc<T>` gives shared, unchangeable access. Without
+  interior mutability in `T`, the pointee cannot change while it is shared.
+  `Arc::clone` cannot unwind. Boundary: `ClusteringSnapshot` has no `Cell`,
+  `RefCell`, atomic or `Mutex` field, and no code calls `Arc::get_mut` or
+  `Arc::make_mut` on published data.
+- `AXIOM-OWNERSHIP`: Rust's `&mut self` exclusivity and module privacy. The
+  compiler enforces `L-SINGLE-WRITER` once `publish_next` takes `&mut self` and
+  the publisher type is private and not `Clone`.
 
 ### Methods per obligation
 
 - Obligation: `L-SAT`.
-  Method: parameterized `rstest` table on the pure helper
-  `next_snapshot_version(u64) -> u64`, plus a `proptest` property. Rationale:
-  the function is one saturating add; a table covers both regimes and the
-  boundary, and the property checks the closed form over a range. Domain:
-  `{0, 1, 41, u64::MAX - 1, u64::MAX}`; property over `v in any::<u64>()`
-  asserting `next ≥ v` and `next == v + 1` when `v < u64::MAX`. Artefact:
-  `chutoro-core/src/session/snapshot.rs` `#[cfg(test)] mod tests`. Evidence:
-  `cargo nextest run -p chutoro-core -E 'test(next_snapshot_version)'` fails to
-  compile before `EP-M1`, then passes. Non-vacuity: the table includes both the
-  increment case and the saturated case; mutation `v.wrapping_add(1)` fails the
-  `u64::MAX` row, and `v` (no increment) fails the `0` row.
+  Method: a parameterized `rstest` table over the pure helper
+  `next_snapshot_version(u64) -> u64`. Rationale: the function is one
+  saturating addition. A table covers both regimes and the boundary. A
+  `proptest` over `any::<u64>()` would almost never reach `u64::MAX` and would
+  only restate `saturating_add`, so none is used. Domain: the rows `0 → 1`,
+  `1 → 2`, `41 → 42`, `u64::MAX - 1 → u64::MAX`, and `u64::MAX → u64::MAX`.
+  Artefact: `next_snapshot_version_cases` in the `#[cfg(test)]` module of
+  `chutoro-core/src/session/snapshot.rs`. Evidence: fails to compile before
+  `EP-M1` and passes afterwards. Non-vacuity: the rows include both the
+  increment and the saturated case. The mutant `v.wrapping_add(1)` fails the
+  `u64::MAX` row, and returning `v` unchanged fails the `0` row.
+- Obligation: `REQ-PRESERVE` across the rewire (saturation).
+  Method: the existing named test
+  `refresh_saturates_snapshot_version_at_the_representational_limit`, adapted.
+  It seeds the publisher at `u64::MAX` through the test-only `seed_for_test`
+  and refreshes. In `EP-M2` it also asserts that a reader created _before_
+  seeding observes `u64::MAX` and four labels. Saturation stays out of the
+  behavioural suite, because reaching it needs private seeding.
 - Obligation: `INV-LATEST`, `INV-MONO` (sequential form), `INV-PAIR`,
-  `INV-SAME-PUBLICATION`, `INV-IMMUTABLE`, `INV-LEN`. Method: model-based
-  `proptest` over operation sequences on a real session. Rationale: the
-  properties are about histories of interleaved writer and reader operations;
-  generated sequences reach orderings a handwritten test would not (reader
-  created before vs after refreshes, refresh with no new points, many readers,
-  held snapshots across several refreshes). Domain: sequences of 1–24
-  operations over a 12-point numeric source with `min_cluster_size` in `1..=3`:
-  `AppendNext(k ∈ 0..=3)` (next contiguous indices, capped at the source
-  length), `Refresh`, `NewReader`, `Load(reader)`, `HoldSnapshot(reader)`,
-  `SessionRead`. Oracle (independent of the implementation): a model holding
-  `n` (points appended), `k` (successful refresh count), the expected version
-  `min(k, u64::MAX)`, and the point count at each publication; plus copies
-  (`Vec<usize>` clones) of every held snapshot taken when it was held.
-  Assertions: each `Load` returns version `k` and length equal to the model's
-  `n` at the last refresh; each held snapshot still equals its copy after every
-  later operation; `SessionRead` returns an `Arc` that is `ptr_eq` to a
-  reader's fresh load. Artefact:
-  `chutoro-core/src/session/tests/label_reader_model.rs`. Evidence: fails to
-  compile before `EP-M2`; passes after with the default case count. Record the
-  `proptest` regression file policy: commit any regression file the run
-  creates. Non-vacuity: classify generated cases with `prop_assert!` counters
-  exposed through `proptest`'s `TestRunner` statistics or explicit counters
-  asserted at the end of a dedicated `#[test]` that runs the same strategy for
-  256 cases and requires at least one case with a reader created before two or
-  more refreshes and one case with a snapshot held across a refresh. Mutations
-  that must be rejected: `LabelReader` caching the snapshot at creation (stale
-  `Load`); `publish_refresh` skipping the cell store (stale `Load` and broken
-  `ptr_eq`); `session.labels()` reading a leftover field (broken `ptr_eq`).
-- Obligation: `INV-ATOMIC-PUBLISH`.
-  Method: named `rstest` test using `FailableSource`. Rationale: one specific
-  failure path; the existing `refresh_errors.rs` harness already injects the
-  failure. Domain: a session with one successful refresh, then a forced failing
-  refresh, then recovery and a successful refresh. Artefact:
+  `INV-SAME-PUBLICATION`, `INV-IMMUTABLE`, `INV-LEN`, `INV-ATOMIC-PUBLISH`.
+  Method: a model-based `proptest` over sequences of operations on a real
+  session. Rationale: these are properties of histories in which writer and
+  reader operations interleave. Generated sequences reach orderings that named
+  tests would not, for example:
+  - a reader cloned between refreshes;
+  - a refresh with no new points;
+  - a failed refresh between successful ones;
+  - many readers;
+  - snapshots held across several refreshes.
+  Domain: sequences of 1–24 operations over a ten-point `FailableSource` with
+  `min_cluster_size` in `1..=3`. The operations are:
+  - `AppendNext(k ∈ 0..=3)`: appends the next contiguous indices, capped at
+    the source length.
+  - `Refresh`.
+  - `FailingRefresh`: calls `fail()`, then `refresh()`, then `recover()`, so no
+    append ever runs while the source is failing.
+  - `NewReader`.
+  - `CloneReader(r)`.
+  - `Load(r)`.
+  - `HoldSnapshot(r)`.
+  - `SessionRead`.
+
+  Reader indices resolve as `r % readers.len()`, and an operation is a no-op
+  when no reader exists. That keeps the generator total (no `prop_assume`) and
+  keeps sequences valid when shrinking removes a `NewReader`. Oracle, which is
+  independent of the implementation:
+  - The model holds `n` (points appended), `k` (successful refreshes) and the
+    published length.
+  - It also holds a `Vec<usize>` copy of every snapshot taken by
+    `HoldSnapshot`.
+  - `FailingRefresh` accepts either outcome. On `Ok` the model advances `k`
+    and the published length. On `Err` the next load must be the same
+    allocation as before (`Arc::ptr_eq`). This keeps the oracle free of
+    dirty-tracking details.
+  Assertions:
+  - Each `Load` returns version `k` and the model's published length.
+  - Every held snapshot still equals its copy after every later operation.
+  - `SessionRead` checks that `session.snapshot()` is `ptr_eq` to a fresh
+    reader load, and that `session.labels()` is `ptr_eq` to that load's
+    `labels()`.
+  - `snapshot_version()` agrees on both sides.
+  Artefact: `reader_tracks_publications` in
+  `chutoro-core/src/session/tests/snapshot_reader_model.rs`. It needs a
+  `FailableSource::with_values(Vec<f32>, FailureMode)` constructor in
+  `chutoro-core/tests/support/failable_source.rs`. Evidence: fails to compile
+  before `EP-M2`, and passes afterwards at `suite_proptest_config(64)`.
+  Non-vacuity:
+  - The suite runs an explicit `TestRunner` built from
+    `suite_proptest_config(64)` with `fork: false` and
+    `source_file: Some(file!())`.
+  - Each case returns the coverage classes that a pure `classify(&[Op])`
+    assigns to it, pushed into a `RefCell<Vec<_>>`.
+  - After `run`, the suite asserts that the collected count equals the case
+    count.
+  - It also asserts that each class appeared at least once:
+    - a reader created before two or more successful refreshes;
+    - a snapshot held across a refresh;
+    - a cloned reader observing a later refresh;
+    - a `FailingRefresh` that returned `Err`.
+  - Any regression file goes under `chutoro-core/proptest-regressions/` and is
+    committed.
+
+  Negative controls that must be rejected, each run once by hand and then
+  reverted:
+  - `SnapshotReader` caching its snapshot at creation (a stale `Load`);
+  - a `Clone` that copies the snapshot into a new cell (the cloned reader goes
+    stale);
+  - `publish_refresh` updating `latest` but not the shared cell (a stale
+    `Load`, and `ptr_eq` breaks);
+  - a publication on the failure path (a held-copy mismatch, or the version
+    advancing on `Err`).
+- Obligation: `INV-ATOMIC-PUBLISH` as a named regression.
+  Method: a named `rstest` test using `FailableSource`. Domain: append
+  `[0, 1]`, refresh, create a reader, append `[2]`, call `fail()`, then
+  refresh. Then call `recover()` and refresh again. Artefact:
   `failed_refresh_leaves_reader_snapshot_unchanged` in
   `chutoro-core/src/session/tests/refresh_errors.rs`. Evidence: fails to
-  compile before `EP-M2`; passes after; reader snapshot before and after the
-  failure is equal (`pretty_assertions::assert_eq!`), and after recovery the
-  version is 2. Non-vacuity: the test first asserts that the failing refresh
-  actually returned `Err`; mutation "publish before the fallible rebuild" is
-  rejected.
+  compile before `EP-M2`. After it, the failing refresh returns `Err`, which is
+  asserted with
+  `assert_that!(err, matches_pattern!(ChutoroError::DataSource { .. }))`. The
+  reader still sees version 1 with two labels, compared with
+  `pretty_assertions::assert_eq!`. After recovery it sees version 2 with three
+  labels. Non-vacuity: the test asserts that the failure really happened. The
+  "publish before the fallible rebuild" mutant is rejected.
 - Obligation: `INV-MONO` and `INV-PAIR` under real concurrency.
-  Method: multithreaded stress test with `std::thread::scope`. Rationale: the
-  sequential model cannot exercise overlap between a load and a store; this
-  test runs real overlap and checks schedule-independent assertions. Domain: an
-  8-point source; the writer performs four cycles of "append two points,
-  refresh", so publication `i` has `2i` labels (a precomputed oracle table
-  `expected_len[i]`); four reader threads load in a loop until the writer
-  signals completion, then load once more. Assertions per reader: versions
-  never decrease; every observed snapshot has
-  `labels.len() == expected_len[version]`; the final load returns version 4.
-  Overlap counts (distinct versions seen while the writer was running) are
-  logged with `tracing::debug!`, never asserted. Artefact:
-  `concurrent_readers_see_paired_monotone_snapshots` in
-  `chutoro-core/src/session/tests/label_reader.rs`. Evidence: fails to compile
-  before `EP-M2`; passes after; re-run ten times locally with `--test-threads`
-  unchanged and record that none failed. Non-vacuity: the final-load assertion
-  makes the test fail if readers never observe publication; the `expected_len`
-  pairing makes a torn pair fail. Seeded fault for the record: temporarily
-  publish version and labels through two separate cells; the test is expected
-  to fail intermittently (it cannot catch a torn pair deterministically, which
-  is why `INV-PAIR` is also argued structurally by `D2`: one
-  `Arc<LabelSnapshot>` is stored and loaded as one pointer).
+  Method: a multithreaded test with per-cycle barriers. Rationale: the
+  sequential model cannot exercise a load that overlaps a store. This test
+  overlaps them, and its observed-version set is deterministic. Domain: an
+  eight-point source and four reader threads, all in `std::thread::scope`. The
+  writer runs four cycles. Each cycle appends two points, refreshes, and waits
+  at a `Barrier` shared with the readers. Readers behave as follows:
+  - Before cycle 1, each reader loads once (observing version 0), and all
+    threads, writer included, meet at the barrier. Without that meeting, a fast
+    writer could publish before a reader's first load, and the reader would
+    never see version 0.
+  - Each reader then loads in a loop, recording every distinct version it
+    sees.
+  - In cycle `i` it loads until it observes version `≥ i`, then waits at the
+    barrier.
+  - Every spin has a 10-second deadline, after which the reader stops and
+    records a timeout.
+  - Readers call `std::thread::yield_now()` between loads.
+
+  Writer safeguards:
+  - A drop guard on the writer sets a `done` flag (`Release`/`Acquire`) if it
+    panics.
+  - It also breaks the barrier wait by recording an abort, so readers exit
+    instead of hanging.
+
+  Results are returned from the threads and asserted on the main thread:
+  - every observed snapshot satisfies `labels.len() == 2 * version`, a closed
+    form that needs no indexing;
+  - each reader's versions never decrease;
+  - each reader observed exactly `{0, 1, 2, 3, 4}`;
+  - no reader timed out.
+
+  Artefact: `concurrent_readers_see_paired_monotone_snapshots` in
+  `chutoro-core/src/session/tests/snapshot_reader.rs`. Evidence: fails to
+  compile before `EP-M2`. Afterwards it passes, and
+  `cargo nextest run … --stress-count 50` passes without a failure.
+  Non-vacuity: the exact observed-set assertion fails if readers miss a
+  publication. The closed-form length check fails on a torn pair. A seeded
+  fault that publishes version and labels through two separate cells is
+  recorded as best-effort evidence only, because a torn pair cannot be forced
+  deterministically. `INV-PAIR` also rests structurally on `D2` and `D5`: one
+  `Arc<ClusteringSnapshot>` is stored and loaded as one pointer, and the reader
+  exposes no separate field reads.
 - Obligation: `INV-NONBLOCK`.
-  Method: named progress test plus a contrast test, both with a timeout guard.
-  Rationale: the property is "the writer finishes while a reader is parked
-  holding a snapshot and a handle"; a deadlock is turned into a failure by
-  `mpsc::Receiver::recv_timeout`. Domain: a reader thread takes a snapshot,
-  signals "holding", and parks until told to release; meanwhile the writer
-  appends and refreshes and reports completion on a channel the main thread
-  awaits with a 30-second timeout. Assertions: the writer completes before the
-  reader releases; the reader's held snapshot is unchanged; a fresh load after
-  release returns the new version. Artefact:
-  `writer_publishes_while_a_reader_holds_a_snapshot` in
-  `session/tests/label_reader.rs`. Non-vacuity (contrast test):
-  `shared_session_lock_blocks_the_writer_while_a_reader_holds_it` shows that
-  the pattern this item replaces — a reader holding a read guard on
-  `Arc<RwLock<ClusteringSession>>` — makes `try_write()` fail with
-  `WouldBlock`, so the harness can observe blocking when it exists. This
-  replaces and absorbs the two existing `RwLock` tests in
-  `session/tests/concurrency.rs`, whose comments are corrected. Residual gap:
-  lock-freedom of `publish` itself is `AXIOM-LOCK-FREE`, not something a test
-  can establish.
-- Obligation: `L-SINGLE-WRITER`.
-  Method: compile-time contracts and code review. Rationale: it is a visibility
-  and ownership property, which the compiler checks exactly. Artefact:
-  `SnapshotPublisher` is `pub(super)` (private to the session module) and does
-  not derive `Clone`; `chutoro-compile-contracts` gains a `pass` fixture proving
-  `LabelReader: Clone + Send + Sync + 'static` and that a reader moved into a
-  spawned thread coexists with `session.refresh()` (the reader does not borrow
-  the session). Evidence: `cargo nextest run -p chutoro-compile-contracts`
-  passes. Non-vacuity: the fixture fails to compile if `LabelReader` gains a
-  lifetime parameter or borrows the session.
+  Method: a named progress test, plus a contrast test that runs the same
+  harness. Harness:
+  - A reader thread takes a snapshot, signals "holding", and parks until it is
+    told to release, or until its release channel disconnects.
+  - The writer runs on a detached `std::thread::spawn`, appends and refreshes,
+    then reports completion on a channel.
+  - The main thread waits with `recv_timeout`.
+
+  Progress test: the timeout is 30 seconds, inside nextest's 60-second
+  slow-timeout. The writer must complete while the reader is still parked. The
+  reader's held snapshot must be unchanged, and a fresh load after release must
+  return the new version. Contrast test: the parked reader instead holds a read
+  guard on `Arc<RwLock<ClusteringSession>>`, which is the pattern this item
+  replaces. The harness must observe a timeout after 200 ms. Then the guard is
+  released and the writer is joined. The contrast test is deterministic,
+  because a held read guard always blocks a writer. It proves the harness can
+  detect blocking. Artefacts:
+  `writer_publishes_while_a_reader_holds_a_snapshot` and
+  `shared_session_lock_blocks_the_writer_while_a_reader_holds_it` in
+  `session/tests/snapshot_reader.rs`. These replace the two `RwLock` tests in
+  `session/tests/concurrency.rs`, which is removed. Honest scope: the progress
+  test is a regression guard. It cannot fail while the public API never hands
+  out a guard. The substantive argument for `INV-NONBLOCK` is structural:
+  - the writer's critical section is `std::mem::replace` of one `Arc`;
+  - each reader's critical section is one `Arc::clone`;
+  - the old snapshot is dropped after the guard is released;
+  - no guard escapes `snapshot.rs`.
+
+  Code review checks each of these points against `AXIOM-RWLOCK`.
+- Obligation: `L-SINGLE-WRITER`, and the reader's independence from the
+  session borrow. Method: trybuild compile contracts and code review. Artefacts:
+  - A `pass` fixture,
+    `chutoro-compile-contracts/tests/trybuild/session_snapshot_reader.rs`. It
+    asserts `SnapshotReader: Clone + Send + Sync + 'static` and
+    `ClusteringSnapshot: Send + Sync`. It also moves a reader into a spawned
+    thread and then calls `session.refresh()` while that thread is alive,
+    which shows the reader does not borrow the session.
+  - A `compile_fail` fixture, `snapshot_publisher_is_private.rs` with its
+    `.stderr` file. It tries to name `chutoro_core::SnapshotPublisher` and to
+    construct a `ClusteringSnapshot` directly, and both must fail to compile.
+  - The no-`cpu` fixture asserts that `ClusteringSnapshot` and
+    `SnapshotReader` are unavailable.
+
+  Evidence: `cargo nextest run -p chutoro-compile-contracts` passes.
+  Non-vacuity: the `pass` fixture stops compiling if `SnapshotReader` gains a
+  lifetime parameter. The `compile_fail` fixture's `.stderr` file pins the
+  exact privacy error.
+- Obligation: compact `Debug` output (`D2`, `D11`).
+  Method: exact `assert_eq!` on `format!("{snapshot:?}")` and
+  `format!("{reader:?}")`, for example
+  `ClusteringSnapshot { version: 1, label_count: 4 }`.
 
 ### Formal verification decision
 
-No Verus proof, Kani harness, or `loom` model is planned (decision `D5`).
+No Verus proof, Kani harness or `loom` model is planned (decision `D10`).
 
-- The only repository-owned mathematical content is `L-SAT`, a single
-  saturating increment. A Verus lemma would restate the specification of
-  `u64::saturating_add`; the table and property tests exercise it completely at
-  the boundary that matters.
-- `L-SINGLE-WRITER` is discharged by the Rust compiler (`AXIOM-OWNERSHIP`),
-  which is stronger evidence than a model of it.
-- The substantive concurrency claims (`INV-LATEST`, `INV-MONO`,
-  `INV-NONBLOCK`) reduce, through `L-MONO-COMPOSE`, to `arc-swap`'s documented
-  guarantees. Verifying them would mean verifying `arc-swap`'s internals, which
-  this repository treats as a third-party axiom. `arc-swap` has no `loom`
-  integration, and this item's own code contains no atomics or locks that a
-  `loom` model could explore. ADR-0002 already records that Kani is unsuitable
-  for concurrency.
-- `L-MONO-COMPOSE` is stated here and in the design document as an informal
-  proof sketch (single totally ordered history + linearizable reads +
-  non-decreasing versions ⇒ non-decreasing observations). It remains an
-  unproved theorem statement in documentation; no `assume`, `admit` or trusted
-  proof body is introduced.
+- Verus is not warranted. The only repository-owned proof content is the
+  monotonicity of `min(·, u64::MAX)` behind `L-SAT`, which is shallow. A Verus
+  model of `L-MONO-COMPOSE` would combine that fact with `AXIOM-RWLOCK`, which
+  is assumed, so it would add no substantive assurance. The publication model
+  is also scheduled to change in 11.2.3, 11.2.4 and 11.3.1. The developers'
+  guide ("Choosing a verification tool") warns that a proof transcribed from
+  production logic drifts when that logic changes underneath it.
+- `L-SINGLE-WRITER` is discharged by the Rust compiler (`AXIOM-OWNERSHIP`) and
+  the `compile_fail` contract. That is stronger evidence than a model of it.
+- Kani is unsuitable for concurrency (ADR-0002).
+- `loom` would explore the standard library's lock, and this item's own code
+  has no atomics or lock-free logic of its own. It would also be a new
+  dependency. If a later item replaces the lock with repository-owned atomics or
+  `arc-swap`, that item must revisit this decision with `loom`.
+- `L-MONO-COMPOSE` is stated in this plan and in design §12.6 as an informal
+  proof sketch. It remains an unproved theorem statement in documentation. No
+  `assume`, `admit` or trusted proof body is introduced.
 
-What stronger methods would add: a Verus model of a linearizable register would
-prove `L-MONO-COMPOSE` over an abstraction, but the abstraction would assume
-exactly `AXIOM-LINEARIZABLE`, so the proof would restate its premise. If a
-later item replaces `arc-swap` with repository-owned atomics, that item must
-revisit this decision with `loom`.
+`make verus` is not an acceptance criterion, because no proof file changes. It
+must still pass unchanged in CI.
 
 ### Suggested BDD features
 
-Proposed feature file `chutoro-core/tests/features/session_labels.feature`, run
-by `chutoro-core/tests/session_labels_bdd.rs` (new file; the append suite is
-already 298 lines). Scenarios trace to `REQ-LATEST`, `REQ-PAIR`,
-`REQ-PRESERVE`, and `EP-M3`.
+The feature file is `chutoro-core/tests/features/session_snapshot.feature`, run
+by `chutoro-core/tests/session_snapshot_bdd.rs`. That is a new step binary,
+because the append suite is already 298 lines and steps do not cross binaries.
+Step wording mirrors `session_append.feature` where the meaning is the same.
+The world holds `session: Option<ClusteringSession<…>>` so that a scenario can
+drop the session. Scenarios trace to `REQ-LATEST`, `REQ-PAIR` and
+`REQ-PRESERVE`, and to `EP-M2`.
 
 ```gherkin
-Feature: Reading clustering session label snapshots
+Feature: Reading clustering session snapshots
   Scenario: A reader created before any refresh sees the empty snapshot
-    Given an empty clustering session over 4 points
-    When I create a label reader
+    Given a clustering session over 4 points with min cluster size 2
+    When I create a snapshot reader
     Then the reader sees version 0 with 0 labels
 
   Scenario: A reader observes a refresh published after it was created
-    Given an empty clustering session over 4 points
-    And a label reader for the session
+    Given a clustering session over 4 points with min cluster size 2
+    And a snapshot reader for the session
     When I append source indices "0,1,2,3"
     And I refresh the session
     Then the reader sees version 1 with 4 labels
     And the reader and the session return the same labels
 
-  Scenario: A held snapshot is unchanged by a later refresh
-    Given a refreshed clustering session over 4 points
-    And a label reader for the session
-    When the reader holds its current snapshot
+  Scenario: A reader created after a refresh sees the latest snapshot
+    Given a clustering session over 4 points with min cluster size 2
+    When I append source indices "0,1,2,3"
     And I refresh the session
-    Then the held snapshot still has version 1 with 4 labels
+    And I create a snapshot reader
+    Then the reader sees version 1 with 4 labels
+
+  Scenario: Refreshing an empty session publishes an empty snapshot
+    Given a clustering session over 4 points with min cluster size 2
+    And a snapshot reader for the session
+    When I refresh the session
+    Then the reader sees version 1 with 0 labels
+
+  Scenario: Appending without refreshing does not change the snapshot
+    Given a clustering session over 4 points with min cluster size 2
+    And a snapshot reader for the session
+    When I append source indices "0,1"
+    And I refresh the session
+    And I append source indices "2,3"
+    Then the session contains 4 points
+    And the reader sees version 1 with 2 labels
+
+  Scenario: A held snapshot is unchanged by a later refresh
+    Given a clustering session over 4 points with min cluster size 2
+    And a snapshot reader for the session
+    When I append source indices "0,1,2,3"
+    And I refresh the session
+    And the reader holds its current snapshot
+    And I refresh the session
+    Then the held snapshot has version 1 with 4 labels
     And the reader sees version 2 with 4 labels
 
+  Scenario: Cloned and independent readers see the same publication
+    Given a clustering session over 4 points with min cluster size 2
+    And a snapshot reader for the session
+    When I clone the snapshot reader
+    And I create a second snapshot reader
+    And I append source indices "0,1,2,3"
+    And I refresh the session
+    Then all readers see version 1 with 4 labels
+
+  Scenario: A reader on another thread sees the published snapshot
+    Given a clustering session over 4 points with min cluster size 2
+    And a snapshot reader for the session
+    When I append source indices "0,1,2,3"
+    And I refresh the session
+    And another thread reads the snapshot
+    Then the thread saw version 1 with 4 labels
+
   Scenario: A failed refresh leaves the reader's snapshot unchanged
-    Given a refreshed clustering session over a failable source of 4 points
-    And a label reader for the session
-    When the source starts failing
+    Given a clustering session over a failable source
+    And a snapshot reader for the session
+    When I append source indices "0,1"
+    And I refresh the session
+    And I append source indices "2"
+    And the source starts failing
     And I refresh the session
     Then the refresh is rejected
-    And the reader sees version 1 with 4 labels
+    And the reader sees version 1 with 2 labels
 
   Scenario: A reader outlives its session
-    Given a refreshed clustering session over 4 points
-    And a label reader for the session
-    When I drop the session
+    Given a clustering session over 4 points with min cluster size 2
+    And a snapshot reader for the session
+    When I append source indices "0,1,2,3"
+    And I refresh the session
+    And I drop the session
     Then the reader sees version 1 with 4 labels
 ```
 
-Runner: `cargo nextest run -p chutoro-core --test session_labels_bdd`. The step
-file reuses `FailableSource` via
-`#[path = "support/failable_source.rs"] mod failable_source;`, as the session
-unit tests already do.
+Run the scenarios with
+`cargo nextest run -p chutoro-core --test session_snapshot_bdd`. The step file
+reuses `FailableSource` through
+`#[path = "support/failable_source.rs"] mod failable_source;`, the same way the
+session unit tests include it.
 
 ## Plan of work
 
-### `EP-M1` Snapshot value types and private publication cell
+### `EP-M1` Internal rewire through a private publisher
 
-Assigned: `REQ-PAIR`, `REQ-PRESERVE` (`L-SAT`), decisions `D1`–`D3`.
+Assigned: `REQ-PRESERVE`, `L-SAT`, `L-SINGLE-WRITER` (structure), decisions
+`D1`, `D4` and `D6`. The milestone changes no behaviour: every existing session
+test is the safety net, and the new `L-SAT` table is the red test.
 
-Red: create `chutoro-core/src/session/snapshot.rs` containing only its `//!`
-module comment and a `#[cfg(test)] mod tests` with the `L-SAT` table and
-property, plus tests that a fresh publisher's reader loads `(0, [])`, that a
-store is visible to an existing reader, and that a cloned reader sees the same
-publication. Declare `mod snapshot;` in `session/mod.rs`. Run the focused
-command; it fails to compile because `next_snapshot_version`,
-`SnapshotPublisher`, `LabelSnapshot` and `LabelReader` do not exist.
+Red: create `chutoro-core/src/session/snapshot.rs`. It contains a `//!` module
+comment and a `#[cfg(test)] mod tests` holding the
+`next_snapshot_version_cases` table and a test that a fresh publisher's
+`latest()` is `(0, [])`. Declare `mod snapshot;` in `session/mod.rs`. Run the
+focused command. It fails to compile because `next_snapshot_version` and
+`SnapshotPublisher` do not exist.
 
-Green: add `arc-swap = { version = "1.9.2", optional = true }` to
-`chutoro-core/Cargo.toml` and `"dep:arc-swap"` to the `cpu` feature. In
-`snapshot.rs` implement:
+Green: in `snapshot.rs`, implement only what the session uses now, so that no
+dead code exists:
 
-- `pub struct LabelSnapshot { version: u64, labels: Arc<Vec<usize>> }` deriving
-  `Clone, Debug, PartialEq, Eq`, with `pub const fn version(&self) -> u64`,
-  `pub fn labels(&self) -> Arc<Vec<usize>>` and
-  `pub fn as_slice(&self) -> &[usize]`, plus
-  `pub(super) fn new(version, labels: Vec<usize>)` and `pub(super) fn empty()`.
-- `pub(super) const fn next_snapshot_version(current: u64) -> u64`
-  (`current.saturating_add(1)`).
-- `pub(super) struct SnapshotPublisher { cell: Arc<ArcSwap<LabelSnapshot>> }`
-  (not `Clone`) with `new() -> Self` (holding `LabelSnapshot::empty()`),
-  `current(&self) -> Arc<LabelSnapshot>` (`load_full`),
-  `publish_next(&self, labels: Vec<usize>)` (computes the next version from the
-  current snapshot and stores), `reader(&self) -> LabelReader`, and a
-  `#[cfg(test)] fn publish(&self, snapshot: LabelSnapshot)` used only to seed
-  boundary states. `publish_next` takes `&self` but is reachable only through
-  the session's `&mut self` refresh path; that is what makes the
-  load-then-store sequence race-free (`L-SINGLE-WRITER`). Document this in a
-  comment.
-- `pub struct LabelReader { cell: Arc<ArcSwap<LabelSnapshot>> }` deriving
-  `Clone`, with a manual `Debug` showing the current version, and
-  `pub fn snapshot(&self) -> LabelSnapshot`,
-  `pub fn labels(&self) -> Arc<Vec<usize>>`, and
-  `pub fn snapshot_version(&self) -> u64`. Every method loads once with
-  `load_full` and never returns an `arc-swap` guard.
+- `pub(crate) struct ClusteringSnapshot`, holding `version: u64` and
+  `labels: Arc<Vec<usize>>`, with `pub(crate) const fn version(&self) -> u64`
+  and `pub(crate) fn labels(&self) -> Arc<Vec<usize>>`. It derives `Clone` and
+  `PartialEq` and has a handwritten `Debug` (`D2`). It also has a private
+  constructor, `fn new(version, labels: Vec<usize>)`. Visibility becomes `pub`
+  in `EP-M2`.
+- `const fn next_snapshot_version(current: u64) -> u64`, which returns
+  `current.saturating_add(1)`. Its Rustdoc carries the saturation explanation
+  moved from `publish_refresh`.
+- `pub(super) struct SnapshotPublisher`, deriving `Debug` and not `Clone`, with
+  these fields:
 
-Re-export `LabelSnapshot` and `LabelReader` from `session/mod.rs` and from
-`chutoro-core/src/lib.rs` under the existing `#[cfg(feature = "cpu")]` line.
-Because nothing outside tests uses the publisher yet, `-D warnings` would
-reject dead code; to keep the plateau lint-clean, `EP-M1` and `EP-M2` are
-committed together if dead-code warnings appear (11.2.1 hit the same
-constraint). Do not add `#[allow(dead_code)]`.
+  ```rust
+  latest: Arc<ClusteringSnapshot>,
+  shared: Arc<RwLock<Arc<ClusteringSnapshot>>>,
+  ```
 
-Refactor: keep each function short; confirm `snapshot.rs` stays well under 400
-lines.
+  and these methods:
+  - `new() -> Self`, which holds the empty snapshot at version 0;
+  - `latest(&self) -> &Arc<ClusteringSnapshot>`;
+  - `publish_next(&mut self, labels: Vec<usize>)`;
+  - `#[cfg(test)] pub(super) fn seed_for_test(&mut self, snapshot)`, which
+    `debug_assert!`s that the version does not decrease.
 
-### `EP-M2` Session publishes through the cell; reader accessors
+  `publish_next` builds the next snapshot outside the lock, stores it in the
+  shared cell with `std::mem::replace` under the write guard, drops the guard,
+  then drops the previous `Arc`, and finally sets `latest`. The write guard is
+  taken with `.write().unwrap_or_else(PoisonError::into_inner)`.
 
-Assigned: `REQ-LATEST`, `REQ-NONBLOCK`, `REQ-PAIR`, `REQ-SIGNATURE`,
-`REQ-PRESERVE`, decisions `D4`, `D6`.
-
-Red: add `session/tests/label_reader.rs` (the concurrency and progress tests,
-and the contrast test), `session/tests/label_reader_model.rs` (the model-based
-property), and `failed_refresh_leaves_reader_snapshot_unchanged` in
-`session/tests/refresh_errors.rs`; register the new modules in
-`session/tests/mod.rs`. They fail to compile because
-`ClusteringSession::label_reader` and `label_snapshot` do not exist.
-
-Green:
+Then, in the session:
 
 1. In `session/mod.rs`, replace the fields `labels: Arc<Vec<usize>>` and
    `snapshot_version: u64` with `published: snapshot::SnapshotPublisher`.
-2. In `session/session_impl.rs` `new_with_index_result`, initialize
-   `published: SnapshotPublisher::new()`.
-3. In `session/refresh_impl.rs` `publish_refresh`, replace the two assignments
-   with `self.published.publish_next(outcome.labels)`, keeping the other
-   commits in the same infallible block. Move the saturation comment to
-   `next_snapshot_version`.
-4. Rewrite accessors: `snapshot_version(&self) -> u64` (no longer `const`)
-   returns `self.published.current().version()`; `labels(&self)` returns
-   `self.published.current().labels()`; add
-   `label_snapshot(&self) -> LabelSnapshot` and
-   `label_reader(&self) -> LabelReader`, each with Rustdoc and a runnable
-   example. If `session/mod.rs` would exceed 400 lines, put the four label
-   accessors in a new `session/labels_impl.rs` `impl` block instead.
-5. Update `refresh_saturates_snapshot_version_at_the_representational_limit`
-   in `session/tests/refresh.rs` to seed the boundary with
-   `session.published.publish(LabelSnapshot::new(u64::MAX, Vec::new()))`
-   instead of writing the removed field.
-6. Retire `session/tests/concurrency.rs`: its two `RwLock` tests move into
-   `label_reader.rs` as the single contrast test, and the file and its `mod`
-   line are removed. Correct the stale `session/tests.rs` reference in the
-   `ClusteringSession` Rustdoc "Concurrency model" section, which is rewritten
-   to describe `label_reader`.
+   Update the field documentation.
+2. In `session/session_impl.rs`, have `new_with_index_result` initialize
+   `published: SnapshotPublisher::new()`. This is the only place a publisher is
+   created.
+3. In `session/refresh_impl.rs`, have `publish_refresh` replace the two
+   assignments with `self.published.publish_next(outcome.labels)`. The other
+   updates stay in the same block, which cannot fail. Rewrite the method's
+   comment to drop the stale reference to the 11.2.1 plan's tolerance, and
+   correct the module documentation that names the removed fields.
+4. Rewrite the accessors. `snapshot_version(&self) -> u64` loses `const` and
+   returns `self.published.latest().version()`. `labels(&self)` returns
+   `self.published.latest().labels()`.
+5. In `refresh_saturates_snapshot_version_at_the_representational_limit`
+   (`session/tests/refresh.rs`), replace the field write with
+   `session.published.seed_for_test(...)` at `u64::MAX`.
 
-Refactor: run the focused tests, then `make check-fmt`, `make lint`,
-`make test`.
+Refactor: run the focused tests, then `make check-fmt`, `make lint` and
+`make test`. Commit.
 
-### `EP-M3` Behavioural scenarios, compile contracts, published example
+### `EP-M2` Public snapshot reader surface
 
-Assigned: `DES-12.3-READ`, `REQ-SIGNATURE`, `L-SINGLE-WRITER`.
+Assigned:
 
-Red: add `chutoro-core/tests/features/session_labels.feature` (the scenarios
-above) and `chutoro-core/tests/session_labels_bdd.rs`; add
-`chutoro-compile-contracts/tests/trybuild/session_label_reader.rs` and its
-`cases.pass(...)` line in `tests/session_api_surface.rs`; extend
-`tests/fixtures/session_api_without_cpu` and its assertions so `LabelReader` and
-`LabelSnapshot` are reported unavailable without `cpu`. Before `EP-M2` these
-would fail; after `EP-M2` they should pass at once, so record the red evidence
-for this milestone by running the new scenario file against a temporary
-mutation (the reader caching its snapshot at creation) and noting the failing
-scenario, then revert the mutation.
+- requirements `REQ-LATEST`, `REQ-NONBLOCK`, `REQ-PAIR`, `REQ-SIGNATURE` and
+  `REQ-EXTENSIBLE`;
+- decisions `D2`, `D3`, `D5`, `D7` and `D11`;
+- gaps `GAP-CROSS-THREAD`, `GAP-TORN-PAIR` and `GAP-UNTESTED`.
 
-Green: extend the fenced program in
-`chutoro-core/docs/session-refresh-example.md` to create a reader before
-`append`, move it into a `std::thread::spawn` closure that returns
-`reader.snapshot()`, join after `refresh`, and assert the thread saw a complete
-snapshot (version 0 with 0 labels or version 1 with 4 labels) and that a fresh
-`reader.labels()` equals `session.labels()`. Keep the marker unchanged (decision
-`D7`).
+Red (outside-in): write every new test before any production code. Each fails
+to compile with error E0599 (no method `snapshot_reader`) or error E0412/E0433
+(unresolved `SnapshotReader`).
 
-Refactor: focused runs, then the three gates.
+- `session/tests/snapshot_reader.rs` holds the concurrency, progress and
+  contrast tests, plus the `Debug` pins.
+- `session/tests/snapshot_reader_model.rs` holds the model property.
+- `failed_refresh_leaves_reader_snapshot_unchanged` goes in
+  `session/tests/refresh_errors.rs`.
+- Register these modules in `session/tests/mod.rs`, and add
+  `FailableSource::with_values`.
+- Add the behavioural suite:
+  `chutoro-core/tests/features/session_snapshot.feature` and
+  `chutoro-core/tests/session_snapshot_bdd.rs`.
+- Add the compile contracts:
+  - the `pass` fixture `tests/trybuild/session_snapshot_reader.rs`;
+  - the `compile_fail` fixture `tests/trybuild/snapshot_publisher_is_private.rs`
+    with its `.stderr` file;
+  - both registered in `tests/session_api_surface.rs`;
+  - the no-`cpu` fixture's source and its assertions extended for the new
+    types.
 
-### `EP-M4` Documentation, ADR-0012, roadmap closure
+Green:
 
-Assigned: documentation requirements of the task; closes `RM-11.2.2`.
+- In `snapshot.rs`, make `ClusteringSnapshot` public with
+  `pub const fn version`, `pub fn labels` and
+  `pub fn label_slice(&self) -> &[usize]`. Each has Rustdoc and an example, and
+  the type documentation says that labels cover points `[0, len)`.
+- Add
+  `pub struct SnapshotReader { shared: Arc<RwLock<Arc<ClusteringSnapshot>>> }`.
+  It derives `Clone` and has a handwritten `Debug` that shows the current
+  version. It has two methods,
+  `pub fn snapshot(&self) -> Arc<ClusteringSnapshot>` and
+  `pub fn snapshot_version(&self) -> u64`. Each takes the read guard
+  (recovering from poison with `into_inner`), clones one `Arc` or reads one
+  `u64`, and releases the guard before returning.
+- Add `SnapshotPublisher::reader(&self) -> SnapshotReader`.
+- In `session/mod.rs`, or in a new `session/snapshot_impl.rs` if `mod.rs`
+  would exceed 400 lines, add
+  `pub fn snapshot(&self) -> Arc<ClusteringSnapshot>`, which returns
+  `Arc::clone(self.published.latest())`, and
+  `pub fn snapshot_reader(&self) -> SnapshotReader`. Each has Rustdoc. The
+  `snapshot_reader` example uses `std::thread::scope` to show a reader thread
+  running beside the writer.
+- Rewrite the "Concurrency model" section of the `ClusteringSession` Rustdoc
+  around `snapshot_reader`, and remove the stale `session/tests.rs` reference.
+- Re-export `ClusteringSnapshot` and `SnapshotReader` from `session/mod.rs`
+  and from `chutoro-core/src/lib.rs`, under the existing
+  `#[cfg(feature = "cpu")]` line.
+- Delete `session/tests/concurrency.rs` and its `mod` line. Its intent now
+  lives in the contrast test.
+- Extend the saturation test so that a reader created before seeding observes
+  `u64::MAX`.
 
-- Add `docs/adrs/adr-0012-label-snapshot-publication.md` (status `Accepted`
-  with the approval date once the user approves `D1`; `Proposed` until then),
-  following the style guide's required sections, with options (ArcSwap,
-  `RwLock<Arc<_>>`, `AtomicPtr`, lock the session), a Y-statement, the axioms,
-  and consequences (reader outliving session, memory held by old snapshots:
-  `8n` bytes per retained snapshot on 64-bit targets).
-- `docs/chutoro-design.md`: §12.3 "Reading" phase and Figure 3 sketch
-  (`published: SnapshotPublisher` replaces `labels` and `snapshot_version`);
-  §12.6 "Reader threads" bullet rewritten around `LabelReader`, the paired
-  snapshot, the capability split, and the informal `L-MONO-COMPOSE` argument;
-  reference ADR-0012.
+Negative controls: apply each mutant named in `Verification plan` in turn. Run
+the model property and the behavioural suite, record which test rejected the
+mutant, then revert it. Confirm with `git diff --stat` that no mutant remains,
+and delete any regression file a mutant created.
+
+Refactor: run the focused tests, run the concurrency test under
+`--stress-count 50`, then the three gates. Commit.
+
+### `EP-M3` Published example, documentation, ADR-0012, roadmap closure
+
+Assigned: the task's documentation requirements. This milestone closes
+`RM-11.2.2`.
+
+- `chutoro-core/docs/session-refresh-example.md`: keep the example
+  single-threaded (`D8`). Create a reader before `append`. After `refresh`,
+  assert that `reader.snapshot().version() == 1`, that its `label_slice()`
+  equals `&*session.labels()`, and that `session.snapshot()` and the reader's
+  snapshot are the same allocation. Keep the marker unchanged. Run
+  `cargo nextest run -p chutoro-core --test users_guide_session_refresh --test session_append_bdd`.
+- New ADR, `docs/adrs/adr-0012-session-snapshot-publication.md`. It follows
+  the style guide's required sections, and its status is `Accepted` with the
+  approval date. Contents:
+  - the options of `D1`, in a comparison table with a caption;
+  - the Y-statement;
+  - the refined meaning of "without blocking";
+  - the axioms;
+  - consequences: a reader outlives its session, a held or leaked snapshot
+    retains about `8n` bytes, and versions are monotone from any initial
+    snapshot;
+  - a "Future options" subsection naming `arc-swap` 1.9.5 or later behind the
+    same private type, once a contention measurement shows the need, and
+    noting that a lock-free cell would need `loom` evidence.
+- ADR-0010: add the `Amended by ADR-0012 (2026-11-28)` banner to its Status
+  section, and an `## Amendments` section. The amendment records that 11.2.2
+  refines "never blocks a writer" to the guarantee in ADR-0012. The original
+  text is preserved.
+- `docs/chutoro-design.md`:
+  - §12.2: refine the "single writer, concurrent readers" bullet.
+  - §12.3: update the "Reading" phase, and change the Figure 3 sketch so that
+    `published: SnapshotPublisher` replaces `labels` and `snapshot_version`.
+  - §12.5: update the "Early `labels()` accessor" paragraph to say that 11.2.2
+    delivered the reader contract.
+  - §12.6: rewrite the "Reader threads" bullet around `SnapshotReader`, the
+    paired snapshot, the capability split, the exact critical sections, and the
+    informal `L-MONO-COMPOSE` sketch, and reference ADR-0012.
+  - §13.1: add a sentence saying 11.2.2 introduced `ClusteringSnapshot` with
+    `version` and `labels`, and that 12.1.1 extends it.
 - `docs/users-guide.md` "Refreshing labels": replace the claim that a reader
-  can hold a snapshot "while the writer appends" with a new subsection "Reading
-  labels from other threads" showing `label_reader`, `snapshot()`,
-  version/labels pairing, held-snapshot immutability, behaviour after a failed
-  refresh, and after the session is dropped.
-- `docs/developers-guide.md` "Session public APIs": add the new signatures and
-  the `LabelSnapshot`/`LabelReader` surface; add a short "Snapshot publication"
-  convention stating the re-use policy: `SnapshotPublisher` is the only
-  publication path for session outputs; it is owned by `ClusteringSession` and
-  used only from `&mut self` writer paths; later published artefacts (for
-  example, diagnostics in roadmap 14) extend `LabelSnapshot` or sit beside it
-  in the same published value rather than adding a second cell, so readers keep
-  one consistent pair; `arc-swap` must not leak into public signatures.
+  can hold a snapshot "while the writer appends". Add a subsection, "Reading
+  snapshots from other threads", covering:
+  - `snapshot_reader` and `snapshot()`;
+  - why to prefer one `snapshot()` over separate calls;
+  - held-snapshot immutability;
+  - indexing by snapshot length, not `point_count()`;
+  - core distances not being part of the snapshot;
+  - behaviour after a failed refresh and after the session is dropped;
+  - memory retention.
+- `docs/developers-guide.md` "Session public APIs": add the new signatures.
+  Add a "Snapshot publication" convention stating the re-use policy:
+  - `SnapshotPublisher` is the only publication path for session outputs.
+  - It is created once, in the session constructor, and never replaced.
+  - Every publication goes through `ClusteringSession::publish_refresh`. That
+    includes the future count-triggered refresh (11.2.3) and `refresh_full`
+    (11.2.4).
+  - Sessions that start from a non-empty state (11.3.1 `from_source`, 12.2.3
+    `restore`, 14.3.1 compaction) add a
+    `SnapshotPublisher::with_initial(ClusteringSnapshot)` constructor rather
+    than seeding by publishing.
+  - Later published data (roadmap 12.1.x fields, and diagnostics in roadmap
+    13.3) is added to `ClusteringSnapshot` rather than to a second cell, so
+    readers keep one consistent value.
+  - No lock guard may escape `snapshot.rs`, and no lock may be held across
+    computation.
 - `docs/repository-layout.md` "Core session module": add `snapshot.rs` (and
-  `labels_impl.rs` if created).
+  `snapshot_impl.rs` if created).
+- `docs/migration-notes.md`: add an "Additive API: session snapshot readers"
+  entry. It notes that `snapshot_version()` is no longer `const` and that no
+  dependency or error variant is added.
 - `docs/contents.md`: add ADR-0012 and this ExecPlan.
-- `docs/roadmap.md`: mark 11.2.2 `[x]`.
-- Run `make fmt`, `make markdownlint`, `make nixie`, then the three gates.
-  Re-count footnote definitions in any edited file (`make fmt` can merge
-  wrapped footnote lines).
+- `docs/roadmap.md`:
+  - mark 11.2.2 `[x]`;
+  - reword 11.4.4 so that concurrent readers use `snapshot_reader()`;
+  - reword 12.1.1 from "Define" to "Extend the `ClusteringSnapshot`
+    introduced by 11.2.2".
+- Run `make fmt`, `make markdownlint` and `make nixie`, then the three gates.
+  Afterwards, recount the footnote definitions in each edited file, because
+  `make fmt` can merge wrapped `[^n]:` lines.
 
-Stale-claim search, excluding `docs/execplans/`:
+Stale-claim search, excluding historical plans:
 
 ```bash
-rg -n "never block|without blocking|RwLock<ClusteringSession|session/tests.rs" docs chutoro-core/src
+rg -n "never block|without blocking|RwLock<ClusteringSession|session/tests.rs|labels\(\) accessor" \
+  docs chutoro-core/src --glob '!docs/execplans/**'
 ```
+
+Every remaining hit must either describe the refined guarantee or be ADR
+history preserved under its amendment banner.
 
 ## Milestones and plateaus
 
-- `EP-M1` — snapshot types, publisher and reader exist with unit tests.
-  Requirements: `REQ-PAIR` (structure), `L-SAT`. Evidence: `snapshot.rs` tests
-  pass. Conformance check: `REQ-PAIR` structure present; design §12.6 still
-  followed; no assumption falsified; only `D1`'s dependency added; no trust
-  boundary or persisted-format change; trace links current. Recovery: revert
-  the milestone commit. Remaining gaps: the session still uses its old fields.
-  Compatibility decision: none. If dead-code lints prevent a clean plateau,
-  `EP-M1` and `EP-M2` share one commit (recorded in `Decision log`).
-- `EP-M2` — the session publishes through the cell and exposes reader
-  accessors. Requirements: `REQ-LATEST`, `REQ-NONBLOCK`, `REQ-PAIR`,
-  `REQ-SIGNATURE`, `REQ-PRESERVE`; closes `GAP-CROSS-THREAD`, `GAP-TORN-PAIR`,
-  `GAP-UNTESTED`. Evidence: `label_reader.rs`, `label_reader_model.rs`,
-  `refresh_errors.rs`, `refresh.rs` pass; all three gates pass. Conformance
-  check: all-or-nothing publish preserved; `labels()` signature unchanged; only
-  the authorized interface added; no new trust boundary; trace links current.
-  Recovery: revert to `EP-M1`. Remaining gaps: BDD, contracts, docs.
-  Compatibility decision: none (`snapshot_version` loses `const`; pre-1.0,
-  unreleased).
-- `EP-M3` — behavioural scenarios, compile contracts and the published example
-  pass. Evidence: `session_labels_bdd`, `session_api_surface`,
-  `users_guide_session_refresh` pass. Conformance check as above. Recovery:
-  revert the milestone commit. Remaining gaps: docs. Compatibility: none.
-- `EP-M4` — documents, ADR-0012 and roadmap updated; Markdown gates and the
-  three gates pass. Conformance: reconcile design §12.3/§12.6 and ADR-0012 with
-  the shipped code before marking `COMPLETE`. Recovery: documentation-only
-  revert. Remaining gaps: 11.4.4 and 11.4.5 extend the tests.
+- `EP-M1`: the session publishes through a private `SnapshotPublisher`, and
+  nothing observable changes.
+  - Requirements: `REQ-PRESERVE`, `L-SAT`, and the structure for
+    `L-SINGLE-WRITER`.
+  - Evidence: `next_snapshot_version_cases`, the adapted saturation test and
+    the whole existing session suite pass, and so do all three gates.
+  - Conformance check:
+    - the preservation requirements are satisfied;
+    - design §12.6 is followed;
+    - no assumption is falsified;
+    - there is no public interface change except the `const` removal, which is
+      authorized;
+    - no trust boundary or persisted format changes;
+    - trace links are current.
+  - Recovery: revert the milestone commit.
+  - Remaining gaps: no public reader yet.
+  - Compatibility decision: none. `snapshot_version` loses `const`; the crate
+    is pre-1.0 and unreleased.
+- `EP-M2`: the public reader surface works, and every new test passes.
+  - Requirements: `REQ-LATEST`, `REQ-NONBLOCK`, `REQ-PAIR`, `REQ-SIGNATURE`
+    and `REQ-EXTENSIBLE`. It closes `GAP-CROSS-THREAD`, `GAP-TORN-PAIR` and
+    `GAP-UNTESTED`.
+  - Evidence: these pass, together with all three gates:
+    - `snapshot_reader.rs`, with stress-count 50;
+    - `snapshot_reader_model.rs`, including its coverage assertion;
+    - `refresh_errors.rs`;
+    - `session_snapshot_bdd`;
+    - `session_api_surface`.
+  - Conformance check:
+    - all-or-nothing publication is preserved;
+    - the `labels()` signature is unchanged;
+    - only the authorized interface was added;
+    - no trust boundary changes;
+    - trace links are current.
+  - Recovery: revert to `EP-M1`.
+  - Remaining gaps: the published example, documentation and roadmap.
+  - Compatibility decision: none.
+- `EP-M3`: the published example, design documents, ADRs, guides, migration
+  notes and roadmap all match the shipped code.
+  - Evidence: `users_guide_session_refresh` passes, and the Markdown gates and
+    the three gates pass.
+  - Conformance: reconcile design §12.2, §12.3, §12.5, §12.6 and §13.1,
+    ADR-0010 and ADR-0012 with the code before marking the plan `COMPLETE`.
+  - Recovery: a documentation-only revert.
+  - Remaining gaps: 11.4.4 and 11.4.5 extend the tests.
 
 ## Concrete steps
 
@@ -927,25 +1379,22 @@ cannot appear to pass through `tee`.
 
 ```plaintext
 EP-M1 red:   cargo nextest run -p chutoro-core -E 'test(/session::snapshot::/)'
-             -> error[E0425]/E0412: cannot find `next_snapshot_version` / `LabelSnapshot`
-EP-M1 green: same command -> all snapshot tests pass
+             -> error[E0425]: cannot find function `next_snapshot_version`
+EP-M1 green: same command -> passes; then
+             cargo nextest run -p chutoro-core -E 'test(/session::/)' -> all existing session tests pass
 EP-M2 red:   cargo nextest run -p chutoro-core \
-               -E 'test(/session::tests::label_reader/) | test(failed_refresh_leaves_reader_snapshot_unchanged)'
-             -> error[E0599]: no method named `label_reader` found for struct `ClusteringSession`
-EP-M2 green: same command -> all pass; then run the concurrency test ten times:
-             for i in $(seq 10); do
-               cargo nextest run -p chutoro-core \
-                 -E 'test(concurrent_readers_see_paired_monotone_snapshots)' || break
-             done
-EP-M3 red:   (temporary mutation: LabelReader caches its snapshot)
-             cargo nextest run -p chutoro-core --test session_labels_bdd
-             -> scenario "A reader observes a refresh published after it was created" fails; revert mutation
-EP-M3 green: cargo nextest run -p chutoro-core --test session_labels_bdd --test users_guide_session_refresh
+               -E 'test(/session::tests::snapshot_reader/) | test(failed_refresh_leaves_reader_snapshot_unchanged)'
+             -> error[E0599]: no method named `snapshot_reader` found for struct `ClusteringSession`
+             cargo nextest run -p chutoro-core --test session_snapshot_bdd -> same E0599
+EP-M2 green: the commands above pass; then
+             cargo nextest run -p chutoro-core --stress-count 50 \
+               -E 'test(concurrent_readers_see_paired_monotone_snapshots)'
              cargo nextest run -p chutoro-compile-contracts
+EP-M3:       cargo nextest run -p chutoro-core --test users_guide_session_refresh --test session_append_bdd
 ```
 
-Gate sequence after each milestone, run sequentially (or delegated to the
-`scrutineer` agent), with logs under `/tmp`:
+Gate sequence after each milestone. Run the gates one after another, or
+delegate them to the `scrutineer` gate-runner agent, with logs under `/tmp`:
 
 ```bash
 set -o pipefail
@@ -954,53 +1403,59 @@ make lint 2>&1 | tee /tmp/lint-chutoro-11-2-2-clustering-session-labels.out
 make test 2>&1 | tee /tmp/test-chutoro-11-2-2-clustering-session-labels.out
 ```
 
-After documentation changes also run `make markdownlint` and `make nixie`. A
+After documentation changes, also run `make markdownlint` and `make nixie`. A
 `make test` global-timeout expiry under compile-admission contention is not a
-test failure; check that the summary reports zero failed tests before
+test failure. Check that the summary reports zero failed tests before
 re-running.
 
 ## Validation and acceptance
 
 Behavioural acceptance:
 
-- A reader created with `session.label_reader()` before any refresh returns
-  version 0 and no labels; after `append(&[0, 1, 2, 3])` and `refresh()` on the
-  writer, the same reader, on another thread, returns version 1 and four
-  labels, without any lock in the caller's code.
+- A reader created with `session.snapshot_reader()` before any refresh returns
+  version 0 and no labels. After the writer runs `append(&[0, 1, 2, 3])` and
+  `refresh()`, the same reader returns version 1 and four labels, on another
+  thread, with no lock in the caller's code.
 - While a reader thread holds a snapshot and does not release it, the writer's
   `refresh()` completes, and the held snapshot is unchanged afterwards.
-- After a failed refresh, every reader still returns the previous version and
-  labels.
-- `session.labels()` keeps its signature and returns the same allocation a
-  reader returns.
+- After a failed refresh, every reader still returns the previous snapshot.
+- After `append` without `refresh`, readers still return the previous
+  snapshot, whose length is below `point_count()`.
+- `session.labels()` keeps its signature and returns the same allocation as
+  the reader's snapshot.
 
 Quality criteria:
 
-- Tests: `make test` passes; the new tests named in `Verification plan` fail
-  before their milestone and pass after.
-- Verification: `L-SAT`, `INV-LATEST`, `INV-MONO`, `INV-PAIR`,
-  `INV-SAME-PUBLICATION`, `INV-IMMUTABLE`, `INV-LEN`, `INV-ATOMIC-PUBLISH`
-  discharged by the named tests; `INV-NONBLOCK` by the progress test plus
-  `AXIOM-LOCK-FREE`; `L-SINGLE-WRITER` by the compile contract. No Verus target
-  changes, so `make verus` is not an acceptance criterion; it must still pass
-  in CI unchanged.
+- Tests: `make test` passes. Each new test named in `Verification plan` fails
+  before its milestone and passes afterwards. The concurrency test passes
+  `--stress-count 50`.
+- Verification:
+  - the named tests discharge `L-SAT`, `INV-LATEST`, `INV-MONO`, `INV-PAIR`,
+    `INV-SAME-PUBLICATION`, `INV-IMMUTABLE`, `INV-LEN` and
+    `INV-ATOMIC-PUBLISH`;
+  - the structural argument and its regression guard discharge
+    `INV-NONBLOCK`;
+  - the `compile_fail` contract discharges `L-SINGLE-WRITER`;
+  - each negative control is recorded as rejected.
 - Lint and format: `make check-fmt` and `make lint` pass with no new
   suppressions.
-- Documentation: `make markdownlint` and `make nixie` pass.
-- Performance: no benchmark gate; `labels()` gains one atomic load, which is
-  negligible next to a refresh.
+- Documentation: `make markdownlint` and `make nixie` pass, and the
+  stale-claim search is clean.
+- Performance: there is no benchmark gate. `labels()` and `snapshot_version()`
+  read the writer-local `Arc` and take no lock. A reader's `snapshot()` takes
+  one uncontended read lock, which is negligible next to a refresh.
 
 ## Idempotence and recovery
 
-All steps are re-runnable. Each milestone is one commit (or `EP-M1`+`EP-M2`
-together, see above), so `git revert` restores the previous plateau. Temporary
-mutations used for red evidence are reverted before committing; confirm with
-`git diff --stat` that only intended files changed. Delete any `proptest`
-regression file created only by a seeded mutation.
+All steps are re-runnable. Each milestone is one commit, so `git revert`
+restores the previous plateau. Mutants used as negative controls are reverted
+before committing; confirm with `git diff --stat` that only intended files
+changed. Delete any `proptest` regression file created only by a mutant.
 
 ## Artefacts and notes
 
-Reconnaissance at `028c976` (observed, not yet implementation evidence):
+Reconnaissance at `028c976`. These are observations, not implementation
+evidence:
 
 ```plaintext
 $ cargo tree -i arc-swap -e normal,dev --workspace
@@ -1011,74 +1466,131 @@ arc-swap v1.9.2
         └── chutoro-core v0.1.0
 ```
 
-`arc-swap` performance documentation (fetched 2026-11-28): readers are
-lock-free and mostly wait-free; writers are lock-free; holding guards for a
-long time causes reference-count contention, so prefer `load_full` for values
-kept long.
+`arc-swap` changelog, read from the local registry copy of 1.9.5 on 2026-11-28:
+
+```plaintext
+# 1.9.5
+* Fix `load` returning a value stored into a different instance (type confusion)
+  after the address of a freed value is reused by another instance (#210).
+# 1.9.4
+* Fix use-after-free when strong and weak pointers to the same allocation are
+  stored in different instances (#214).
+# 1.9.0
+* Promote certain orderings to SeqCst. Original proofs based on wrong reading of
+  standard :-(.
+```
+
+Design review, 2026-11-28. Four independent reviewers covered:
+
+- structure and contracts;
+- failure modes and cost;
+- verification and tests;
+- alternatives and long-term fit.
+
+The reviewers converged on these findings:
+
+- `publish_next` must take `&mut self`.
+- The reader's separate `labels()` and `snapshot_version()` calls re-created
+  the torn read.
+- The plan ignored §13.1's `ClusteringSnapshot`.
+- The behavioural "failed refresh" scenario could not fail as written.
+- The proptest non-vacuity mechanism did not exist.
+- The ten-run shell loop could not fail.
+- `arc-swap` 1.9.2 is unsafe to depend on.
+
+All of these are resolved in this revision. The strongest alternative they
+offered, std `RwLock<Arc<_>>`, was adopted.
 
 ## Interfaces and dependencies
 
-New dependency (subject to `D1` approval), in `chutoro-core/Cargo.toml`:
+No dependency is added or changed.
 
-```toml
-[features]
-cpu = ["dep:rand", "dep:rayon", "dep:dashmap", "dep:lru", "dep:arc-swap"]
-
-[dependencies]
-arc-swap = { version = "1.9.2", optional = true }
-```
-
-New public items in `chutoro_core` (all behind `cpu`):
+New public items in `chutoro_core`, all behind `cpu`:
 
 ```rust
-/// One immutable published label snapshot: a version and its labels.
-#[derive(Clone, Debug, PartialEq, Eq)]
-pub struct LabelSnapshot { /* version: u64, labels: Arc<Vec<usize>> */ }
+/// An immutable, versioned record of one published clustering state.
+/// Extended by roadmap 12.1.1 (design §13.1); all fields are private.
+#[derive(Clone, PartialEq)]
+pub struct ClusteringSnapshot { /* version: u64, labels: Arc<Vec<usize>> */ }
 
-impl LabelSnapshot {
+impl ClusteringSnapshot {
     pub const fn version(&self) -> u64;
     pub fn labels(&self) -> Arc<Vec<usize>>;
-    pub fn as_slice(&self) -> &[usize];
+    pub fn label_slice(&self) -> &[usize];
 }
+impl fmt::Debug for ClusteringSnapshot { /* version and label count only */ }
 
 /// Cloneable, `Send + Sync + 'static` handle that reads the latest snapshot.
 #[derive(Clone)]
-pub struct LabelReader { /* cell: Arc<ArcSwap<LabelSnapshot>> */ }
+pub struct SnapshotReader { /* shared: Arc<RwLock<Arc<ClusteringSnapshot>>> */ }
 
-impl LabelReader {
-    pub fn snapshot(&self) -> LabelSnapshot;
-    pub fn labels(&self) -> Arc<Vec<usize>>;
-    pub fn snapshot_version(&self) -> u64;
+impl SnapshotReader {
+    pub fn snapshot(&self) -> Arc<ClusteringSnapshot>;
+    pub fn snapshot_version(&self) -> u64; // a change check; use snapshot() for data
 }
+impl fmt::Debug for SnapshotReader { /* current version only */ }
 
 impl<D: DataSource + Send + Sync> ClusteringSession<D> {
-    pub fn labels(&self) -> Arc<Vec<usize>>;          // unchanged signature
-    pub fn snapshot_version(&self) -> u64;            // no longer const
-    pub fn label_snapshot(&self) -> LabelSnapshot;    // new
-    pub fn label_reader(&self) -> LabelReader;        // new
+    pub fn labels(&self) -> Arc<Vec<usize>>;            // unchanged signature
+    pub fn snapshot_version(&self) -> u64;              // no longer const
+    pub fn snapshot(&self) -> Arc<ClusteringSnapshot>;  // new
+    pub fn snapshot_reader(&self) -> SnapshotReader;    // new
 }
 ```
 
 Private items in `chutoro-core/src/session/snapshot.rs`:
 
 ```rust
-pub(super) const fn next_snapshot_version(current: u64) -> u64;
-pub(super) struct SnapshotPublisher { /* cell: Arc<ArcSwap<LabelSnapshot>> */ }
+const fn next_snapshot_version(current: u64) -> u64;
+
+#[derive(Debug)]
+pub(super) struct SnapshotPublisher {
+    latest: Arc<ClusteringSnapshot>,
+    shared: Arc<RwLock<Arc<ClusteringSnapshot>>>,
+}
+
 impl SnapshotPublisher {
     pub(super) fn new() -> Self;
-    pub(super) fn current(&self) -> Arc<LabelSnapshot>;
-    pub(super) fn publish_next(&self, labels: Vec<usize>);
-    pub(super) fn reader(&self) -> LabelReader;
+    pub(super) fn latest(&self) -> &Arc<ClusteringSnapshot>;
+    pub(super) fn publish_next(&mut self, labels: Vec<usize>);
+    pub(super) fn reader(&self) -> SnapshotReader;
+    #[cfg(test)]
+    pub(super) fn seed_for_test(&mut self, snapshot: ClusteringSnapshot);
 }
 ```
 
-Ownership and re-use: `ClusteringSession` owns the only `SnapshotPublisher`.
-`LabelReader` values are created only by `ClusteringSession::label_reader` and
-are freely cloned. No other module may construct a publisher. No error type is
-involved; every new function is infallible.
+Test support:
+`FailableSource::with_values(values: Vec<f32>, mode: FailureMode)` in
+`chutoro-core/tests/support/failable_source.rs`.
+
+Ownership and re-use: `ClusteringSession` owns the only `SnapshotPublisher`,
+created in its constructor. `SnapshotReader` values are created only by
+`ClusteringSession::snapshot_reader`, and they can be cloned freely. No error
+type is involved, because every new function is infallible.
 
 ## Revision note
 
-- 2026-11-28: initial draft from Wyvern reconnaissance at `028c976` and an
-  `arc-swap` prior-art check. Awaiting community-of-experts review and user
-  approval of the plan and of decision `D1`.
+- 2026-11-28 (initial draft): written from Wyvern reconnaissance at `028c976`
+  and an `arc-swap` prior-art check.
+- 2026-11-28 (design-review revision): applied the four-reviewer
+  community-of-experts review.
+  - Changed:
+    - `D1` now uses the std `RwLock<Arc<_>>` cell; `arc-swap` is rejected
+      because of its 1.9.x memory-safety history.
+    - The published type became §13.1's `ClusteringSnapshot`, and the handle
+      became `SnapshotReader`.
+    - The publisher takes `&mut self` and keeps a writer-local copy.
+    - The reader no longer has a separate `labels()`.
+    - The milestones were re-cut, so `EP-M1` is a behaviour-preserving rewire
+      with no dead code.
+    - The BDD scenarios were rebuilt on a working failure pattern and gained
+      seven cases.
+    - The proptest coverage mechanism now uses an explicit `TestRunner`, and
+      the concurrency test uses barriers and deadlines.
+    - The progress test gained a matching contrast harness, and a
+      `compile_fail` privacy contract was added.
+    - Documentation scope now includes migration notes, the ADR-0010
+      amendment, §12.5, §13.1 and the 11.4.4 and 12.1.1 wording.
+  - Effect on remaining work: the public API names changed, configuration is
+    now zero lines, and the documentation budget rose by 100 lines. The plan
+    needs user approval before `EP-M1`.
