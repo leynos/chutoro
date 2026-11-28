@@ -254,7 +254,7 @@ dependencies = [
 
 [[package]]
 name = "chutoro-core"
-version = "0.1.0"
+version = "0.1.0-beta1"
 dependencies = [
  "camino",
  "cap-std",
@@ -266,7 +266,7 @@ dependencies = [
 
 [[package]]
 name = "chutoro-providers-dense"
-version = "0.1.0"
+version = "0.1.0-beta1"
 dependencies = [
  "arrow-array",
  "arrow-schema",
