@@ -147,6 +147,12 @@ jobs:
       # ~/.local/share/whitaker cache for this job.
       - name: Install Whitaker
         uses: leynos/shared-actions/.github/actions/install-whitaker@767d5d22b8a5e4303b71624bc01207f28d313c77 # action default whitaker-installer 0.2.12
+      - name: Set up uv for the YAML lint tools
+        uses: astral-sh/setup-uv@1db35dd8eee11c5894872e0b383ae6c406cf738d
+        with:
+          enable-cache: false
+      - name: Install the YAML lint tools
+        uses: leynos/shared-actions/.github/actions/install-yaml-lint@767d5d22b8a5e4303b71624bc01207f28d313c77
       - name: Lint
         run: make lint
       - name: Test and Measure Coverage

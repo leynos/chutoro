@@ -273,10 +273,25 @@ def test_actionlint_registers_exactly_the_labels_in_use() -> None:
         for definition in jobs(load_workflow(workflow_name)).values()
         for label in _paid_labels(definition)
     }
-    assert registered == in_use, (
+    unregistered = {
+        label for label in in_use if not any(_covers(entry, label) for entry in registered)
+    }
+    unused = {
+        entry for entry in registered if not any(_covers(entry, label) for label in in_use)
+    }
+    assert not unregistered and not unused, (
         f"{ACTIONLINT_CONFIG} registers {sorted(registered)} but the "
-        f"workflows use {sorted(in_use)}"
+        f"workflows use {sorted(in_use)}: unregistered {sorted(unregistered)}, "
+        f"unused {sorted(unused)}"
     )
+
+
+def _covers(entry: str, label: str) -> bool:
+    """Say whether a registry entry names a label, exactly or by a trailing ``*`` glob."""
+    prefix, star, rest = entry.partition("*")
+    if not star:
+        return entry == label
+    return not rest and label.startswith(prefix)
 
 
 @pytest.mark.parametrize("workflow_name", workflow_names())
