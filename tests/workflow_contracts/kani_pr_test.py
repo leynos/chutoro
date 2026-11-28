@@ -1,21 +1,25 @@
 """Contract tests for the pull-request Kani gate workflow.
 
 The workflow is declarative configuration: it decides when the Kani gate
-runs, what the checkout may do with the workflow token, and which Kani
-version verifies the proofs. These tests parse the workflow with PyYAML
-and pin that contract, so drift (losing a path filter, unpinning an
-action or the verifier, widening permissions, or dropping the gating
-step) fails CI on the pull request that introduces it.
+runs, what the checkout may do with the workflow token, which steps can be
+skipped, and which Kani version verifies the proofs. These tests parse the
+workflow with PyYAML and pin that contract, so drift (reintroducing a path
+filter, making a step conditional, unpinning an action or the verifier,
+widening permissions, or dropping the gating step) fails CI on the pull
+request that introduces it.
 
-These tests assert shapes and relationships, never specific pinned
-values. Restating a pin in a test only duplicates the thing that changes,
-so a routine bump fails the build for no defect. Accordingly: action pins
-are checked for shape (a 40-hex commit SHA on the correct action path) and
-for cross-workflow consistency in ``action_pins_test``; the path filter is
-checked by deriving the Kani surface from the tree and asserting the
-filter covers it; and the verifier version is checked only for the
-workflow deriving it from ``tools/kani/VERSION`` -- the single source of
-truth also read by the Makefile and by ``prover-tools kani install``.
+The `kani` job is a required status check, so the first property is that it
+reports at all: a `paths` filter would leave the context absent on a pull
+request that changes what the proof build compiles without matching a listed
+path, and a job-level or step-level condition could do the same.
+
+These tests assert shapes and relationships, never specific pinned values.
+Restating a pin in a test only duplicates the thing that changes, so a routine
+bump fails the build for no defect. Accordingly: action pins are checked for
+shape (a 40-hex commit SHA on the correct action path) and for cross-workflow
+consistency in ``action_pins_test``; and the verifier version is checked only
+for the workflow deriving it from ``tools/kani/VERSION`` -- the single source
+of truth also read by the Makefile and by ``prover-tools kani install``.
 
 Run via ``make test-workflow-contracts``.
 """
@@ -26,7 +30,6 @@ import re
 import subprocess
 from pathlib import Path
 
-import pathspec
 import pytest
 import yaml
 
@@ -41,41 +44,6 @@ CHECKOUT_RE = re.compile(r"^actions/checkout@[0-9a-f]{40}$")
 SETUP_RUST_RE = re.compile(
     r"^leynos/shared-actions/\.github/actions/setup-rust@[0-9a-f]{40}$"
 )
-#: Non-source inputs that change what the gate runs, so a change to any of
-#: them must trigger it. Everything else is derived from the tree below.
-GATE_INPUTS = (
-    "Makefile",
-    "Cargo.lock",
-    "Cargo.toml",
-    "chutoro-core/Cargo.toml",
-    "chutoro-providers/dense/Cargo.toml",
-    "tools/kani/VERSION",
-)
-
-
-def _kani_surface() -> list[str]:
-    """Return every Kani harness path in the tree, repository-relative.
-
-    Derived rather than enumerated so a harness added in a new location
-    fails this contract until the path filter covers it.
-    """
-    surface = {
-        path.relative_to(REPO_ROOT).as_posix()
-        for path in REPO_ROOT.rglob("kani_*.rs")
-        if "target" not in path.parts
-    }
-    surface |= {
-        path.relative_to(REPO_ROOT).as_posix()
-        for path in REPO_ROOT.rglob("kani_proofs/*.rs")
-        if "target" not in path.parts
-    }
-    return sorted(surface)
-
-
-def _uncovered(paths: list[str], patterns: list[str]) -> list[str]:
-    """Return the paths no filter pattern matches."""
-    spec = pathspec.PathSpec.from_lines("gitignore", patterns)
-    return [path for path in paths if not spec.match_file(path)]
 
 
 @pytest.mark.parametrize("version", ("1.2", "1.2.3.4", "1..2", "1.2.x"))
@@ -133,10 +101,14 @@ def _steps(workflow: dict[str, object]) -> list[dict[str, object]]:
     return steps
 
 
-def test_pull_request_trigger_covers_the_kani_surface(
-    workflow: dict[str, object],
-) -> None:
-    """The gate fires on main-targeted PRs touching Kani-relevant paths."""
+def test_pull_request_trigger_is_unfiltered(workflow: dict[str, object]) -> None:
+    """The gate fires on every main-targeted pull request, with no path filter.
+
+    `kani` is a required status check, so the job must report on every pull
+    request. A `paths` or `paths-ignore` filter would leave the context absent
+    on changes that alter the compiled proof surface without touching a listed
+    path, and an absent required check is not a passing one.
+    """
     triggers = _triggers(workflow)
     pull_request = triggers.get("pull_request")
     assert isinstance(pull_request, dict), "on.pull_request is missing"
@@ -148,26 +120,66 @@ def test_pull_request_trigger_covers_the_kani_surface(
         f"on.pull_request.types must cover opened/synchronize/reopened, got "
         f"{pull_request.get('types')!r}"
     )
-    patterns = pull_request.get("paths")
-    assert isinstance(patterns, list) and patterns, (
-        f"on.pull_request.paths must list filter patterns, got {patterns!r}"
+    filters = sorted(set(pull_request) & {"paths", "paths-ignore"})
+    assert not filters, (
+        "on.pull_request must declare no path filter, because `kani` is a "
+        f"required status; found {filters!r}"
     )
-
-    surface = _kani_surface()
-    assert surface, "no Kani harnesses were discovered; the derivation is broken"
-    missed = _uncovered(surface, patterns)
-    assert not missed, (
-        "on.pull_request.paths must cover every Kani harness in the tree; "
-        f"these are not matched by any pattern: {missed!r}"
-    )
-
-    missed_inputs = _uncovered(list(GATE_INPUTS), patterns)
-    assert not missed_inputs, (
-        "on.pull_request.paths must cover the inputs that change what the "
-        f"gate runs; these are not matched by any pattern: {missed_inputs!r}"
-    )
-
     assert "workflow_dispatch" in triggers, "on.workflow_dispatch is missing"
+
+
+def _normalised(condition: object) -> str | None:
+    """Return a step condition with the expression wrapper removed."""
+    if not isinstance(condition, str):
+        return None
+    return condition.strip().removeprefix("${{").removesuffix("}}").strip()
+
+
+def test_the_kani_job_cannot_be_skipped(workflow: dict[str, object]) -> None:
+    """Neither the job nor any of its steps carries a condition.
+
+    A `if:` on the job or on setup, install or verification would let the run
+    finish without verifying anything while the required context still
+    reported a conclusion. The job is the check, so it runs whole.
+    """
+    job = _kani_job(workflow)
+    gated = [key for key in ("if", "continue-on-error") if key in job]
+    assert not gated, (
+        "jobs.kani must carry no condition and no tolerance, got "
+        f"{ {key: job.get(key) for key in gated}!r}"
+    )
+    # `continue-on-error` marks the run's conclusion as success while the step
+    # itself failed, which is a green required context over a broken proof.
+    tolerant = [
+        step.get("name")
+        for step in _steps(workflow)
+        if step.get("continue-on-error") is not None
+    ]
+    assert not tolerant, (
+        "no step of the Kani gate may set continue-on-error; a failed proof "
+        f"must fail the job. Found {tolerant!r}"
+    )
+    steps = _steps(workflow)
+    # `always()` is allowed only on the disk reading that closes the job, so a
+    # failed suite still records its headroom. Anywhere else it could run a
+    # step after an earlier failure or during cancellation. Identifying the
+    # step by position rather than by accepting any `always()` is what keeps
+    # checkout from acquiring one unnoticed.
+    closing = len(steps) - 1
+    assert closing >= 0 and steps[closing].get("run") == "df -h .", (
+        "the job must end with the disk reading, got "
+        f"{steps[closing].get('run') if closing >= 0 else None!r}"
+    )
+    conditional = [
+        (step.get("name"), step.get("if"))
+        for index, step in enumerate(steps)
+        if "if" in step
+        and (_normalised(step.get("if")) != "always()" or index != closing)
+    ]
+    assert not conditional, (
+        "no setup, install or verification step may be conditional; the disk "
+        f"reading closing the job is the only exception. Found {conditional!r}"
+    )
 
 
 def test_workflow_permissions_are_read_only(workflow: dict[str, object]) -> None:

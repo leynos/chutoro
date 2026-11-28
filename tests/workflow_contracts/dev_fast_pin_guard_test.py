@@ -111,7 +111,11 @@ def _pin_directory(tmp_path: Path) -> Path:
     (directory / "Makefile").write_text(
         MAKEFILE_PATH.read_text(encoding="utf-8"), encoding="utf-8"
     )
-    for relative in (Path("tools/dev-fast/config.toml"), Path("tools/kani/VERSION")):
+    for relative in (
+        Path("tools/dev-fast/config.toml"),
+        Path("tools/kani/VERSION"),
+        Path("tools/kani/kani.mk"),
+    ):
         (directory / relative).write_text(
             (REPO_ROOT / relative).read_text(encoding="utf-8"), encoding="utf-8"
         )

@@ -131,35 +131,18 @@ VERUS_PROOF_FILES ?= $(if $(VERUS_PROOF_FILE),$(VERUS_PROOF_FILE),\
 	verus/session_refresh.rs)
 VERUS_PROOF_ARGS = $(foreach proof,$(VERUS_PROOF_FILES),--proof-file "$(proof)")
 
-# `prover-tools kani install` runs `cargo kani setup`, which unpacks the
-# verified bundle and its pinned nightly toolchain under KANI_HOME at
-# `kani-<version>/toolchain`.
-KANI_HOME ?= $(HOME)/.kani
-KANI_VERSION_FILE ?= tools/kani/VERSION
-override KANI_VERSION := $(strip $(file <$(KANI_VERSION_FILE)))
-KANI_VERSION_PARTS := $(subst ., ,$(KANI_VERSION))
-# Remove the valid SemVer characters so the parse-time checks below can reject
-# malformed file contents before deriving the toolchain library path.
-KANI_VERSION_REMAINDER := $(KANI_VERSION)
-KANI_VERSION_REMAINDER := $(subst 0,,$(KANI_VERSION_REMAINDER))
-KANI_VERSION_REMAINDER := $(subst 1,,$(KANI_VERSION_REMAINDER))
-KANI_VERSION_REMAINDER := $(subst 2,,$(KANI_VERSION_REMAINDER))
-KANI_VERSION_REMAINDER := $(subst 3,,$(KANI_VERSION_REMAINDER))
-KANI_VERSION_REMAINDER := $(subst 4,,$(KANI_VERSION_REMAINDER))
-KANI_VERSION_REMAINDER := $(subst 5,,$(KANI_VERSION_REMAINDER))
-KANI_VERSION_REMAINDER := $(subst 6,,$(KANI_VERSION_REMAINDER))
-KANI_VERSION_REMAINDER := $(subst 7,,$(KANI_VERSION_REMAINDER))
-KANI_VERSION_REMAINDER := $(subst 8,,$(KANI_VERSION_REMAINDER))
-KANI_VERSION_REMAINDER := $(subst 9,,$(KANI_VERSION_REMAINDER))
-KANI_VERSION_REMAINDER := $(subst .,,$(KANI_VERSION_REMAINDER))
-ifneq ($(words $(KANI_VERSION_PARTS)),3)
-_KANI_VERSION_CHECK := $(error KANI_VERSION must be MAJOR.MINOR.PATCH)
-endif
-ifneq ($(strip $(KANI_VERSION_REMAINDER)),)
-_KANI_VERSION_CHECK := $(error KANI_VERSION must be MAJOR.MINOR.PATCH)
-endif
-KANI_LIB_PATH ?= $(KANI_HOME)/kani-$(KANI_VERSION)/toolchain/lib
-KANI_ENV ?= LD_LIBRARY_PATH="$(KANI_LIB_PATH):$(LD_LIBRARY_PATH)"
+# All Kani wiring (the harness manifest, the run checker and both tiers) lives
+# in one included fragment, so the prover surface has one owner and this file
+# keeps its own targets and recipes readable.
+include tools/kani/kani.mk
+
+
+# Declared before `build`, so the default goal is stated rather than inherited
+# from whichever target happens to appear first. GNU make takes the first
+# ordinary target as the default, and `build` is the one a bare `make` must
+# keep building.
+.DEFAULT_GOAL := build
+
 
 # The development build standard (concordat rule `rust-build-defaults`):
 # the mold linker on Linux. The pin is stable, so the nightly-only parallel
@@ -290,18 +273,6 @@ kani-check: ## Check the installed Kani verifier against its pin
 	@$(PROVER_TOOLS) kani check-version --kani-command "$(CARGO) kani" || \
 		{ status=$$?; printf 'kani-check failed (exit %s)\n' "$$status" >&2; exit "$$status"; }
 
-kani: ## Run Kani practical harnesses
-	$(KANI_ENV) $(CARGO) kani -p chutoro-core --default-unwind 4 --harness verify_bidirectional_links_smoke_2_nodes_1_layer
-	$(KANI_ENV) $(CARGO) kani -p chutoro-core --default-unwind 4 --harness verify_bidirectional_links_reconciliation_2_nodes_1_layer
-	$(KANI_ENV) $(CARGO) kani -p chutoro-core --default-unwind 9 --harness verify_base_layer_healing_links_isolated_node_2_nodes
-	$(KANI_ENV) $(CARGO) kani -p chutoro-core --default-unwind 12 --harness verify_mst_structural_correctness_4_nodes
-	$(KANI_ENV) $(CARGO) kani -p chutoro-core --default-unwind 10 --harness verify_mst_minimality_3_nodes
-	$(KANI_ENV) $(CARGO) kani -p chutoro-providers-dense --default-unwind 4 --harness verify_dense_simd_dispatch_selection_respects_support_masks
-	$(KANI_ENV) $(CARGO) kani -p chutoro-providers-dense --default-unwind 18 --harness verify_dense_simd_tail_padding_lane_bounds
-
-kani-full: ## Run all Kani formal verification harnesses
-	$(KANI_ENV) $(CARGO) kani -p chutoro-core --default-unwind 10
-	$(KANI_ENV) $(CARGO) kani -p chutoro-providers-dense --default-unwind 18
 
 verus: ## Run Verus proofs for edge harvest primitives
 	@$(PROVER_TOOLS) verus run $(VERUS_PROOF_ARGS) || \
@@ -341,9 +312,13 @@ test-scheduling-contract: ## Run the HNSW critical-section scheduling regression
 		-E 'test(=hnsw::cpu::trim_tests::direct_trim_scoring_stays_on_the_calling_worker)' \
 		--no-tests=fail
 
+# `grep` prefixes each match with the file it came from once more than one
+# file is named, and `$(MAKEFILE_LIST)` is always at least two files now that
+# the Kani wiring is an included fragment. `-h` suppresses that prefix, so the
+# columns stay target-and-description whatever the include list grows to.
 help: ## Show available targets
-	@grep -E '^[a-zA-Z_-]+:.*?##' $(MAKEFILE_LIST) | \
-	awk 'BEGIN {FS=":"; printf "Available targets:\n"} {printf "  %-20s %s\n", $$1, $$2}'
+	@grep -hE '^[a-zA-Z_-]+:.*?##' $(MAKEFILE_LIST) | \
+	awk -F'##' 'BEGIN { printf "Available targets:\n" } { split($$1, name, ":"); printf "  %-20s %s\n", name[1], $$2 }'
 
 YAMLLINT ?= yamllint
 ACTIONLINT ?= actionlint

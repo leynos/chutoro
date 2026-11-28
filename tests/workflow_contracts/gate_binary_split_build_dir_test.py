@@ -38,9 +38,15 @@ MINIMUM_CARGO = (1, 91)
 #: Each suite under test, mapped to the gate binary it exercises. The binary
 #: name is both the ``CARGO_BIN_EXE_<name>`` value Cargo embeds and the file
 #: name it writes into the target directory's debug profile directory.
+#:
+#: Only the benchmark gate remains. The nightly Kani gate this contract was
+#: written alongside was deleted when the nightly workflow became
+#: unconditional, and `kani_suite_cli` replaces nothing here: it takes its
+#: binary from `CARGO_BIN_EXE_kani_suite` too, but its own suite already
+#: asserts that path is an executable file, so listing it would repeat a check
+#: rather than cover a second gate.
 GATE_SUITES: dict[str, str] = {
     "benchmark_regression_gate_cli": "benchmark_regression_gate",
-    "kani_nightly_gate_cli": "kani_nightly_gate",
 }
 
 #: Cargo appends a 16-hex-digit metadata hash to every artefact compiled for
@@ -257,8 +263,6 @@ def test_gate_binaries_run_when_cargo_splits_the_build_directory(
         "--all-features",
         "--test",
         "benchmark_regression_gate_cli",
-        "--test",
-        "kani_nightly_gate_cli",
     )
     assert completed.returncode == 0, (
         "the gate suites failed with Cargo's build directory split from its "

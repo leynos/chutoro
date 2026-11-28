@@ -1,64 +1,49 @@
-"""Contract between the fast-tier Makefile target and the fast-tier docs.
+"""Contract between the Makefile's Kani tiers and the proof inventory.
 
-``make kani`` is the pull-request gate, so its meaning depends on which
-harnesses the ``kani:`` target actually runs. The MST harness module
-documents that both of its proofs are fast-tier; this test derives the
-harness names from that source file and asserts the Makefile runs each,
-so the tier decision cannot drift from the documented one. Deriving the
-names rather than restating them keeps the contract self-maintaining: a
-proof added to the module fails here until the Makefile carries it.
+``make kani`` is the pull-request gate, so its meaning depends on exactly
+which harnesses the ``kani:`` target runs, and ``make kani-full`` is the
+nightly tier, so its meaning depends on which packages it sweeps. Both are
+compared against ``tools/kani/harnesses.toml``: the fast selectors must be
+exactly the manifest's fast-tier harnesses for the package they name, and the
+full tier must sweep each package that holds a proof.
+
+The recipe reading, and the fixtures both tier contracts share, live in
+:mod:`kani_recipe_reading`. The commands themselves are executed by
+:mod:`kani_tier_routing_test`, which runs each tier against a recording
+checker; this module asserts what a command must say, not that it runs.
 
 Run via ``make test-workflow-contracts``.
 """
 
 from __future__ import annotations
 
+import collections
 import re
-from pathlib import Path
 
 import pytest
 
-REPO_ROOT = Path(__file__).resolve().parents[2]
-MAKEFILE_PATH = REPO_ROOT / "Makefile"
-
-#: Harness modules whose module docs declare every proof fast-tier.
-FAST_TIER_SOURCES = (REPO_ROOT / "chutoro-core" / "src" / "mst" / "kani_harness.rs",)
-
-PROOF_RE = re.compile(r"^\s*fn\s+(verify_\w+)", re.MULTILINE)
-
-#: The first ``kani:`` target header and its immediately following
-#: tab-indented recipe lines; the capture stops at the first line that is
-#: not tab-indented.
-KANI_TARGET_RE = re.compile(
-    r"^kani:[^\n]*\n(?P<recipe>(?:\t[^\n]*(?:\n|$))*)",
-    re.MULTILINE,
+from kani_manifest_test import _entries
+from kani_recipe_reading import (
+    RecipeError,
+    executable_commands,
+    logical_lines,
+    selections,
+    violations,
 )
 
-#: An executable Kani command in the ``kani:`` recipe. The optional leading
-#: variable expansions cover the environment prefix; comments and shell text
-#: cannot satisfy this pattern.
-KANI_COMMAND_RE = re.compile(
-    r"^\t@?(?:\$\([A-Z_]+\)\s+)*\$\(CARGO\)\s+kani\b(?P<arguments>.*)$"
-)
-HARNESS_ARGUMENT_RE = re.compile(r"(?:^|\s)--harness\s+(verify_\w+)(?:\s|$)")
+
+def _manifest_fast(package: str) -> list[str]:
+    """Return the manifest's fast-tier harnesses for `package`, sorted."""
+    return sorted(
+        entry["pretty_name"]
+        for entry in _entries()
+        if entry["package"] == package and entry["tier"] == "fast"
+    )
 
 
-def _fast_tier_harnesses() -> list[str]:
-    """Return every proof name declared in the fast-tier harness modules."""
-    names: list[str] = []
-    for source in FAST_TIER_SOURCES:
-        names.extend(PROOF_RE.findall(source.read_text(encoding="utf-8")))
-    return names
-
-
-def _executed_harnesses(kani_target: str) -> set[str]:
-    """Return harnesses passed to executable Kani commands in one recipe."""
-    harnesses: set[str] = set()
-    for line in kani_target.splitlines():
-        match = KANI_COMMAND_RE.match(line)
-        if match:
-            harnesses.update(HARNESS_ARGUMENT_RE.findall(match["arguments"]))
-    return harnesses
+def _manifest_packages() -> list[str]:
+    """Return every package the manifest names, sorted."""
+    return sorted({entry["package"] for entry in _entries()})
 
 
 @pytest.mark.parametrize(
@@ -67,39 +52,298 @@ def _executed_harnesses(kani_target: str) -> set[str]:
         "\t# $(CARGO) kani --harness verify_mst_structural_correctness_4_nodes",
         "\techo $(CARGO) kani --harness verify_mst_structural_correctness_4_nodes",
         "\tprintf '%s\\n' '--harness verify_mst_structural_correctness_4_nodes'",
+        '\t@echo "$(CARGO) kani -p chutoro-core --harness verify_x"',
     ),
 )
-def test_executed_harnesses_rejects_nonexecuting_recipe_text(recipe: str) -> None:
-    """Proof names in comments or output commands cannot satisfy the contract."""
-    assert not _executed_harnesses(recipe)
-
-
-@pytest.fixture(scope="module")
-def kani_target() -> str:
-    """Return the recipe body of the Makefile's ``kani:`` target."""
-    match = KANI_TARGET_RE.search(MAKEFILE_PATH.read_text(encoding="utf-8"))
-    assert match and match["recipe"], (
-        "the Makefile must define a kani: target with a recipe"
-    )
-    return match["recipe"].rstrip("\n")
-
-
-def test_fast_tier_sources_declare_harnesses() -> None:
-    """Guard the derivation: an empty scan would pass everything vacuously."""
-    harnesses = _fast_tier_harnesses()
-    assert harnesses, (
-        f"no proofs found in {[str(p) for p in FAST_TIER_SOURCES]}; "
-        "the derivation regex or source list is broken"
+def test_nonexecuting_recipe_text_selects_no_harness(recipe: str) -> None:
+    """Names in comments or in output commands cannot satisfy the contract."""
+    found = executable_commands(recipe)
+    assert found == [], (
+        f"non-executing text must select nothing, got {[m[0] for m in found]!r}"
     )
 
 
-def test_make_kani_runs_every_fast_tier_harness(kani_target: str) -> None:
-    """Each documented fast-tier proof is an executed Kani harness argument."""
-    executed_harnesses = _executed_harnesses(kani_target)
-    missing = [
-        name for name in _fast_tier_harnesses() if name not in executed_harnesses
+@pytest.mark.parametrize(
+    ("recipe", "forbidden"),
+    (
+        ("\t$(CARGO) kani -p chutoro-core || true", "|| true"),
+        ("\t$(CARGO) kani -p chutoro-core || :", "|| :"),
+        ("\t-$(CARGO) kani -p chutoro-core", "prefixed with '-'"),
+        ("\t$(CARGO) kani -p chutoro-core --harness verify_x ||true", "||true"),
+        ("\t$(CARGO) kani -p chutoro-core --harness verify_x ||   true", "||   true"),
+    ),
+)
+def test_masked_recipe_lines_are_rejected(recipe: str, forbidden: str) -> None:
+    """A tier whose recipe cannot fail is not a gate."""
+    with pytest.raises(RecipeError) as raised:
+        selections(recipe)
+    assert forbidden in str(raised.value), (
+        f"the rejection must name the masking ({forbidden!r}), got {raised.value}"
+    )
+
+
+def test_a_continuation_with_a_recipe_tab_joins_with_nothing() -> None:
+    """Make removes the pair and the next line's recipe-prefix tab together.
+
+    A value split across two recipe lines therefore reaches the shell as one
+    word, which is what the reader must reproduce.
+    """
+    joined = logical_lines("\t$(CARGO) kani --harness=\\\n\tverify_one\n")
+    assert joined == ["\t$(CARGO) kani --harness=verify_one"], joined
+
+
+def test_a_quoted_continuation_keeps_its_backslash() -> None:
+    """Single quotes keep the pair, which make passes through to the shell.
+
+    A quoted value split across two recipe lines is therefore not the value
+    the halves would spell joined, so the reader must not join it either.
+    """
+    joined = logical_lines("\t$(CARGO) kani --config 'tools/dev-\\\n\tfast.toml'\n")
+    assert len(joined) == 1, joined
+    assert "dev-\\\n" in joined[0], joined
+
+
+def test_an_escaped_space_keeps_a_hash_in_the_word() -> None:
+    """An escaped space joins the next word, so its hash is not a comment.
+
+    The checker still receives the option after it, and a reader that cut at
+    the hash would never examine that option.
+    """
+    arguments = "-p core --target-dir build\\ # --jobs=2"
+    refused = violations(arguments)
+    assert refused == ["--jobs=2"], f"the escaped hash is not a comment: {refused!r}"
+
+
+def test_a_quoted_argument_cannot_invent_a_selector() -> None:
+    """A ``--harness`` inside another word's value is text, not a selector.
+
+    Reading the command as joined words would turn part of a quoted directory
+    into a selection the command never makes.
+    """
+    command = (
+        "\t$(KANI_SUITE) --manifest $(KANI_MANIFEST) --package chutoro-core "
+        "--scope fast -- $(CARGO) kani -p chutoro-core --lib --exact "
+        '--harness a::verify_one --target-dir "build --harness bogus"\n'
+    )
+    selected = selections(command)
+    assert selected == [("chutoro-core", ["a::verify_one"])], selected
+
+
+def test_a_shell_comment_ends_the_read_command() -> None:
+    """Nothing after a ``#`` reaches the shell, so nothing after it is read.
+
+    A commented-out selector and a commented-out refused flag are both text
+    the checker never receives. Counting the first would require a harness the
+    command does not run; refusing the second would fail a recipe for an
+    option it does not pass.
+    """
+    command = (
+        "\t$(KANI_SUITE) --manifest $(KANI_MANIFEST) --package chutoro-core "
+        "--scope fast -- $(CARGO) kani -p chutoro-core --lib --exact "
+        "--harness a::verify_one # --harness b::verify_two --jobs=4\n"
+    )
+    found = selections(command)
+    assert found == [("chutoro-core", ["a::verify_one"])], (
+        f"a trailing comment must not add a selection, got {found!r}"
+    )
+    refused = violations("-p chutoro-core --lib --harness a::verify_one # -j4")
+    assert refused == [], f"a commented-out flag must not be refused, got {refused!r}"
+
+
+def test_fast_recipe_runs_only_executable_kani_commands(fast_recipe: str) -> None:
+    """Every fast-tier line is an executable Kani command with one package."""
+    selected = selections(fast_recipe)
+    assert selected, (
+        "the kani: target must run at least one executable Kani command"
+    )
+    assert all(names for _, names in selected), (
+        "every fast-tier command must name the harness it runs; an unselected "
+        f"command runs a whole package in the pull-request tier: {selected!r}"
+    )
+
+
+@pytest.mark.parametrize(
+    "arguments",
+    (
+        "-p chutoro-core --lib --quiet",
+        "-p chutoro-core --lib -q",
+        "-p chutoro-core --lib --output-format terse",
+        "-p chutoro-core --lib --output-format=old",
+        "-p chutoro-core --lib --output-into-files",
+        "-p chutoro-core --lib --bin helper",
+        "-p chutoro-core --lib --bin=helper",
+        "-p chutoro-core --lib --bins",
+        "-p chutoro-core --lib --no-codegen",
+        "-p chutoro-core --lib --only-codegen",
+        "-p chutoro-core --lib --log-file kani.log",
+        "-p chutoro-core --lib --tests",
+        "-p chutoro-core --lib -j",
+        "-p chutoro-core --lib --jobs 4",
+    ),
+)
+def test_forbidden_kani_flags_are_rejected(arguments: str) -> None:
+    """The checker refuses options that hide, redirect or rewrite its input."""
+    assert violations(arguments), (
+        f"expected {arguments!r} to contain a refused option"
+    )
+
+
+def test_a_regular_output_format_is_not_a_violation() -> None:
+    """The negative control: the one output format the checker reads passes."""
+    refused = violations("-p chutoro-core --lib --output-format regular")
+    assert refused == [], f"the regular format must be accepted, got {refused!r}"
+    quoted = violations('-p chutoro-core --lib --output-format "regular"')
+    assert quoted == [], f"a quoted regular format must be accepted, got {quoted!r}"
+
+
+@pytest.mark.parametrize(
+    ("target", "recipe_fixture"),
+    (("kani", "fast_recipe"), ("kani-full", "full_recipe")),
+)
+def test_commands_pass_no_forbidden_flag(
+    target: str, recipe_fixture: str, request: pytest.FixtureRequest
+) -> None:
+    """Every executable command in a tier is one the checker will accept."""
+    recipe = request.getfixturevalue(recipe_fixture)
+    offenders = [
+        (arguments, violations(arguments))
+        for match in executable_commands(recipe)
+        if (arguments := match["arguments"]) and violations(arguments)
     ]
+    assert not offenders, (
+        f"the {target}: target passes options the checker refuses, so the "
+        f"run would fail before verification: {offenders!r}"
+    )
+
+
+def test_fast_selectors_are_exactly_the_manifest_fast_tier(
+    fast_recipe: str,
+) -> None:
+    """Each package's fast selectors are exactly that package's fast proofs.
+
+    Compared as multisets, so a dropped selector and a duplicated one are both
+    failures. The selectors are fully qualified: a bare function name still
+    matches under ``--harness``, but it would also match a future sibling in
+    another module, which is what the manifest exists to prevent.
+    """
+    # The package is part of the identity. Two packages may each declare a
+    # proof of the same module path, and comparing bare paths would report the
+    # legitimate pair as one duplication while letting a real drop hide.
+    selected = collections.Counter(
+        (package, name) for package, names in selections(fast_recipe) for name in names
+    )
+    expected = collections.Counter(
+        (package, name)
+        for package in _manifest_packages()
+        for name in _manifest_fast(package)
+    )
+    missing = sorted((expected - selected).elements())
+    unexpected = sorted((selected - expected).elements())
+    duplicated = sorted(
+        identity for identity, count in selected.items() if count > 1
+    )
     assert not missing, (
-        "the Makefile kani: target must run every fast-tier harness declared "
-        f"in the MST harness module; missing: {missing!r}"
+        "the kani: target must run every fast-tier harness the manifest "
+        f"lists; missing: {missing!r}"
+    )
+    assert not unexpected, (
+        "the kani: target runs harnesses the manifest does not classify as "
+        f"fast-tier; unexpected: {unexpected!r}"
+    )
+    assert not duplicated, (
+        "the kani: target runs these harnesses more than once, so one proof "
+        f"result is being asked for twice: {duplicated!r}"
+    )
+
+
+#: One segment of a harness path: a Rust identifier.
+_SELECTOR_IDENTIFIER = re.compile(r"[A-Za-z_][A-Za-z0-9_]*")
+
+
+def test_fast_selectors_are_identifier_paths(fast_recipe: str) -> None:
+    """A fast selector must be the path Kani prints, segment by segment.
+
+    A crate-root proof's harness is the bare function name, so a separator is
+    not required; every segment must still be a Rust identifier, because
+    anything else does not match the identity the manifest and the checker
+    compare.
+    """
+    malformed = sorted(
+        name
+        for _, names in selections(fast_recipe)
+        for name in names
+        if not all(
+            _SELECTOR_IDENTIFIER.fullmatch(segment) for segment in name.split("::")
+        )
+    )
+    assert not malformed, (
+        "every fast-tier --harness selector must be the path the manifest "
+        f"lists; these are not: {malformed!r}"
+    )
+
+
+def test_fast_selectors_are_grouped_by_their_own_package(fast_recipe: str) -> None:
+    """A selector must be passed to the package that declares it.
+
+    ``--harness`` is applied within ``-p``'s package, so a selector placed on
+    another package's command matches nothing and the proof silently stops
+    running.
+    """
+    misplaced: list[tuple[str, str]] = []
+    for package, names in selections(fast_recipe):
+        allowed = set(_manifest_fast(package))
+        misplaced.extend(
+            (package, name) for name in names if name not in allowed
+        )
+    assert not misplaced, (
+        "these selectors are passed to a package whose manifest fast tier does "
+        f"not list them: {misplaced!r}"
+    )
+
+
+def test_fast_tier_covers_each_package_that_has_fast_proofs(
+    fast_recipe: str,
+) -> None:
+    """A package with fast proofs must appear in the pull-request tier."""
+    packages = {package for package, _ in selections(fast_recipe)}
+    populated = {
+        package for package in _manifest_packages() if _manifest_fast(package)
+    }
+    assert packages == populated, (
+        "the kani: target must run each package that has fast-tier proofs: "
+        f"missing {sorted(populated - packages)}, extra {sorted(packages - populated)}"
+    )
+
+
+def test_full_tier_sweeps_every_package_holding_a_proof(full_recipe: str) -> None:
+    """The nightly tier verifies each package's whole proof surface.
+
+    ``make kani-full`` selects no harness, so it sweeps the package. Every
+    package in the manifest must be swept, or a proof classified ``full``
+    would never run anywhere.
+    """
+    swept = {package for package, _ in selections(full_recipe)}
+    expected = set(_manifest_packages())
+    assert swept == expected, (
+        "the kani-full: target must sweep exactly the packages that hold "
+        f"proofs: missing {sorted(expected - swept)}, extra "
+        f"{sorted(swept - expected)}"
+    )
+
+
+def test_full_tier_selects_no_individual_harness(full_recipe: str) -> None:
+    """The nightly tier sweeps packages; per-harness selection belongs in fast.
+
+    A harness selector here would make the tier depend on a list that the fast
+    tier already owns, and a proof added to the manifest would then be
+    silently excluded from the tier meant to cover everything.
+    """
+    selected = [
+        (package, name)
+        for package, names in selections(full_recipe)
+        for name in names
+    ]
+    assert not selected, (
+        "the kani-full: target must not select individual harnesses; it "
+        f"verifies the package's whole proof surface: {selected!r}"
     )

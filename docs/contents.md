@@ -91,6 +91,9 @@ open each document.
   prompt](planning/2-3-2-fearless-simd-agent-prompt.md): dependency
   authorization and instructions for revising the existing MST execution plan
   against current source and measurement gates.
+- [FV07 delivery notes](planning/issue-396-ruleset-change-request.md): draft
+  comment for #215 and the draft request to add `kani` to the required-checks
+  ruleset, with the verification an administrator should run.
 
 ## Execution plans
 

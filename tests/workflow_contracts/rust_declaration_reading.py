@@ -28,6 +28,11 @@ disagree with it: a brace counted inside a literal moves every later
 declaration to the wrong depth, and that is exactly the reading this module
 must get right.
 
+The brace questions — the depth at every offset and the brace matching one —
+are :mod:`rust_source_reading`'s too, beside the lexing they depend on. The
+Kani inventory reader asks the same questions of the same text, so the two
+readers share one implementation rather than each keeping a copy.
+
 Re-use policy: import it from `tests/workflow_contracts` only, and read a
 declaration from it rather than re-deriving one from `make --dry-run` text.
 """
@@ -35,13 +40,10 @@ declaration from it rather than re-deriving one from `make --dry-run` text.
 from __future__ import annotations
 
 import re
-import typing as typ
 
-from rust_source_reading import _FUNCTION, _blank, _is_test, _regions
-
-#: One brace's effect on nesting depth. Everything outside this mapping leaves
-#: the depth alone, so the scan counts structure rather than characters.
-_BRACE_DELTA: typ.Final[dict[str, int]] = {"{": 1, "}": -1}
+from rust_scanning import _blank, _brace_depths, _matching_brace, _regions
+from rust_source_reading import _FUNCTION
+from rust_test_discovery import _is_test
 
 #: Any module header, whichever module is wanted. Compiled once rather than per
 #: name, because the caller asks about one module in a file that may hold
@@ -52,53 +54,6 @@ _MODULE_HEADER = re.compile(
     r"(?P<name>[A-Za-z_][A-Za-z0-9_]*)[ \t]*\{",
     re.MULTILINE,
 )
-
-
-def _brace_depths(code: str) -> list[int]:
-    """Return the nesting depth at every offset, counted from the file root.
-
-    One pass serves every question below, so a depth is a list lookup rather
-    than a rescan per declaration. ``code`` must already have its comments and
-    literals blanked: a brace inside either opens or closes nothing, and
-    counting one moves every later declaration to the wrong depth.
-
-    Examples
-    --------
-    >>> _brace_depths("ab{cd}")
-    [0, 0, 0, 1, 1, 1]
-    """
-    depths: list[int] = []
-    depth = 0
-    for character in code:
-        depths.append(depth)
-        depth += _BRACE_DELTA.get(character, 0)
-    return depths
-
-
-def _matching_brace(code: str, depths: list[int], open_offset: int) -> int | None:
-    """Return the offset of the ``}`` closing the ``{`` at ``open_offset``.
-
-    Depth counting is what stops a nested module or an ``impl`` from ending the
-    span early, which would hide every declaration after it. An unbalanced
-    source returns None, which the caller reads as "no such module" rather than
-    guessing at an extent.
-
-    Examples
-    --------
-    >>> _matching_brace("ab{cd}", _brace_depths("ab{cd}"), 2)
-    5
-    >>> _matching_brace("ab{cd", _brace_depths("ab{cd"), 2) is None
-    True
-    """
-    inside_depth = depths[open_offset] + 1
-    return next(
-        (
-            offset
-            for offset in range(open_offset + 1, len(depths))
-            if code[offset] == "}" and depths[offset] == inside_depth
-        ),
-        None,
-    )
 
 
 def _module_body(

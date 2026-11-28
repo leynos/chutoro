@@ -36,7 +36,11 @@ ARCHIVE_MEMBERS = (
     "libexec/mold/ld",
 )
 INSTALLER_FILES = ("scripts/install-mold.sh", "scripts/lib/pinned-download.sh")
-MAKE_INPUTS = ("Makefile", "tools/dev-fast/TOOLCHAIN")
+MAKE_INPUTS = (
+    "Makefile",
+    "tools/dev-fast/TOOLCHAIN",
+    "tools/kani/kani.mk",
+)
 
 
 @dataclass(frozen=True)

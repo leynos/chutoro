@@ -17,6 +17,7 @@ import subprocess
 from pathlib import Path
 
 import pytest
+from kani_recipe_reading import logical_lines
 
 REPO_ROOT = Path(__file__).resolve().parents[2]
 MAKEFILE_PATH = REPO_ROOT / "Makefile"
@@ -63,11 +64,17 @@ def _cargo_invocations(output: str) -> list[tuple[str, list[str]]]:
     occurrence starts a new invocation and ends where the next one begins.
     Reading the line as a single command would report `fetch` as the verb and
     hide the nextest run behind it.
+
+    Continuations are joined first by the tier contract's joiner, because a
+    multi-line recipe is one command to the shell and an unjoined trailing
+    backslash is an unparseable token.
     """
     invocations: list[tuple[str, list[str]]] = []
-    for line in output.splitlines():
+    for line in logical_lines(output):
         tokens = shlex.split(line)
-        starts = [index for index, token in enumerate(tokens) if token == "probe-cargo"]
+        starts = [
+            index for index, token in enumerate(tokens) if token == "probe-cargo"
+        ]
         for position, start in enumerate(starts):
             end = starts[position + 1] if position + 1 < len(starts) else len(tokens)
             invocations.append((line, tokens[start:end]))

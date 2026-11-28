@@ -605,8 +605,11 @@ name = "chutoro-test-support"
 version = "0.1.0"
 dependencies = [
  "mockable",
+ "proptest",
  "rstest",
+ "serde",
  "thiserror 2.0.21",
+ "toml 1.1.4+spec-1.1.0",
  "tracing",
  "tracing-subscriber",
 ]

@@ -1,24 +1,18 @@
 name: Kani PR
 
+# This workflow declares no `paths` filter, so the `kani` job reports on every
+# pull request to `main`. The job is configured for required status: a path
+# filter would leave the check absent on a pull request that changes what the
+# proof build compiles without matching a listed path, and an absent check is
+# not a passing one. The live `main-required-checks` ruleset does not yet list
+# `kani`, so the guide and the ruleset-change request record enforcement as
+# pending an administrator action rather than active. The job is bounded at 30
+# minutes and runs on the paid queue, so the cost of always running is measured
+# in one lane's wall time rather than in a merge that skipped it.
 "on":
   pull_request:
     branches: [main]
     types: [opened, synchronize, reopened]
-    paths:
-      - ".github/workflows/kani-pr.yml"
-      - "**/kani_*.rs"
-      - "chutoro-core/src/hnsw/kani_proofs/**"
-      - "chutoro-core/src/mst/kani_harness.rs"
-      - "chutoro-providers/dense/src/simd/kani_proofs.rs"
-      - "chutoro-core/src/hnsw/**"
-      - "chutoro-core/src/mst/**"
-      - "chutoro-providers/dense/src/simd/**"
-      - "Makefile"
-      - "Cargo.toml"
-      - "Cargo.lock"
-      - "chutoro-core/Cargo.toml"
-      - "chutoro-providers/dense/Cargo.toml"
-      - "tools/kani/VERSION"
   workflow_dispatch:
 
 permissions:

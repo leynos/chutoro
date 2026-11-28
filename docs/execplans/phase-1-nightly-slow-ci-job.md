@@ -4,7 +4,11 @@ This ExecPlan is a living document. The sections `Constraints`, `Tolerances`,
 `Risks`, `Progress`, `Surprises & Discoveries`, `Decision Log`, and
 `Outcomes & Retrospective` must be kept up to date as work proceeds.
 
-Status: COMPLETE
+Status: SUPERSEDED (2026-11-23) by
+[FV07: require Kani in the merge ruleset](issue-396-fv07-require-kani-in-the-merge-ruleset-and-make-proof-discovery-reliable.md).
+The commit-age gate this plan delivered was replaced by an unconditional
+nightly run on the checked-out SHA. The rest of this document is the historical
+record and is not rewritten.
 
 PLANS.md is not present in this repository, so no additional plan constraints
 apply.

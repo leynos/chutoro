@@ -1,17 +1,21 @@
 name: Nightly Kani
 
-'on':
+# The scheduled run verifies the exact commit it checked out, unconditionally.
+# A commit-age gate used to decide this, which meant a missed or
+# infrastructure-failed night could age out and be followed by a skipped green
+# workflow: the head was then never verified, and nothing said so. A green run
+# of this workflow now means the full suite completed on the SHA written to the
+# job summary, and a skipped, failed, absent or cancelled run says nothing.
+"on":
   schedule:
     - cron: '0 2 * * *'
   workflow_dispatch:
-    inputs:
-      force_run:
-        description: Force Kani run even without last-24-hour commits (UTC).
-        required: false
-        default: true
-        type: boolean
 
 concurrency:
+  # Never cancel: the run exists to produce a verification result for its SHA,
+  # and a replaced run produces none. The group is fixed rather than keyed on
+  # the ref, so two nights cannot overlap on the verifier's shared disk and
+  # toolchain state.
   group: nightly-kani
   cancel-in-progress: false
 
@@ -28,7 +32,19 @@ jobs:
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
         with:
-          ref: main
+          # Verify the event's commit, not the branch tip at checkout time. A
+          # scheduled run's SHA is the trunk head when the run started, and a
+          # dispatch's is the branch the operator selected.
+          ref: ${{ github.sha }}
+          persist-credentials: false
+      # Recorded before verification, so a failed run still names what it was
+      # verifying. The reading is the checkout's own answer rather than the
+      # event payload's, so a checkout that resolved elsewhere is visible.
+      - name: Record the commit under verification
+        run: |
+          head="$(git rev-parse HEAD)"
+          printf 'Verified commit: %s\n' "$head" >> "$GITHUB_STEP_SUMMARY"
+          printf 'verified commit %s\n' "$head"
       - name: Setup Rust
         uses: leynos/shared-actions/.github/actions/setup-rust@767d5d22b8a5e4303b71624bc01207f28d313c77
         with:
@@ -42,11 +58,6 @@ jobs:
           # has nothing to do with verification. Warning denial stays where it
           # belongs, on ci.yml's lint and build steps.
           rustflags: ''
-      - name: Decide whether to run Kani
-        id: gate
-        env:
-          CHUTORO_KANI_FORCE: ${{ github.event_name == 'workflow_dispatch' && github.event.inputs.force_run || 'false' }}
-        run: cargo run -p chutoro-test-support --bin kani_nightly_gate
       # Deliberately uncached. Kani is a multi-part tool, so a cache would
       # have to cover the front-end, the verifier bundle under KANI_HOME, and
       # the pinned nightly toolchain together, which measures about 1.8 GB. A
@@ -57,7 +68,6 @@ jobs:
       # rust-prover-tools release, which verifies both archives against its
       # own SHA-256 pins.
       - name: Setup uv for the prover tooling
-        if: ${{ steps.gate.outputs.should_run == 'true' }}
         uses: astral-sh/setup-uv@1db35dd8eee11c5894872e0b383ae6c406cf738d
         with:
           python-version: '3.14'
@@ -66,12 +76,10 @@ jobs:
           # path a second owner with a competing key.
           enable-cache: false
       - name: Install Kani
-        if: ${{ steps.gate.outputs.should_run == 'true' }}
         uses: leynos/shared-actions/.github/actions/install-prover-tools@767d5d22b8a5e4303b71624bc01207f28d313c77
         with:
           tools: kani
           runner-image: ubuntu2404
           cache: 'false'
       - name: Run Kani full suite
-        if: ${{ steps.gate.outputs.should_run == 'true' }}
         run: make kani-full
