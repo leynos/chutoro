@@ -29,7 +29,10 @@ PROOF_ATTRIBUTES = frozenset({"kani::proof", "kani::proof_for_contract"})
 
 #: One attribute's path, with Rust's optional spacing around ``::`` removed by
 #: the caller before matching.
-_ATTRIBUTE_PATH = re.compile(r"^#\[\s*(?P<path>[A-Za-z_][A-Za-z0-9_:]*)")
+#: Rust writes an attribute as separate `#` and `[` tokens, so `# [proof]` is
+#: the same attribute as `#[proof]`. The spacing is part of the grammar, not a
+#: typo, and a reader that assumed adjacency would drop the proof it decorates.
+_ATTRIBUTE_PATH = re.compile(r"^#\s*\[\s*(?P<path>[A-Za-z_][A-Za-z0-9_:]*)")
 
 #: Rust permits whitespace around ``::``. Attributes are normalised through
 #: this before their path is read, so ``#[kani :: proof]`` is one attribute.
@@ -75,8 +78,24 @@ def _attribute_start(text: str, end: int) -> int | None:
         # still positive.
         if depth != 0:
             continue
-        if offset > 0 and text[offset - 1] == "#":
-            return offset - 1
+        sigil = _sigil_before(text, offset)
+        if sigil is not None:
+            return sigil
+    return None
+
+
+def _sigil_before(text: str, opening: int) -> int | None:
+    """Return the offset of the `#` that opens the attribute at `opening`.
+
+    Rust treats `#` and `[` as separate tokens, so whitespace may sit between
+    them. Reading only an adjacent `#` would miss `# [kani::proof]`, which is
+    legal Rust and would leave its proof out of the inventory.
+    """
+    position = opening
+    while position > 0 and text[position - 1].isspace():
+        position -= 1
+    if position > 0 and text[position - 1] == "#":
+        return position - 1
     return None
 
 

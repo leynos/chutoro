@@ -35,7 +35,8 @@ from rust_source_reading import _FUNCTION
 #: Rust compiles an included file's items, but this walk follows only ``mod``
 #: declarations, so every include is reported. The scan runs on the
 #: literal-blanked text, so a mention inside a string is not one.
-_INCLUDE = re.compile(r"\binclude!\s*\(")
+_INCLUDE = re.compile(r"\binclude\s*!\s*(?P<opening>[({[])")
+
 
 
 class _Reader:
@@ -284,7 +285,7 @@ class _Reader:
         """
         for found in _INCLUDE.finditer(source.code):
             opening = found.end() - 1
-            closing = _matching_delimiter(source.code, opening, "(")
+            closing = _matching_delimiter(source.code, opening, found["opening"])
             if closing is None:
                 closing = len(source.code)
             argument = source.declarations[opening + 1 : closing].strip()

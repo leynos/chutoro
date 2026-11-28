@@ -93,11 +93,17 @@ def _pattern_atom(pattern: str, index: int) -> tuple[str, int]:
 
 
 def _character_class(pattern: str, index: int) -> tuple[str, int]:
-    """Return one bracket expression's regex and the offset after it."""
+    """Return one bracket expression's regex and the offset after it.
+
+    The class body is copied literally, ``!`` included: GitHub's filter syntax
+    defines ``[]`` as a set of characters, and the only negation it documents
+    is a leading ``!`` on the whole pattern. Reading ``[!m]`` as a negated
+    class would also exclude ``main`` from a ``branches-ignore`` list whose
+    pattern matches it literally, and a required job would look covered while
+    the trigger ignored the branch.
+    """
     end = pattern.find("]", index + 1)
     if end < 0:
         return re.escape("["), index + 1
     body = pattern[index + 1 : end]
-    if body.startswith("!"):
-        body = "^" + body[1:]
     return f"[{body}]", end + 1

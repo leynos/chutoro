@@ -141,9 +141,15 @@ def _open_single_quote(text: str) -> bool:
 
 
 def _quote_step(text: str, index: int, quote: str) -> tuple[int, str]:
-    """Advance one character of a quoted run, or open or close one."""
+    """Advance one character of a quoted run, or open or close one.
+
+    A backslash escapes the character that follows it unless it sits inside
+    single quotes, where the shell reads it literally. Without that, an
+    escaped quote would be taken as opening a quoted run and the continuation
+    that follows would be joined wrongly.
+    """
     character = text[index]
-    if quote == '"' and character == "\\":
+    if character == "\\" and quote != "'":
         return index + 2, quote
     if character in {"'", '"'} and quote in {"", character}:
         return index + 1, "" if quote else character
@@ -337,3 +343,25 @@ def violations(arguments: str) -> list[str]:
         elif word.startswith("--output-format=") and word != "--output-format=regular":
             found.append(word)
     return found
+
+
+def test_an_escaped_quote_does_not_open_a_quoted_run() -> None:
+    """An unquoted backslash escapes the apostrophe that follows it.
+
+    The shell reads `\'` as a literal quote character, not as opening one, so
+    the continuation that follows is joined rather than kept for the shell.
+    """
+    lines = logical_lines("run \\'arg \\\n\t--next")
+    assert len(lines) == 1, f"one logical line expected, got {lines!r}"
+    assert "\n" not in lines[0], (
+        f"the continuation must be joined, got {lines[0]!r}"
+    )
+
+
+def test_a_backslash_newline_inside_single_quotes_is_kept() -> None:
+    """Inside single quotes the shell keeps the pair literally."""
+    lines = logical_lines("run 'a \\\n\tb' --next")
+    assert len(lines) == 1, f"one logical line expected, got {lines!r}"
+    assert "\n" in lines[0], (
+        f"the pair must be kept inside single quotes, got {lines[0]!r}"
+    )

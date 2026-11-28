@@ -82,6 +82,17 @@ pub enum CommandError {
         /// The arguments that were supplied.
         args: Vec<String>,
     },
+    /// A short-option cluster can carry a package option this reader cannot
+    /// attribute.
+    #[error(
+        "the delegated command spells short options in a cluster this checker \
+         cannot attribute: {argument:?}; pass -p separately so the selected \
+         package is recorded"
+    )]
+    ClusteredOption {
+        /// The clustered argument.
+        argument: String,
+    },
     /// An option was supplied without its value.
     #[error("option {flag} requires a value")]
     MissingValue {

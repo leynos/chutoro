@@ -120,7 +120,22 @@ def _source_files(directory: Path) -> typ.Iterator[Path]:
             continue
         seen.add(current.resolve())
         entries = sorted(current.iterdir())
-        pending.extend(entry for entry in entries if _is_package_tree(entry))
+        pending.extend(
+            entry
+            for entry in entries
+            if _is_package_tree(entry) and not _declares_package(entry)
+        )
         yield from (entry for entry in entries if entry.suffix == ".rs")
+
+
+def _declares_package(directory: Path) -> bool:
+    """Report whether `directory` is another package's root.
+
+    A fixture package nested inside this one compiles on its own, so its
+    sources are that package's proof surface, not orphans of this one.
+    Sweeping them here would report an unreachable proof that belongs to a
+    different package's manifest.
+    """
+    return (directory / "Cargo.toml").is_file()
 
 

@@ -21,7 +21,7 @@ import re
 import typing as typ
 
 #: A ``cfg`` guard and its predicate body.
-_CFG_GUARD = re.compile(r"#!?\[\s*cfg\s*\((?P<body>.*)\)\s*\]$", re.DOTALL)
+_CFG_GUARD = re.compile(r"#\s*!?\s*\[\s*cfg\s*\((?P<body>.*)\)\s*\]$", re.DOTALL)
 
 #: One predicate: a name, or a combinator over parenthesised predicates.
 _COMBINATOR = re.compile(r"(?P<fn>all|any|not)\s*\((?P<args>.*)\)$", re.DOTALL)

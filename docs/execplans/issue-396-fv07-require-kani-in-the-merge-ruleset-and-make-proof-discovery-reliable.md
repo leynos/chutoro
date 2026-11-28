@@ -436,6 +436,22 @@ issue text and the repository's documentation are the authority.
       matcher and the recipe shell reading. The small, fully enumerated tables
       stay as examples.
 
+- [x] First formal hosted review, eleven findings, all actioned. The major
+      one: Rust writes an attribute as separate `#` and `[` tokens, so
+      `# [kani::proof]` is a proof and the reader rejected it; the attribute
+      path, boundary detection, `cfg` guard and test-discovery readers now
+      accept token whitespace, with a fixture for each spaced form. The
+      clustered short option is a real bypass — `-p pkg -vpother` was accepted
+      while Cargo reads the cluster as a second package — so an unattributable
+      cluster is now refused, and `-Z`/`-C` attached values stay accepted.
+      `include!` matching now allows whitespace and all three delimiters; the
+      continuation joiner treats an unquoted backslash as an escape;
+      `src/bin/main.rs` is named `main` rather than after its directory; a
+      literal `!` in a branch-filter class is no longer read as negation; the
+      orphan sweep no longer sweeps a nested package's tree; the tier-routing
+      recorder path is shell-quoted; and the guide, this plan and the ruleset
+      request state the full-tier command and the narrower harness guarantee.
+
 ## Surprises & discoveries
 
 - Observation: `distance/mod.rs` declares six proofs in an inline
@@ -538,10 +554,13 @@ inline module bodies. This work extends those readers rather than growing a
 second scanner.
 
 The pull-request workflow `.github/workflows/kani-pr.yml` defines the single job
-`kani`, which runs `make kani` and records disk headroom around the suite. The
-nightly workflow `.github/workflows/nightly-kani.yml` defines `kani-full`,
-gated today by `chutoro-test-support/src/ci/nightly_gate.rs` and its
-`kani_nightly_gate` binary.
+`kani`, which runs `make kani` and records disk headroom around the suite. At
+the time this plan was written, the nightly workflow
+`.github/workflows/nightly-kani.yml` defined `kani-full` gated by
+`chutoro-test-support/src/ci/nightly_gate.rs` and its `kani_nightly_gate`
+binary. That baseline is what this plan replaces: the gate and its binary are
+deleted, and the nightly job now checks out `${{ github.sha }}` and runs
+`make kani-full` unconditionally.
 
 ## Plan of work
 
@@ -776,3 +795,7 @@ are now well inside the limit and the exception is withdrawn.
 
 Revised 2026-11-28: recorded the post-readiness formal review and its two
 pre-merge rows, and the refusal-surface and property coverage added for them.
+
+Revised 2026-11-28 (second): recorded the first formal hosted review, whose
+eleven findings included the spaced attribute sigil and the clustered package
+option, and the repairs for each.

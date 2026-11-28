@@ -199,15 +199,20 @@ def test_reader_reads_two_attributes_sharing_a_line(tmp_path: Path, write_packag
     )
 
 
+@pytest.mark.parametrize(
+    "invocation",
+    ('include!("../proofs.rs")', "include! {\"../proofs.rs\"}", "include! [\"../proofs.rs\"]", "include ! (\"../proofs.rs\")"),
+    ids=("parentheses", "braces", "brackets", "spaced sigil"),
+)
 def test_reader_reports_an_included_source(
-    tmp_path: Path, write_package: typ.Callable[..., Path]
+    tmp_path: Path, write_package: typ.Callable[..., Path], invocation: str
 ) -> None:
     """A literal ``include!`` compiles a file this walk never follows.
 
     Following only ``mod`` declarations would omit its proofs without a trace,
     so the include is reported and the inventory fails closed.
     """
-    crate_root = write_package('include!("../proofs.rs");\n')
+    crate_root = write_package(f"{invocation};\n")
     (crate_root.parent.parent / "proofs.rs").write_text(
         "#[kani::proof]\nfn verify_included() {}\n", encoding="utf-8"
     )
@@ -239,4 +244,30 @@ def test_unresolved_report_names_the_file_and_line(tmp_path: Path, write_package
     assert report.line == 4, f"expected the declaration's line, got {report!r}"
     assert report.path.endswith("src/lib.rs"), (
         f"expected a source path, got {report!r}"
+    )
+
+
+@pytest.mark.parametrize(
+    ("source", "expected"),
+    (
+        ("# [kani::proof]\nfn verify_spaced() {}\n", "verify_spaced"),
+        ("#[cfg(kani)]\n# [kani::proof]\nfn verify_both() {}\n", "verify_both"),
+    ),
+    ids=("spaced sigil", "spaced sigil beside a normal attribute"),
+)
+def test_reader_reads_an_attribute_with_token_whitespace(
+    tmp_path: Path,
+    write_package: typ.Callable[..., Path],
+    source: str,
+    expected: str,
+) -> None:
+    """Rust writes `#` and `[` as separate tokens, so `# [proof]` is a proof.
+
+    Reading only the adjacent pair would drop the declaration, and the
+    inventory comparison would then accept an unclassified proof.
+    """
+    write_package(source)
+    names = _names(discover(tmp_path))
+    assert names == [expected], (
+        f"an attribute with whitespace after its sigil must be read, got {names!r}"
     )

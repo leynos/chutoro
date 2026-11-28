@@ -175,6 +175,38 @@ fn a_binary_target_is_refused_in_both_spellings() {
     }
 }
 
+#[rstest]
+#[case("-vpother")]
+#[case("-vppkg")]
+fn a_compact_option_inside_a_short_cluster_is_refused(#[case] argument: &str) {
+    // Cargo reads `-vpother` as `-v -p other`, so the word can select a
+    // package the reader does not record. Refusing the cluster is what stops
+    // a second package reaching the child while the checker believes the
+    // command selected only the expected one.
+    let mut words = valid_words();
+    words.push(argument);
+    match parse_command(&owned(&words), "pkg") {
+        Err(CommandError::ClusteredOption { argument: refused }) => {
+            assert_eq!(refused, argument);
+        }
+        other => panic!("{argument} must be refused, got {other:?}"),
+    }
+}
+
+#[test]
+fn a_value_bearing_short_option_with_an_unrelated_name_is_accepted() {
+    // `-Zpolonius` and `-Cpanic=abort` take their value attached; they are
+    // Cargo's own spelling, not a cluster that could hide a package.
+    for argument in ["-Zpolonius", "-Cpanic=abort", "-vv"] {
+        let mut words = valid_words();
+        words.push(argument);
+        assert!(
+            parse_command(&owned(&words), "pkg").is_ok(),
+            "{argument} must not be read as a clustered package option"
+        );
+    }
+}
+
 #[test]
 fn a_second_package_is_refused() {
     let words = ["cargo", "kani", "-p", "pkg", "other", "--lib", "--exact"];

@@ -33,8 +33,10 @@ change a public conversation and a live repository setting.
 >   drift-sensitive at build time.
 > - `make kani` runs on every pull request but is **not yet enforced**; once
 >   the ruleset change lands it will be, and it is bounded, and it compiles the
->   production code the harness reaches, so the harnesses that drive production
->   paths cannot disagree with `src/` without failing to compile.
+>   production code each harness reaches. That ties a harness to the signatures
+>   and paths it calls: those cannot change incompatibly while it compiles. It
+>   does not establish that the harness's properties describe every production
+>   behaviour, nor that paths it never reaches agree with it.
 >
 > That last point is narrower than "Kani cannot drift", and the difference
 > matters. Several harnesses do not drive production paths: the MST proofs

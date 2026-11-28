@@ -91,6 +91,27 @@ pub(super) fn matches_forbidden(argument: &str, flag: &str) -> bool {
         && argument.len() > flag.len()
 }
 
+/// Report whether `argument` is a short-option cluster carrying a package.
+///
+/// Cargo reads `-vpkg` as `-v -p pkg`: a cluster may carry a package option
+/// after other flags. Recording only the separated and `-p<value>` forms would
+/// let such a word select a package the checker never records, and a second
+/// package could then satisfy the expected set. An unattributable cluster is
+/// therefore refused rather than read as a plain flag.
+///
+/// Only clusters that begin with a lowercase letter are considered. An
+/// uppercase short option (`-Zpolonius`, `-Cpanic=abort`) takes an attached
+/// value, which is Cargo's own spelling rather than a cluster.
+pub(super) fn clustered_package(argument: &str) -> bool {
+    let Some(cluster) = argument.strip_prefix('-') else {
+        return false;
+    };
+    if cluster.starts_with('-') || cluster.starts_with('p') {
+        return false;
+    }
+    cluster.starts_with(|character: char| character.is_ascii_lowercase()) && cluster.contains('p')
+}
+
 /// Reject any output format other than the regular one.
 pub(super) fn check_output_format(format: &str) -> Result<(), CommandError> {
     if format == "regular" {
@@ -164,6 +185,22 @@ mod tests {
         #[case] expected: bool,
     ) {
         assert_eq!(matches_forbidden(argument, flag), expected);
+    }
+
+    #[rstest]
+    #[case("-vpother", true)]
+    #[case("-vppkg", true)]
+    #[case("-qvpkg", true)]
+    #[case("-pkg", false)]
+    #[case("-p", false)]
+    #[case("-p=pkg", false)]
+    #[case("-vv", false)]
+    #[case("-v", false)]
+    #[case("-Zpolonius", false)]
+    #[case("-Cpanic=abort", false)]
+    #[case("--package=pkg", false)]
+    fn only_a_cluster_with_a_package_is_refused(#[case] argument: &str, #[case] clustered: bool) {
+        assert_eq!(clustered_package(argument), clustered);
     }
 
     #[rstest]

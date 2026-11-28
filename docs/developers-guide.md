@@ -3029,7 +3029,10 @@ To add a proof:
    a sweep entry there as well as its manifest entry. The workflow contract
    requires the target to sweep exactly the manifest's packages, so the
    omission fails the build rather than silently leaving the proof unrun.
-4. Run `make test-workflow-contracts` and `make kani`.
+4. Run `make test-workflow-contracts`, `make kani` and `make kani-full`.
+   `make kani` runs only the fast selectors, so it cannot confirm a full-tier
+   proof by itself; `make kani-full` sweeps each package the manifest names,
+   and the checker then requires the exact harnesses that sweep had to complete.
 
 ### Installing Kani
 

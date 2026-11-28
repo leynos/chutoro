@@ -312,6 +312,9 @@ def _require_required_types(
         (("m*",), True),
         (("ma?n",), False),
         (("[m]ain",), True),
+        # `!` inside a class is a literal character for GitHub, not negation,
+        # so this class is {!, x} and does not select `main`.
+        (("[!x]ain",), False),
         (("mai+n",), True),
         (("mai+",), False),
         (("develop",), False),
@@ -341,6 +344,9 @@ def test_branch_patterns_follow_github_filtering(
         ({"branches": ["develop"]}, True),
         ({"branches": ["ma?n"]}, True),
         ({"branches-ignore": ["[m]ain"]}, True),
+        # A literal `!` in the class means the pattern matches `!ain`/`xain`,
+        # not `main`, so it is not an ignore that covers the branch.
+        ({"branches-ignore": ["[!x]ain"]}, False),
         ({"types": ["closed"]}, True),
         ({"branches": ["**"]}, False),
         ({"types": ["opened", "synchronize", "reopened"]}, False),

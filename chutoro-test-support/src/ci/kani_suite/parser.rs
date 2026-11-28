@@ -39,6 +39,11 @@ impl Parser {
                 reason,
             });
         }
+        if words::clustered_package(argument) {
+            return Err(CommandError::ClusteredOption {
+                argument: argument.clone(),
+            });
+        }
         let consumed = self.consume_separated(args, index, argument)?;
         if consumed > index + 1 {
             return Ok(consumed);

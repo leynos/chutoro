@@ -28,6 +28,16 @@ from rust_source_reading import (
 from workflow_support import ROOT as REPO_ROOT
 
 
+def _is_attribute(stripped: str) -> bool:
+    """Report whether a line is an attribute's opening line.
+
+    Rust writes `#` and `[` as separate tokens, so `# [tokio::test]` opens an
+    attribute exactly as `#[tokio::test]` does. Testing for the adjacent pair
+    would stop the walk at a spaced attribute and lose the test it decorates.
+    """
+    return stripped.startswith("#[") or stripped.startswith("# [")
+
+
 def _attributes_before(text: str) -> list[str]:
     """Return the lines before a signature, innermost first, attributes joined.
 
@@ -48,11 +58,11 @@ def _attributes_before(text: str) -> list[str]:
         stripped = line.strip()
         if pending:
             pending.insert(0, stripped)
-            if stripped.startswith("#["):
+            if _is_attribute(stripped):
                 joined.append(" ".join(pending))
                 pending = []
             continue
-        if stripped.endswith("]") and not stripped.startswith("#["):
+        if stripped.endswith("]") and not _is_attribute(stripped):
             pending = [stripped]
             continue
         joined.append(stripped)
@@ -90,7 +100,7 @@ def _is_test(text: str, start: int) -> bool:
         found = _ATTRIBUTE_PATH.match(_normalised(stripped))
         if found is not None and found["path"] in _TEST_ATTRIBUTES:
             return True
-        if not stripped.startswith("#["):
+        if not _is_attribute(stripped):
             return False
     return False
 

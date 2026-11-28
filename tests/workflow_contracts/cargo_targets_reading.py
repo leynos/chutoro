@@ -145,12 +145,17 @@ def _binary_name(root: Path, package_name: object) -> str:
     """Return the target name Cargo gives the automatic binary at `root`.
 
     ``src/main.rs`` is always the package's own target, whatever the package
-    directory is called or however an explicit target spells its path.
+    directory is called or however an explicit target spells its path. A
+    ``main.rs`` directly under ``src/bin`` is named after the file, ``main``:
+    Cargo reads it as the flat ``src/bin/<name>.rs`` shape, not the nested
+    ``src/bin/<name>/main.rs`` shape whose name is the directory.
     """
     if root.name != "main.rs":
         return root.stem
     if root.parent.name == "src" and isinstance(package_name, str):
         return package_name
+    if root.parent.name == "bin":
+        return root.stem
     return root.parent.name
 
 

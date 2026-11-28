@@ -16,6 +16,7 @@ from __future__ import annotations
 
 import os
 import re
+import shlex
 import subprocess
 from pathlib import Path
 
@@ -144,7 +145,7 @@ def _run_tier(tool: Path, log: Path, fail_at: int | None, target: str) -> subpro
         [
             "make",
             "--no-print-directory",
-            f"KANI_SUITE={tool}",
+            f"KANI_SUITE={shlex.quote(str(tool))}",
             target,
         ],
         cwd=ROOT,
