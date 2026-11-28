@@ -338,9 +338,11 @@ the only `push` lane here is the cache writer described above.
 `OFF_PATH_EVENTS` in the placement contract is therefore `schedule` alone.
 
 `.github/actionlint.yaml` registers every label outside GitHub's hosted pool.
-It must list exactly the labels the workflows use: an unregistered label fails
-actionlint, and a registered but unused label hides a runner assignment that
-has already been retired.
+Every label the workflows use must be covered by an entry, and every entry must
+cover at least one label in use: an unregistered label fails actionlint, and an
+entry that covers nothing hides a runner assignment that has already been
+retired. An entry is an exact label or ends in `*`, as the estate's
+`ubicloud-*` does; a wildcard stays in use while any label matches it.
 
 ### Lane wall times before and after the move
 
