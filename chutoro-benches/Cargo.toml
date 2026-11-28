@@ -14,7 +14,7 @@ camino = "1.2.2"
 cap-std = { version = "4.0.3", features = ["fs_utf8"] }
 chutoro-core = { path = "../chutoro-core" }
 chutoro-providers-dense = { path = "../chutoro-providers/dense" }
-criterion = { version = "0.5.1", features = ["html_reports"] }
+criterion = { version = "0.8.2", features = ["html_reports"] }
 flate2 = "1.1.9"
 metrics = { version = "0.24.0", optional = true }
 metrics-util = { version = "0.20", features = ["debugging"], optional = true }
