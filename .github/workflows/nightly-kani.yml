@@ -43,7 +43,7 @@ jobs:
       - name: Record the commit under verification
         run: |
           head="$(git rev-parse HEAD)"
-          printf 'Verified commit: `%s`\n' "$head" >> "$GITHUB_STEP_SUMMARY"
+          printf 'Verified commit: %s\n' "$head" >> "$GITHUB_STEP_SUMMARY"
           printf 'verified commit %s\n' "$head"
       - name: Setup Rust
         uses: leynos/shared-actions/.github/actions/setup-rust@767d5d22b8a5e4303b71624bc01207f28d313c77

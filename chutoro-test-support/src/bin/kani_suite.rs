@@ -23,8 +23,10 @@ use chutoro_test_support::ci::kani_suite::{Request, check};
 const USAGE_FAILURE: u8 = 2;
 
 /// The usage banner shown for a malformed invocation.
-const USAGE: &str = "usage: kani_suite --manifest PATH --package PACKAGE \
-                     --scope fast|full -- [NAME=VALUE...] COMMAND [ARGUMENT...]";
+const USAGE: &str = concat!(
+    "usage: kani_suite --manifest PATH --package PACKAGE ",
+    "--scope fast|full -- [NAME=VALUE...] COMMAND [ARGUMENT...]"
+);
 
 fn main() -> ExitCode {
     let arguments: Vec<String> = std::env::args().skip(1).collect();
