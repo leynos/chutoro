@@ -273,9 +273,60 @@ def test_actionlint_registers_exactly_the_labels_in_use() -> None:
         for definition in jobs(load_workflow(workflow_name)).values()
         for label in _paid_labels(definition)
     }
-    assert registered == in_use, (
+    unregistered, unused = _registry_mismatches(registered, in_use)
+    assert not unregistered and not unused, (
         f"{ACTIONLINT_CONFIG} registers {sorted(registered)} but the "
-        f"workflows use {sorted(in_use)}"
+        f"workflows use {sorted(in_use)}: unregistered {unregistered}, "
+        f"unused {unused}"
+    )
+
+
+def _covers(entry: str, label: str) -> bool:
+    """Say whether a registry entry names a label, exactly or by a ``*`` suffix."""
+    prefix, star, rest = entry.partition("*")
+    if not star:
+        return entry == label
+    return not rest and label.startswith(prefix)
+
+
+def _registry_mismatches(
+    registered: set[str], in_use: set[str]
+) -> tuple[list[str], list[str]]:
+    """Return the unregistered labels, then the entries that cover no label."""
+    unregistered = sorted(
+        label for label in in_use if not any(_covers(e, label) for e in registered)
+    )
+    unused = sorted(
+        entry for entry in registered if not any(_covers(entry, used) for used in in_use)
+    )
+    return unregistered, unused
+
+
+@pytest.mark.parametrize(
+    ("registered", "in_use", "unregistered", "unused"),
+    [
+        pytest.param({"a-1"}, {"a-1"}, [], [], id="exact-match"),
+        pytest.param({"a-*"}, {"a-1", "a-2"}, [], [], id="glob-covers-several"),
+        pytest.param({"a-*"}, {"a-1"}, [], [], id="glob-covers-one"),
+        pytest.param(set(), {"a-1"}, ["a-1"], [], id="empty-registry"),
+        pytest.param({"a"}, {"a-1"}, ["a-1"], ["a"], id="exact-is-not-a-prefix"),
+        pytest.param({"b-*"}, {"a-1"}, ["a-1"], ["b-*"], id="glob-for-another-family"),
+        pytest.param({"a-*"}, {"a"}, ["a"], ["a-*"], id="glob-needs-its-hyphen"),
+        pytest.param({"a-1", "a-2"}, {"a-1"}, [], ["a-2"], id="stale-exact-entry"),
+        pytest.param({"a-*"}, set(), [], ["a-*"], id="glob-with-no-use"),
+        pytest.param({"a-*b"}, {"a-xb"}, ["a-xb"], ["a-*b"], id="mid-string-glob"),
+    ],
+)
+def test_the_registry_comparison_reports_both_mismatch_lists(
+    registered: set[str],
+    in_use: set[str],
+    unregistered: list[str],
+    unused: list[str],
+) -> None:
+    """Hold the comparison itself, with no file read, to both of its lists."""
+    assert _registry_mismatches(registered, in_use) == (unregistered, unused), (
+        f"registry {sorted(registered)} against labels {sorted(in_use)} must "
+        f"report unregistered {unregistered} and unused {unused}"
     )
 
 
